@@ -379,11 +379,19 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, down
             .clip(shape).background(Color(0x2EFFFFFF)).border(1.dp, Color(0x59FFFFFF), shape).padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Vision's pill: Home · the section (OK shows the sections to pick) · that section's pages · Settings.
+        val prefs = App.instance.prefs
+        val section by prefs.appSection.flow.collectAsStateWithLifecycle()
+        var choosing by remember { mutableStateOf(false) }
+        LaunchedEffect(open) { if (!open) choosing = false }
+        val sectionFocus = remember { FocusRequester() }
         PillItem("Home", open, down, selected = true, modifier = Modifier.focusRequester(home)) {}
-        PillItem("Search", open, down) { nav.push(Screen.Search) }
-        PillItem("Library", open, down) { nav.push(Screen.Library) }
-        PillItem("Live TV", open, down) { nav.push(Screen.LiveTv) }
-        PillItem("Sports", open, down) { nav.push(Screen.Sports) }
+        PillItem(Sections.label(section), open, down, modifier = Modifier.focusRequester(sectionFocus)) { choosing = !choosing }
+        if (choosing) Sections.all.forEach { (key, label) ->
+            PillItem(label, open, down, selected = key == section) {
+                prefs.appSection.value = key; choosing = false; runCatching { sectionFocus.requestFocus() }
+            }
+        } else Sections.pages(section).forEach { (label, screen) -> PillItem(label, open, down) { nav.push(screen) } }
         Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
         PillItem(null, open, down) { nav.push(Screen.Settings) }
     }
@@ -715,5 +723,15 @@ private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal
             channel[at(k)] = sum / span
             sum += line[(k + radius + 1).coerceAtMost(length - 1)] - line[(k - radius).coerceAtLeast(0)]
         }
+    }
+}
+
+/** Vision's sections and their pages, as far as Lite has built them (the rest join here as they arrive). */
+private object Sections {
+    val all = listOf("NUVIO" to "Nuvio", "IPTV" to "IPTV")
+    fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Nuvio"
+    fun pages(key: String): List<Pair<String, Screen>> = when (key) {
+        "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports)
+        else -> listOf("Search" to Screen.Search, "Library" to Screen.Library)
     }
 }

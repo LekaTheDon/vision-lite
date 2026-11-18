@@ -226,7 +226,7 @@ fun SportsScreen(nav: Nav) {
 /**
  * The clock's panel (Vision's Legacy clock): Live now (games really under way), OK on a game lists its channels and
  * the first OK on a channel plays it in the window on the left, OK again watches it full screen. Back: the games again,
- * then closes. Sports and Library are a press away.
+ * then closes.
  */
 @Composable
 fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
@@ -256,11 +256,6 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                 Text("${live.size} LIVE NOW", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.padding(horizontal = 24.dp))
                 Text(game?.title ?: "Live now", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-                if (game == null) Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button("Sports", { onDismiss(); nav.push(Screen.Sports) })
-                    Button("Live TV", { onDismiss(); nav.push(Screen.LiveTv) })
-                    Button("Library", { onDismiss(); nav.push(Screen.Library) })
-                }
                 val g = game
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {

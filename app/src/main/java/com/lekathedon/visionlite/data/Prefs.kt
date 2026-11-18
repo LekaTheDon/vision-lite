@@ -75,6 +75,8 @@ class Prefs(context: Context) {
     val trailerDelay = Text("trailer_delay", "5")
     val trailerSound = Flag("trailer_sound", true)
     val clock = Flag("clock", true)
+    /** The pill's section (Vision's AppSection): "NUVIO" or "IPTV" (YouTube and Music join as they're built). */
+    val appSection = Text("app_section", "NUVIO")
     val ratings = Flag("ratings", false)
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */
     val rowOrder = Text("row_order", "")
