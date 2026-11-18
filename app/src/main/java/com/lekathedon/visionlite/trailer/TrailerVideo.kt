@@ -30,13 +30,13 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, onEnded: () ->
     val frame = remember { AspectRatioFrameLayout(context).apply { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM } }
     val texture = remember { TextureView(context).also { frame.addView(it) } }
     DisposableEffect(url) {
-        // Vision's fix (f1fa03f77): trailers decode in software first, so the box's automatic frame rate never
-        // switches the TV's refresh rate when one starts; the full-screen player keeps hardware + frame-rate matching.
+        // Vision's fix (f1fa03f77), made strict: trailers decode in software ONLY, so the box's automatic frame
+        // rate never switches the TV's refresh rate or resolution when one starts (a format with no software
+        // decoder simply shows no trailer). The full-screen player keeps hardware + frame-rate matching.
         val player = ExoPlayer.Builder(context)
             .setRenderersFactory(
                 androidx.media3.exoplayer.DefaultRenderersFactory(context)
-                    .setMediaCodecSelector(SoftwareVideoFirst)
-                    .setEnableDecoderFallback(true)
+                    .setMediaCodecSelector(SoftwareVideoOnly)
             )
             .setVideoChangeFrameRateStrategy(androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
             .build()
@@ -58,9 +58,9 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, onEnded: () ->
     AndroidView({ frame }, modifier.clipToBounds().graphicsLayer { alpha = if (shown) 1f else 0f })
 }
 
-/** Software video decoders first (hardware only when none takes the format); audio unchanged. */
+/** Video: software decoders only (a hardware decoder is what makes the box switch the TV); audio unchanged. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-private val SoftwareVideoFirst = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mimeType, secure, tunneling ->
+private val SoftwareVideoOnly = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mimeType, secure, tunneling ->
     val all = androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mimeType, secure, tunneling)
-    if (!mimeType.startsWith("video/")) all else all.filter { it.softwareOnly } + all.filterNot { it.softwareOnly }
+    if (!mimeType.startsWith("video/")) all else all.filter { it.softwareOnly }
 }

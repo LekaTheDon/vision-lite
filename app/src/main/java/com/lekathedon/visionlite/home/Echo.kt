@@ -202,7 +202,7 @@ fun EchoHome(nav: Nav) {
         heroTrailer = null
         val id = heroEntry?.m?.id ?: return@LaunchedEffect
         if (!heroFocused || !trailerLook.on) return@LaunchedEffect
-        heroTrailer = trailerAfterRest(id, trailerLook.delayMs)?.let { id to it }
+        heroTrailer = trailerAfterRest(id, trailerLook.delayMs, 2160)?.let { id to it }
     }
 
     Box(Modifier.fillMaxSize().background(look.page)) {
@@ -269,11 +269,12 @@ private data class TrailerLook(val on: Boolean, val delayMs: Long, val muted: Bo
 private val LocalTrailer = androidx.compose.runtime.staticCompositionLocalOf { TrailerLook(false, 5_000L, false) }
 
 /** Waits out the trailer delay (the lookup starts a second early, so the trailer is ready on time); null for none. */
-private suspend fun trailerAfterRest(id: String, delayMs: Long): String? {
+/** [maxHeight]: the big billboard may reach 4K, opened posters stop at 1080p. */
+private suspend fun trailerAfterRest(id: String, delayMs: Long, maxHeight: Int): String? {
     val lead = minOf(1_000L, delayMs)
     delay(delayMs - lead)
     val started = System.currentTimeMillis()
-    val url = com.lekathedon.visionlite.trailer.Trailers.find(id) ?: return null
+    val url = com.lekathedon.visionlite.trailer.Trailers.find(id, maxHeight) ?: return null
     delay((lead - (System.currentTimeMillis() - started)).coerceAtLeast(0L))
     return url
 }
@@ -500,7 +501,7 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
                 // The opened card plays the title's trailer once focus has rested (Vision's expanded-card target).
                 val look = LocalTrailer.current
                 var trailer by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs) else null }
+                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, 1080) else null }
                 trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, look.muted, Modifier.fillMaxSize()) { trailer = null } }
                 Box(Modifier.fillMaxSize().background(
                     Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))

@@ -34,7 +34,8 @@ fun TraktScreen() {
     var msg by remember { mutableStateOf("") }
     var round by remember { mutableStateOf(0) }
     val first = remember { FocusRequester() }
-    LaunchedEffect(tokens != null) { runCatching { first.requestFocus() } }
+    // Focus always sits on this page's button: when it vanished with the QR (0.7.1) the remote's next key left the app.
+    LaunchedEffect(tokens != null, code != null, msg) { runCatching { first.requestFocus() } }
     LaunchedEffect(round, tokens == null) {
         if (tokens != null || !trakt.configured || round == 0) return@LaunchedEffect
         code = null; msg = "Asking Trakt for a code…"
@@ -58,9 +59,10 @@ fun TraktScreen() {
                     Text("and enter", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 10.dp))
                     Text(code!!.userCode, color = Palette.Text, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                     Text("Waiting for Trakt…", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+                    Button("New code", { round++ }, Modifier.padding(top = 14.dp).focusRequester(first))
                 }
             }
-            else -> Button("Connect Trakt", { round++ }, Modifier.focusRequester(first))
+            else -> Button(if (round == 0) "Connect Trakt" else "Try again", { round++ }, Modifier.focusRequester(first))
         }
         if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
     }

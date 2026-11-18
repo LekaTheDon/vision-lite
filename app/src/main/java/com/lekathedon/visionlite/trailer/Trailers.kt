@@ -25,15 +25,13 @@ object Trailers {
     private const val ENDPOINT = "https://api.graphql.imdb.com/"
     private const val CLIENT_NAME = "nuvio-tv"
     private const val BUDGET_MS = 4_000L
-    /** Trailer quality cap (Vision's default). */
-    private const val MAX_HEIGHT = 1080
     private const val QUERY = "query TitleTrailer(\$id: ID!) { title(id: \$id) { primaryVideos(first: 1) " +
         "{ edges { node { id playbackURLs { url videoMimeType videoDefinition } } } } } }"
 
     private val client = Net.http.newBuilder().connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(3, TimeUnit.SECONDS).callTimeout(4, TimeUnit.SECONDS).build()
 
-    /** Per title: the link, or "" for a title with none (asked once a session). */
+    /** Per title + cap: the link, or "" for a title with none (asked once a session). */
     private val cache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 200
     }
@@ -41,11 +39,12 @@ object Trailers {
 
     data class Encoding(val url: String, val height: Int, val mp4: Boolean, val hls: Boolean)
 
-    /** The trailer link for IMDb id [imdbId], or null (none, not an IMDb id, or IMDb not answering). */
-    suspend fun find(imdbId: String): String? {
+    /** The trailer link for IMDb id [imdbId] at most [maxHeight] tall, or null (none, not an IMDb id, or IMDb not answering). */
+    suspend fun find(imdbId: String, maxHeight: Int): String? {
         val id = imdbId.substringBefore(':')
         if (!Regex("tt\\d+").matches(id)) return null
-        synchronized(cache) { cache[id] }?.let { return it.ifEmpty { null } }
+        val key = "$id@$maxHeight"
+        synchronized(cache) { cache[key] }?.let { return it.ifEmpty { null } }
         if (!backoff.allowed()) return null
         val request = Request.Builder().url(ENDPOINT).header("x-imdb-client-name", CLIENT_NAME)
             .post(requestBody(id).toRequestBody("application/json".toMediaType())).build()
@@ -58,8 +57,8 @@ object Trailers {
             return null
         }
         backoff.succeeded()
-        val url = select(encodings)
-        synchronized(cache) { cache[id] = url.orEmpty() }
+        val url = select(encodings, maxHeight)
+        synchronized(cache) { cache[key] = url.orEmpty() }
         return url
     }
 
@@ -81,11 +80,11 @@ object Trailers {
         }
     }.getOrNull()
 
-    /** The tallest mp4 of at least 720p and at most [MAX_HEIGHT]; below that, IMDb's HLS master if it has one. */
-    private suspend fun select(encodings: List<Encoding>): String? {
+    /** The tallest mp4 of at least 720p and at most [cap]; below the cap, IMDb's HLS master if it goes higher. */
+    private suspend fun select(encodings: List<Encoding>, cap: Int): String? {
         val mp4s = encodings.filter { it.mp4 && it.height >= 720 }
-        val mp4 = mp4s.filter { it.height <= MAX_HEIGHT }.maxByOrNull { it.height } ?: mp4s.minByOrNull { it.height }
-        if (mp4 != null && mp4.height >= MAX_HEIGHT) return mp4.url
+        val mp4 = mp4s.filter { it.height <= cap }.maxByOrNull { it.height } ?: mp4s.minByOrNull { it.height }
+        if (mp4 != null && mp4.height >= cap) return mp4.url
         var best = mp4?.url
         var height = mp4?.height ?: 0
         withTimeoutOrNull(2_000L) {
