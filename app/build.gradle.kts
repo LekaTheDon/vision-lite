@@ -16,7 +16,6 @@ android {
         targetSdk = 36
         versionCode = (findProperty("vlCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("vlName") as String?) ?: "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {
