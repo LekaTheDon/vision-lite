@@ -94,7 +94,6 @@ import com.lekathedon.visionlite.recs.AiPicks
 import com.lekathedon.visionlite.recs.Recs
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
-import androidx.compose.animation.using
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import com.lekathedon.visionlite.ui.Focusable
