@@ -8,7 +8,7 @@ import android.os.Build
 import android.view.Display
 import android.view.WindowManager
 import com.lekathedon.visionlite.data.Prefs
-import com.lekathedon.visionlite.player.fel.FelNative
+import com.lekathedon.visionlite.player.fel.AmlFelSupport
 
 /** One device setting: only the options this box/TV can do, one of them Recommended. */
 data class Choice(val key: String, val title: String, val options: List<Pair<String, String>>, val recommended: String, val why: String) {
@@ -31,7 +31,7 @@ object DeviceCheck {
             if (Build.VERSION.SDK_INT >= 29 && Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS in hdr) add("HDR10+")
             if (Display.HdrCapabilities.HDR_TYPE_HLG in hdr) add("HLG")
         }
-        val fel = FelNative.usable
+        val fel = AmlFelSupport.isDeviceUsable() && AmlFelSupport.hasFelKernelMarkers()
         val mode = display.mode
         val rates = display.supportedModes.filter { it.physicalWidth == mode.physicalWidth && it.physicalHeight == mode.physicalHeight }
             .map { it.refreshRate }.distinctBy { (it * 100).toInt() }.sorted()

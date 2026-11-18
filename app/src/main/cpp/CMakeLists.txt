@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(vlfel CXX)
-add_library(vlfel SHARED fel.cpp)
-target_compile_options(vlfel PRIVATE -Wall -Werror -Os -fvisibility=hidden)
-target_link_libraries(vlfel android log)
-target_link_options(vlfel PRIVATE -Wl,--gc-sections -s)
+project(aml_fel CXX)
+# Vision's FEL native code (aml_fel_native.cpp), unchanged except the JNI package.
+add_library(aml_fel SHARED aml_fel_native.cpp)
+target_compile_options(aml_fel PRIVATE -Os -fvisibility=default)
+target_link_libraries(aml_fel android log)
+target_link_options(aml_fel PRIVATE -Wl,--gc-sections -s)

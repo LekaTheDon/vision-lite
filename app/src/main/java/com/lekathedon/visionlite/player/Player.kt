@@ -34,9 +34,8 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.ui.PlayerView
 import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.data.Net
-import com.lekathedon.visionlite.player.fel.FelNative
-import com.lekathedon.visionlite.player.fel.FelRenderer
-import com.lekathedon.visionlite.player.fel.isFelFallback
+import com.lekathedon.visionlite.player.fel.AmlDvFelVideoRenderer
+import com.lekathedon.visionlite.player.fel.AmlFelSupport
 import com.lekathedon.visionlite.ui.Screen
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -49,7 +48,8 @@ private class Renderers(context: Context, private val fel: Boolean) : DefaultRen
         context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector, enableDecoderFallback: Boolean,
         eventHandler: Handler, eventListener: VideoRendererEventListener, allowedVideoJoiningTimeMs: Long, out: ArrayList<Renderer>
     ) {
-        if (fel) out.add(FelRenderer())
+        // Vision's FEL renderer, ahead of MediaCodec so it wins the DV7 track.
+        if (fel) out.add(AmlDvFelVideoRenderer(eventHandler, eventListener))
         super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
     }
 }
@@ -63,7 +63,7 @@ private class Renderers(context: Context, private val fel: Boolean) : DefaultRen
 fun Player(s: Screen.Player) {
     val context = LocalContext.current
     val prefs = App.instance.prefs
-    var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && FelNative.usable) }
+    var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && AmlFelSupport.nativeFelUsableOnce()) }
     var resumeAt by remember(s.url) { mutableLongStateOf(0L) }
     val afr = prefs.afr.value
     val player = remember(s.url, felAllowed) {
@@ -82,7 +82,7 @@ fun Player(s: Screen.Player) {
     DisposableEffect(player) {
         val listener = object : MediaPlayer.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                if (felAllowed && error.isFelFallback()) {
+                if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) {
                     resumeAt = player.currentPosition
                     felAllowed = false
                 }
