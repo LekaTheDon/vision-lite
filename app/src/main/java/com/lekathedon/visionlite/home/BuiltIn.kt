@@ -288,9 +288,10 @@ object Services {
                     (votes?.let { "&vote_count.gte=$it" } ?: "") + date), kind == "tv")
             }
         }
-        val originals = (if (s == S.NOW) "Sky Originals" else "${s.title} Originals") to { page: Int ->
+        val origLoad: suspend (Int) -> List<MetaPreview> = { page ->
             withContext(Dispatchers.IO) { Tmdb.items(Tmdb.get("discover/tv?sort_by=popularity.desc&with_networks=${s.network}&page=$page"), true) }
         }
+        val originals = (if (s == S.NOW) "Sky Originals" else "${s.title} Originals") to origLoad
         return listOfNotNull(
             originals.takeIf { s.originals },
             ("Latest Movies" to disc("movie", "primary_release_date.desc", 10, true)).takeIf { s.movies },
