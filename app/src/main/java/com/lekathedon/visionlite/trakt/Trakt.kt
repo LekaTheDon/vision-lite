@@ -137,8 +137,8 @@ class Trakt(private val prefs: Prefs) {
                 else -> null
             }
         }
-        val seen = p.mapTo(HashSet()) { it.imdb }
-        (p + next.filter { it.imdb !in seen }).sortedByDescending { it.at }
+        // One card per title (like Vision/Nuvio): a show's newest entry wins, whether a paused episode or its next one.
+        (p + next).sortedByDescending { it.at }.distinctBy { it.imdb }
     }
 
     suspend fun watchlist(): List<ListItem> = if (tokens.value == null) emptyList()
