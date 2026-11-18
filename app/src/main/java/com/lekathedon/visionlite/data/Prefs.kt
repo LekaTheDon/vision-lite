@@ -85,6 +85,9 @@ class Prefs(context: Context) {
     /** Last searches, newline separated, newest first. */
     val recentSearches = Text("recent_searches", "")
     // Vision TB (off until switched on; the key comes from the phone form, never from the repo)
+    /** Recommendations: IMDb minimum ("0" = off) and the More like this / Not for me marks. */
+    val recMinImdb = Text("rec_min_imdb", "7")
+    val recFeedback = Text("rec_feedback", "[]")
     val visionTb = Flag("vision_tb", false)
     val torboxKey = Text("torbox_key", "")
     // App

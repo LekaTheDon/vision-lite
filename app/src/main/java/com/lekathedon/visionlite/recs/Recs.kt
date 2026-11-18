@@ -1,0 +1,343 @@
+package com.lekathedon.visionlite.recs
+
+import android.util.Log
+import com.lekathedon.visionlite.App
+import com.lekathedon.visionlite.data.Net
+import com.lekathedon.visionlite.library.Saves
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+
+/**
+ * The app's one recommendation engine (Vision's Scout + Vision Picks in one). Learns from Trakt (watched, rated,
+ * paused), the library and the user's "More like this" / "Not for me"; candidates come from IMDb's "More like this"
+ * (keyless, weighs most) and Trakt's related lists; Scout's taste (themes, people, language, country, age, how
+ * popular) re-ranks them; anything watched, saved, rated or turned down never comes out, nor anything under the IMDb minimum.
+ *
+ * Cost: nothing until a screen asks ([refreshIfDue]); then at most once a day, or after an hour when what it learns
+ * from changed: Trakt 4 calls + up to 10 related lists (kept 30 days), IMDb about 4 seed requests + up to 10 fact
+ * requests the first time (facts kept 30 days, so later days ask far fewer). Nothing to learn from: no requests.
+ * The result is a small file shown at once next time.
+ */
+object Recs {
+    private const val TAG = "Recs"
+    private const val IMDB = "https://api.graphql.imdb.com/"
+    private const val SEED_BATCH = 6
+    private const val FACT_BATCH = 20
+    private const val SIMILAR = 20
+    private const val TRAKT_SEEDS = 10
+    private const val BECAUSE_ROWS = 2
+    private const val BECAUSE_ITEMS = 30
+    private const val FACTS_MAX_AGE = 30L * 86_400_000
+    private const val FACTS_KEEP = 1500
+    private const val RELATED_MAX_AGE = 30L * 86_400_000
+
+    private val dir get() = File(App.instance.filesDir, "recs").apply { mkdirs() }
+    private val lock = Mutex()
+    private val gate = Semaphore(2)
+    private val p get() = App.instance.prefs
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    /** Rebuild in the background (keeps going when the screen that asked is left). */
+    fun rebuildNow() { scope.launch { refreshIfDue(force = true) } }
+
+    private val _pool = MutableStateFlow(read("pool.json", Pool.serializer()))
+    /** The last built picks (or null before the first build). */
+    val pool: StateFlow<Pool?> get() = _pool
+    private val _building = MutableStateFlow(false)
+    val building: StateFlow<Boolean> get() = _building
+    private val _changed = MutableStateFlow(0)
+    /** Bumps when More like this / Not for me changes, so rows redraw. */
+    val changed: StateFlow<Int> get() = _changed
+
+    /** Settings → Recommendations → IMDb minimum; 0 = off. */
+    fun minImdb(): Float = p.recMinImdb.value.toFloatOrNull() ?: 0f
+
+    // ---- what screens use ----
+
+    /** [count] picks for now (a different slice every 12 h), without anything turned down since the build. */
+    fun forYou(count: Int = 30, now: Long = System.currentTimeMillis()): List<Pick> {
+        val nope = feedback().filter { !it.like }.map { it.id }.toSet()
+        val min = minImdb()
+        return RecsLogic.rotate(pool.value?.picks.orEmpty().filter { it.imdb !in nope && (it.rating == null || it.rating >= min) }, count, now)
+    }
+
+    /** "Because you watched X" rows, strongest first. */
+    fun because(): List<Because> {
+        val nope = feedback().filter { !it.like }.map { it.id }.toSet()
+        return pool.value?.because.orEmpty().map { b -> b.copy(picks = b.picks.filter { it.imdb !in nope }) }
+    }
+
+    @Serializable data class Fb(val id: String, val tv: Boolean, val name: String, val like: Boolean, val at: Long)
+
+    private val fbSer = ListSerializer(Fb.serializer())
+    fun feedback(): List<Fb> = runCatching { Net.json.decodeFromString(fbSer, p.recFeedback.value) }.getOrDefault(emptyList())
+
+    /** Hold OK → "More like this": steers harder than anything watched, from the next build. */
+    fun moreLikeThis(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, true, System.currentTimeMillis()))
+    /** "Not for me": gone at once, and steers away from the next build. */
+    fun notForMe(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, false, System.currentTimeMillis()))
+    fun forget(id: String) { p.recFeedback.value = Net.json.encodeToString(fbSer, feedback().filter { it.id != id }); _changed.value++ }
+
+    private fun mark(f: Fb) {
+        p.recFeedback.value = Net.json.encodeToString(fbSer, (listOf(f) + feedback().filter { it.id != f.id }).take(500))
+        _changed.value++
+    }
+
+    /** One title's "more like this", on demand (a details page): IMDb + Trakt for it alone, same rules. */
+    suspend fun moreLike(id: String, tv: Boolean, name: String): List<Pick> = withContext(Dispatchers.IO) {
+        val facts = readFacts()
+        val seed = Seed(id, tv, name, 1.0)
+        val imdb = seedLookup(listOf(seed), facts)[id].orEmpty()
+        val trakt = traktRelated(listOf(seed), facts, System.currentTimeMillis())
+        val ex = RecsLogic.Exclusions(seen() + exclusionIds(null), emptySet())
+        val tally = RecsLogic.tally(listOf(Triple(Source.IMDB, seed, imdb)) + trakt, ex, minImdb())
+        tally.values.sortedByDescending { it.score }.take(BECAUSE_ITEMS).map { simplePick(it) }
+    }
+
+    // ---- building ----
+
+    /** Builds when due (daily, or an hour after what it learns from changed). Returns the pool now in use. */
+    suspend fun refreshIfDue(force: Boolean = false): Pool? = lock.withLock {
+        withContext(Dispatchers.IO) {
+            _building.value = true
+            try { build(force) } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w(TAG, "build failed: ${e.message}"); pool.value
+            } finally { _building.value = false }
+        }
+    }
+
+    private suspend fun build(force: Boolean): Pool? {
+        val now = System.currentTimeMillis()
+        val trakt = App.instance.trakt.taste()
+        val signals = signals(trakt, now)
+        val seeds = RecsLogic.seeds(signals)
+        val min = minImdb()
+        val sig = RecsLogic.signature(seeds, min)
+        if (seeds.none { it.weight > 0 }) return Pool(now, sig, version = RecsLogic.VERSION).also { save(it) }
+        if (!force && !RecsLogic.shouldRefresh(pool.value, sig, now)) return pool.value
+
+        val facts = readFacts()
+        val similar = seedLookup(seeds, facts)
+        val related = traktRelated(seeds.filter { it.weight > 0 }.take(TRAKT_SEEDS), facts, now)
+        val results = seeds.map { Triple(Source.IMDB, it, similar[it.id].orEmpty()) } + related
+
+        val names = HashSet<String>()
+        trakt?.movies?.forEach { names += RecsLogic.exclusionName(it.movie.title, it.movie.year) }
+        trakt?.shows?.forEach { names += RecsLogic.exclusionName(it.show.title, it.show.year) }
+        val ex = RecsLogic.Exclusions(exclusionIds(trakt), names)
+        write("seen.json", seenSer, ex.ids.toList())
+        var tally = RecsLogic.tally(results, ex, min)
+        // Full facts for the best candidates, so taste can judge them.
+        val head = tally.values.sortedByDescending { it.score }.take(RecsLogic.LOOKUPS).map { it.facts.id }
+        lookUp(head.filter { facts[it]?.full != true }, facts)
+        tally = RecsLogic.tally(results.map { (s, seed, list) -> Triple(s, seed, list.map { facts[it.id] ?: it }) }, ex, min)
+
+        val loved = signals.filter { it.kind == Kind.LOVE || it.kind == Kind.LIKED }.map { it.id }.toSet()
+        val taste = RecsLogic.taste(seeds.mapNotNull { s -> facts[s.id]?.takeIf { it.full }?.let { it to s.weight } }, loved)
+        val picks = RecsLogic.rank(tally, taste, facts)
+        val top = picks.take(20).map { it.imdb }.toSet()
+        val because = seeds.filter { it.weight > 0 }.take(BECAUSE_ROWS).map { seed ->
+            val own = results.filter { it.second.id == seed.id }.flatMap { it.third }.map { it.id }.distinct()
+            Because(seed.name, own.mapNotNull { tally[it] }.filter { it.facts.id !in top }.take(BECAUSE_ITEMS).map { simplePick(it) })
+        }.filter { it.picks.size >= 8 }
+        saveFacts(facts, now)
+        return Pool(now, sig, picks, because, seeds.count { it.weight > 0 }, RecsLogic.VERSION).also {
+            save(it); Log.i(TAG, "${seeds.size} seeds → ${picks.size} picks, ${because.size} because rows")
+        }
+    }
+
+    private fun simplePick(x: RecsLogic.Tallied) = x.facts.let {
+        Pick(it.id, if (it.tv) "series" else "movie", it.name, it.year, it.rating, it.poster, it.genres, x.because, null, false, x.sources)
+    }
+
+    private fun signals(t: com.lekathedon.visionlite.trakt.TraktTaste?, now: Long): List<Signal> {
+        val out = ArrayList<Signal>()
+        t?.ratings?.forEach { r ->
+            val (id, tv, name) = (r.movie?.let { Triple(it.ids.imdb, false, it.title) } ?: r.show?.let { Triple(it.ids.imdb, true, it.title) }) ?: return@forEach
+            id ?: return@forEach
+            val kind = when { r.rating >= 9 -> Kind.LOVE; r.rating >= 7 -> Kind.LIKE; r.rating in 1..4 -> Kind.NOT_FOR_ME; else -> Kind.FINISHED }
+            out += Signal(id, tv, name, kind, ms(r.ratedAt))
+        }
+        t?.movies?.forEach { m -> m.movie.ids.imdb?.let { out += Signal(it, false, m.movie.title, if (m.plays > 1) Kind.REWATCHED else Kind.FINISHED, ms(m.lastWatchedAt)) } }
+        t?.shows?.forEach { s -> s.show.ids.imdb?.let { val at = ms(s.lastWatchedAt); out += Signal(it, true, s.show.title, RecsLogic.finishedKind(true, s.plays, at, now), at, s.plays) } }
+        t?.paused?.forEach { pb ->
+            pb.movie?.ids?.imdb?.let { out += Signal(it, false, pb.movie.title, Kind.WATCHING, ms(pb.pausedAt)) }
+            pb.show?.ids?.imdb?.let { out += Signal(it, true, pb.show.title, Kind.WATCHING, ms(pb.pausedAt)) }
+        }
+        Saves.all().filter { it.id.startsWith("tt") }.forEach { out += Signal(it.id.substringBefore(':'), it.type != "movie", it.name, Kind.WATCHING, 0) }
+        feedback().forEach { out += Signal(it.id, it.tv, it.name, if (it.like) Kind.LIKED else Kind.NOT_FOR_ME, it.at) }
+        return out
+    }
+
+    /** Watched, rated, paused, saved and turned down: never recommended. */
+    private fun exclusionIds(t: com.lekathedon.visionlite.trakt.TraktTaste?): Set<String> = buildSet {
+        t?.movies?.forEach { it.movie.ids.imdb?.let(::add) }
+        t?.shows?.forEach { it.show.ids.imdb?.let(::add) }
+        t?.ratings?.forEach { (it.movie?.ids?.imdb ?: it.show?.ids?.imdb)?.let(::add) }
+        t?.paused?.forEach { (it.movie?.ids?.imdb ?: it.show?.ids?.imdb)?.let(::add) }
+        Saves.all().forEach { add(it.id.substringBefore(':')) }
+        feedback().forEach { add(it.id) }
+    }
+
+    private val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    private fun ms(s: String) = runCatching { synchronized(iso) { iso.parse(s.take(19))!!.time } }.getOrDefault(0L)
+
+    // ---- IMDb (keyless GraphQL) ----
+
+    private const val LIGHT = "id titleText { text } titleType { id } releaseYear { year } ratingsSummary { aggregateRating voteCount } " +
+        "primaryImage { url } titleGenres { genres { genre { text } } }"
+    private const val FULL = "$LIGHT keywords(first: 15) { edges { node { keyword { text { text } } } } } " +
+        "spokenLanguages { spokenLanguages { id } } countriesOfOrigin { countries { id } } certificate { rating } " +
+        "directors: credits(first: 2, filter: { categories: [\"director\"] }) { edges { node { name { id nameText { text } } } } } " +
+        "writers: credits(first: 2, filter: { categories: [\"writer\"] }) { edges { node { name { id nameText { text } } } } }"
+    private val KINDS = setOf("movie", "tvMovie", "tvSeries", "tvMiniSeries")
+
+    /** Each seed's own facts and IMDb's "More like this" for it. */
+    private suspend fun seedLookup(seeds: List<Seed>, facts: MutableMap<String, Facts>): Map<String, List<Facts>> = coroutineScope<Map<String, List<Facts>>> {
+        val now = System.currentTimeMillis()
+        seeds.chunked(SEED_BATCH).map { chunk ->
+            async {
+                gate.withPermit<List<Pair<String, List<Facts>>>> {
+                    val q = chunk.mapIndexed { i, s -> "t$i: title(id: \"${s.id}\") { $FULL moreLikeThisTitles(first: $SIMILAR) { edges { node { $LIGHT } } } }" }
+                    val data = imdb(q) ?: return@withPermit emptyList()
+                    chunk.mapIndexedNotNull { i, s ->
+                        val t = data.optJSONObject("t$i") ?: return@mapIndexedNotNull null
+                        parse(t, true, now)?.let { synchronized(facts) { facts[it.id] = it } }
+                        val list = t.optJSONObject("moreLikeThisTitles")?.optJSONArray("edges").objects()
+                            .mapNotNull { e -> e.optJSONObject("node")?.let { n -> parse(n, false, now) } }
+                            .map { f -> synchronized(facts) { facts[f.id]?.takeIf { it.full } ?: f.also { facts[f.id] = it } } }
+                        s.id to list
+                    }
+                }
+            }
+        }.awaitAll().flatten().toMap()
+    }
+
+    /** Full facts for [ids], [FACT_BATCH] per request. */
+    private suspend fun lookUp(ids: List<String>, facts: MutableMap<String, Facts>) = coroutineScope {
+        val now = System.currentTimeMillis()
+        ids.distinct().chunked(FACT_BATCH).map { chunk ->
+            async {
+                gate.withPermit {
+                    val data = imdb(chunk.mapIndexed { i, id -> "t$i: title(id: \"$id\") { $FULL }" }) ?: return@withPermit
+                    chunk.indices.forEach { i -> data.optJSONObject("t$i")?.let { parse(it, true, now) }?.let { synchronized(facts) { facts[it.id] = it } } }
+                }
+            }
+        }.awaitAll()
+    }
+
+    private fun parse(t: JSONObject, full: Boolean, now: Long): Facts? {
+        val id = t.optString("id").takeIf { it.startsWith("tt") } ?: return null
+        val type = t.optJSONObject("titleType")?.optString("id") ?: return null
+        if (type !in KINDS) return null
+        val rs = t.optJSONObject("ratingsSummary")
+        fun people(key: String) = t.optJSONObject(key)?.optJSONArray("edges").objects().mapNotNull { e ->
+            e.optJSONObject("node")?.optJSONObject("name")?.let { n -> Person(n.optString("id"), n.optJSONObject("nameText")?.optString("text").orEmpty()) }
+        }
+        return Facts(
+            id = id,
+            name = t.optJSONObject("titleText")?.optString("text").orEmpty().ifBlank { return null },
+            tv = type == "tvSeries" || type == "tvMiniSeries",
+            year = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 },
+            rating = rs?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toFloat(),
+            votes = rs?.optInt("voteCount")?.takeIf { it > 0 },
+            poster = t.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.isNotBlank() }?.let(::sized),
+            genres = t.optJSONObject("titleGenres")?.optJSONArray("genres").objects().mapNotNull { it.optJSONObject("genre")?.optString("text") },
+            keywords = if (!full) emptyList() else t.optJSONObject("keywords")?.optJSONArray("edges").objects()
+                .mapNotNull { it.optJSONObject("node")?.optJSONObject("keyword")?.optJSONObject("text")?.optString("text")?.lowercase() },
+            crew = if (!full) emptyList() else (people("directors") + people("writers")).filter { it.id.isNotBlank() }.distinctBy { it.id },
+            language = t.optJSONObject("spokenLanguages")?.optJSONArray("spokenLanguages").objects().firstOrNull()?.optString("id"),
+            countries = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries").objects().map { it.optString("id") },
+            age = RecsLogic.ageLevel(t.optJSONObject("certificate")?.optString("rating")),
+            full = full,
+            at = now
+        )
+    }
+
+    /** IMDb's full-size poster asked at card size (about 40 KB instead of 400 KB+). */
+    private fun sized(url: String) = Regex("""\._V1_[^/]*\.jpg$""").find(url)?.let { url.replaceRange(it.range, "._V1_QL75_UX342_.jpg") } ?: url
+
+    private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }
+
+    private fun imdb(aliases: List<String>): JSONObject? {
+        val body = JSONObject().put("query", "query { ${aliases.joinToString(" ")} }").toString().toRequestBody("application/json".toMediaType())
+        val req = Request.Builder().url(IMDB).post(body).header("x-imdb-client-name", "imdb-web-next").header("Accept", "application/json").build()
+        return runCatching { Net.http.newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body!!.string()).optJSONObject("data") else null } }
+            .onFailure { Log.w(TAG, "IMDb: ${it.message}") }.getOrNull()
+    }
+
+    // ---- Trakt related (only while Trakt is on) ----
+
+    @Serializable data class RelatedIds(val ids: List<String>, val at: Long)
+    private val relSer = MapSerializer(String.serializer(), RelatedIds.serializer())
+
+    private suspend fun traktRelated(seeds: List<Seed>, facts: MutableMap<String, Facts>, now: Long): List<Triple<Source, Seed, List<Facts>>> {
+        if (App.instance.trakt.connected.value == null) return emptyList()
+        val cache = (read("related.json", relSer) ?: emptyMap()).filterValues { now - it.at in 0 until RELATED_MAX_AGE }.toMutableMap()
+        val lists = coroutineScope {
+            seeds.map { s ->
+                async {
+                    val key = (if (s.tv) "tv:" else "movie:") + s.id
+                    val ids = synchronized(cache) { cache[key] }?.ids ?: gate.withPermit { App.instance.trakt.related(s.id, s.tv) }
+                        ?.mapNotNull { it.ids.imdb }?.also { synchronized(cache) { cache[key] = RelatedIds(it, now) } } ?: return@async null
+                    s to ids
+                }
+            }.awaitAll().filterNotNull()
+        }
+        write("related.json", relSer, cache)
+        lookUp(lists.flatMap { it.second }.filter { facts[it] == null }, facts)
+        return lists.map { (s, ids) -> Triple(Source.TRAKT, s, ids.mapNotNull { facts[it] }) }
+    }
+
+    // ---- files ----
+
+    private val seenSer = ListSerializer(String.serializer())
+    /** What the last build left out, so a details page's "more like this" needs no Trakt calls. */
+    private fun seen(): Set<String> = read("seen.json", seenSer)?.toSet() ?: emptySet()
+
+    private val factsSer = ListSerializer(Facts.serializer())
+
+    private fun readFacts(): MutableMap<String, Facts> {
+        val now = System.currentTimeMillis()
+        return (read("facts.json", factsSer) ?: emptyList()).filter { now - it.at in 0 until FACTS_MAX_AGE }.associateBy { it.id }.toMutableMap()
+    }
+
+    private fun saveFacts(facts: Map<String, Facts>, now: Long) =
+        write("facts.json", factsSer, facts.values.filter { now - it.at < FACTS_MAX_AGE }.sortedByDescending { it.at }.take(FACTS_KEEP))
+
+    private fun save(pool: Pool) { _pool.value = pool; write("pool.json", Pool.serializer(), pool) }
+
+    private fun <T> read(name: String, ser: kotlinx.serialization.KSerializer<T>): T? =
+        runCatching { Net.json.decodeFromString(ser, File(dir, name).readText()) }.getOrNull()
+
+    private fun <T> write(name: String, ser: kotlinx.serialization.KSerializer<T>, v: T) {
+        runCatching { File(dir, "$name.tmp").apply { writeText(Net.json.encodeToString(ser, v)) }.renameTo(File(dir, name)) }
+    }
+
+    /** Settings → Recommendations → Start over: forgets the picks and the cached facts (keeps More like this / Not for me). */
+    fun reset() { listOf("pool.json", "facts.json", "related.json", "seen.json").forEach { File(dir, it).delete() }; _pool.value = null }
+}

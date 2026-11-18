@@ -28,7 +28,13 @@ import java.io.IOException
 @Serializable data class TEpisode(val season: Int = 0, val number: Int = 0, val title: String? = null, val ids: Ids = Ids())
 @Serializable data class Playback(val progress: Float = 0f, val type: String = "", val movie: TMovie? = null, val show: TShow? = null, val episode: TEpisode? = null,
                                   @SerialName("paused_at") val pausedAt: String = "")
-@Serializable data class Watched(val show: TShow, @SerialName("last_watched_at") val lastWatchedAt: String = "")
+@Serializable data class Watched(val show: TShow, @SerialName("last_watched_at") val lastWatchedAt: String = "", val plays: Int = 0)
+@Serializable data class WatchedMovie(val movie: TMovie, @SerialName("last_watched_at") val lastWatchedAt: String = "", val plays: Int = 0)
+@Serializable data class Rated(val type: String = "", val rating: Int = 0, @SerialName("rated_at") val ratedAt: String = "", val movie: TMovie? = null, val show: TShow? = null)
+@Serializable data class Related(val title: String = "", val year: Int? = null, val ids: Ids = Ids())
+
+/** What the recommendation engine learns from: everything watched, rated and paused. */
+class TraktTaste(val movies: List<WatchedMovie>, val shows: List<Watched>, val ratings: List<Rated>, val paused: List<Playback>)
 @Serializable data class Progress(@SerialName("next_episode") val next: TEpisode? = null, val aired: Int = 0, val completed: Int = 0)
 @Serializable data class ListItem(val type: String = "", val movie: TMovie? = null, val show: TShow? = null)
 @Serializable data class DeviceCode(@SerialName("device_code") val deviceCode: String, @SerialName("user_code") val userCode: String,
@@ -152,6 +158,20 @@ class Trakt(private val prefs: Prefs) {
         runCatching { get<List<Playback>>("sync/playback?limit=50") }.getOrDefault(emptyList()).firstOrNull {
             if (season == null) it.movie?.ids?.imdb == imdb else it.show?.ids?.imdb == imdb && it.episode?.season == season && it.episode.number == episode
         }?.progress ?: 0f
+
+    /** Watched movies and shows, ratings and paused titles (4 calls, in parallel). Null when Trakt is off. */
+    suspend fun taste(): TraktTaste? = if (!on()) null else coroutineScope {
+        val m = async { runCatching { get<List<WatchedMovie>>("sync/watched/movies") }.getOrNull() }
+        val s = async { runCatching { get<List<Watched>>("sync/watched/shows?extended=noseasons") }.getOrNull() }
+        val r = async { runCatching { get<List<Rated>>("sync/ratings/all") }.getOrDefault(emptyList()) }
+        val p = async { runCatching { get<List<Playback>>("sync/playback?limit=50") }.getOrDefault(emptyList()) }
+        val movies = m.await(); val shows = s.await()
+        if (movies == null && shows == null) null else TraktTaste(movies.orEmpty(), shows.orEmpty(), r.await(), p.await())
+    }
+
+    /** Trakt's "people who watched this also watched" for an IMDb id. Null = Trakt off or not reachable. */
+    suspend fun related(imdb: String, tv: Boolean, limit: Int = 20): List<Related>? = if (!on()) null else
+        runCatching { get<List<Related>>("${if (tv) "shows" else "movies"}/$imdb/related?limit=$limit") }.getOrNull()
 
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {

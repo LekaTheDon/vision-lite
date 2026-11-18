@@ -99,6 +99,22 @@ fun Settings(nav: Nav) {
         item { Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings) }
         item { Link("Home rows", "On / off, order, refresh") { nav.push(Screen.Rows) } }
 
+        item { Section("Recommendations") }
+        item { Choice("IMDb minimum", "Nothing rated lower is recommended (unrated titles stay)", p.recMinImdb,
+            listOf("0" to "Off", "6" to "6", "6.5" to "6.5", "7" to "7", "7.5" to "7.5", "8" to "8")) }
+        item {
+            val pool by com.lekathedon.visionlite.recs.Recs.pool.collectAsState()
+            val busy by com.lekathedon.visionlite.recs.Recs.building.collectAsState()
+            val status = when {
+                busy -> "Building…"
+                pool == null -> "Not built yet · OK builds now"
+                pool!!.seeds == 0 -> "Nothing to learn from yet (connect Trakt, save titles or mark picks)"
+                else -> "${pool!!.picks.size} picks from ${pool!!.seeds} titles, built ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(pool!!.builtAt))} · OK rebuilds"
+            }
+            Link("Picks", status) { if (!busy) com.lekathedon.visionlite.recs.Recs.rebuildNow() }
+        }
+        item { Link("Start over", "Forgets the picks and cached facts; keeps More like this / Not for me") { com.lekathedon.visionlite.recs.Recs.reset() } }
+
         item { Section("App") }
         item { Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm) }
         item { Link("Clear image cache", cleared.ifEmpty { "Frees memory and disk; posters load again" }) {
