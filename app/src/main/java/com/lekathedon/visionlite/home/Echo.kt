@@ -297,7 +297,7 @@ fun EchoHome(nav: Nav) {
         // scrolled out, and then its button isn't there to take focus — the old "stuck on the clock").
         val toHero: () -> Unit = { scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { viewTitle.requestFocus() } } }
         TopPill(nav, pillFocused, pillHome, onDown = { if (clockOn) runCatching { clockFocus.requestFocus() } else toHero() },
-            onRight = if (clockOn) ({ runCatching { clockFocus.requestFocus() } }) else null) { pillFocused = it }
+            onRight = if (clockOn) ({ runCatching { clockFocus.requestFocus() } }) else null, onFocus = { pillFocused = it })
         if (clockOn) ClockPill(
             Modifier.align(Alignment.TopEnd), clockFocus, pillHome, toHero,
             onFocus = { clockFocused = it }, onClick = { clockPanel = true }
