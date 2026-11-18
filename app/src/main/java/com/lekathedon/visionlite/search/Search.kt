@@ -55,9 +55,13 @@ fun Search(nav: Nav) {
     var job by remember { mutableStateOf<Job?>(null) }
     val field = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+    val prefs = app.prefs
+    var recent by remember { mutableStateOf(prefs.recentSearches.value.split('\n').filter { it.isNotEmpty() }) }
     fun run() {
         job?.cancel(); results.clear()
         val term = q.trim().ifEmpty { return }
+        recent = (listOf(term) + recent.filterNot { it.equals(term, true) }).take(8)
+        prefs.recentSearches.value = recent.joinToString("\n")
         job = scope.launch {
             app.addons.addons.value.flatMap { a -> a.manifest.catalogs.filter { it.supportsSearch }.map { a to it } }
                 .map { (a, c) -> async { (c.name ?: c.type) + " · " + a.manifest.name to runCatching { app.client.catalog(a, c, search = term) }.getOrDefault(emptyList()) } }
@@ -71,6 +75,13 @@ fun Search(nav: Nav) {
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { run() }),
                 modifier = Modifier.fillMaxWidth(0.6f).focusRequester(field).background(Palette.Card).padding(14.dp),
                 decorationBox = { inner -> if (q.isEmpty()) Text("Search movies and series", color = Palette.TextDim, fontSize = 18.sp); inner() })
+        }
+        if (results.isEmpty() && recent.isNotEmpty()) item {
+            Text("Recent", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(recent) { t -> com.lekathedon.visionlite.ui.Button(t, { q = t; run() }) }
+                item { com.lekathedon.visionlite.ui.Button("Clear", { recent = emptyList(); prefs.recentSearches.value = "" }) }
+            }
         }
         items(results, key = { it.first }) { (title, metas) ->
             Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))

@@ -50,13 +50,14 @@ class MainActivity : ComponentActivity() {
                             else saved.SaveableStateProvider("home") { Home(nav) }
                         is Screen.Detail -> Detail(nav, s)
                         is Screen.Streams -> Streams(nav, s)
-                        is Screen.Player -> Player(s)
+                        is Screen.Player -> Player(nav, s)
                         Screen.Search -> Search(nav)
                         Screen.Settings -> Settings(nav)
                         Screen.Addons -> Addons()
                         Screen.ThisTv -> com.lekathedon.visionlite.device.ThisTv()
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
+                        Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
                     }
                 }
             }

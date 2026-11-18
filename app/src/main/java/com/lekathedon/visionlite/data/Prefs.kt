@@ -35,4 +35,45 @@ class Prefs(context: Context) {
     val afr = Text("afr", "off")
     /** The first-start device check was answered (Use these or Not now). */
     val deviceAsked = Flag("device_asked", false)
+
+    // Playback
+    val nextEpisode = Flag("next_episode", false)
+    val resume = Flag("resume", true)
+    /** Seconds to step back when playing again after a pause ("0" = off). */
+    val rewindOnResume = Text("rewind_on_resume", "0")
+    // Audio & subtitles ("" = no preference; ISO 639 codes)
+    val audioLang = Text("audio_lang", "")
+    val audioLang2 = Text("audio_lang2", "")
+    val subLang = Text("sub_lang", "")
+    val subLang2 = Text("sub_lang2", "")
+    /** "off", "foreign" (only when the audio isn't in a subtitle language), "always". */
+    val subsWhen = Text("subs_when", "foreign")
+    /** "s", "m", "l", "xl". */
+    val subSize = Text("sub_size", "m")
+    /** "white", "yellow", "box", "outline". */
+    val subStyle = Text("sub_style", "outline")
+    // Streams
+    /** "addon" (installed order), "quality", "biggest", "smallest". */
+    val streamSort = Text("stream_sort", "addon")
+    /** Highest resolution listed: "0" = any, else 2160 / 1080 / 720. */
+    val maxQuality = Text("max_quality", "0")
+    /** Largest file in GB ("0" = no limit). */
+    val sizeLimit = Text("size_limit", "0")
+    val hideTorrents = Flag("hide_torrents", false)
+    val hideCam = Flag("hide_cam", true)
+    // Home
+    /** "s", "m", "l". */
+    val posterSize = Text("poster_size", "m")
+    val clock = Flag("clock", true)
+    val ratings = Flag("ratings", false)
+    /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */
+    val rowOrder = Text("row_order", "")
+    val rowsHidden = Text("rows_hidden", "")
+    // Library + search
+    /** Local saves, JSON list. */
+    val saved = Text("saved", "[]")
+    /** Last searches, newline separated, newest first. */
+    val recentSearches = Text("recent_searches", "")
+    // App
+    val exitConfirm = Flag("exit_confirm", true)
 }

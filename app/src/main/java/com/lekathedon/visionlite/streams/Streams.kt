@@ -43,6 +43,26 @@ data class Link(val source: String, val stream: Stream) {
         .find(stream.details)?.destructured?.let { (n, u) -> ((n.toDoubleOrNull() ?: 0.0) * if (u.equals("gb", true)) 1e9 else 1e6).toLong() } ?: 0L
 }
 
+private val Cam = Regex("""\b(cam|camrip|hdcam|ts|hdts|telesync|tc|telecine)\b""", RegexOption.IGNORE_CASE)
+
+/** The user's link settings: what is hidden, then the order. Add-on order keeps each add-on's own order. */
+fun arrange(all: List<Link>, p: com.lekathedon.visionlite.data.Prefs): List<Link> {
+    val maxH = p.maxQuality.value.toIntOrNull() ?: 0
+    val maxBytes = (p.sizeLimit.value.toLongOrNull() ?: 0L) * 1_000_000_000L
+    val kept = all.filter { l ->
+        (!p.hideTorrents.value || l.playable) &&
+            (maxH == 0 || l.height <= maxH) &&
+            (maxBytes == 0L || l.bytes == 0L || l.bytes <= maxBytes) &&
+            (!p.hideCam.value || !Cam.containsMatchIn("${l.stream.name} ${l.stream.details} ${l.stream.behaviorHints?.filename}"))
+    }
+    return when (p.streamSort.value) {
+        "quality" -> kept.sortedWith(compareByDescending<Link> { it.playable }.thenByDescending { it.height }.thenByDescending { it.bytes })
+        "biggest" -> kept.sortedWith(compareByDescending<Link> { it.playable }.thenByDescending { it.bytes })
+        "smallest" -> kept.sortedWith(compareByDescending<Link> { it.playable }.thenBy { if (it.bytes == 0L) Long.MAX_VALUE else it.bytes })
+        else -> kept
+    }
+}
+
 /** Autoplay pick: playable, highest resolution, then biggest file. */
 fun best(links: List<Link>): Link? = links.filter { it.playable }.maxWithOrNull(compareBy<Link>({ it.height }, { it.bytes }))
 
@@ -59,10 +79,14 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
             pending--
         }
-        if (app.prefs.autoplay.value) best(links)?.let { play(nav, s, it, replace = true) }
+        if (app.prefs.autoplay.value) best(arrange(links, app.prefs))?.let { play(nav, s, it, replace = true) }
     }
+    // Links from add-ons in installed order, so "Add-on order" is stable however the answers land.
+    val order = remember(s.id) { app.addons.addons.value.map { it.manifest.name } }
+    val shown = remember(links.size) { arrange(links.sortedBy { order.indexOf(it.source) }, app.prefs) }
+    val hiddenCount = links.size - shown.size
     val first = remember { FocusRequester() }
-    val firstPlayable = links.firstOrNull { it.playable }
+    val firstPlayable = shown.firstOrNull { it.playable }
     LaunchedEffect(firstPlayable != null) { if (firstPlayable != null) runCatching { first.requestFocus() } }
 
     Box(Modifier.fillMaxSize().background(LocalLook.current.page)) {
@@ -71,13 +95,13 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                 Text(s.title, color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 val status = when {
                     pending == 0 && links.isEmpty() -> "No links found"
-                    pending > 0 -> "${links.size} links · waiting for $pending add-on(s)"
-                    pending == 0 -> "${links.size} links"
+                    pending > 0 -> "${shown.size} links · waiting for $pending add-on(s)"
+                    pending == 0 -> "${shown.size} links"
                     else -> ""
-                }
+                } + if (hiddenCount > 0) " · $hiddenCount hidden by your link settings" else ""
                 Text(status, color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
             }
-            items(links) { l ->
+            items(shown) { l ->
                 val mod = if (l === firstPlayable) Modifier.focusRequester(first) else Modifier
                 Focusable({ if (l.playable) play(nav, s, l, replace = false) }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
                     Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(12.dp)) {

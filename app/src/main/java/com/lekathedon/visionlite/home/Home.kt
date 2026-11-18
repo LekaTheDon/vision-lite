@@ -60,8 +60,11 @@ import kotlinx.coroutines.flow.collectLatest
 
 private val Start = 48.dp
 private val HeroH = 230.dp
-private val PosterW = 120.dp
-private val PosterH = 180.dp
+/** Poster size (S / M / L) and ratings badge from Settings. */
+private data class PosterLook(val w: androidx.compose.ui.unit.Dp, val h: androidx.compose.ui.unit.Dp, val ratings: Boolean)
+private val LocalPoster = androidx.compose.runtime.staticCompositionLocalOf { PosterLook(120.dp, 180.dp, false) }
+/** The poster that had focus last, so focus goes back to it after the exit question. */
+private var LastFocus: FocusRequester? = null
 
 /**
  * Home: focused title's details on top, rows below. No motion: focus and scroll move in one frame, the focused row
@@ -73,18 +76,29 @@ fun Home(nav: Nav) {
     val vm: HomeModel = viewModel()
     val rows by vm.rows.collectAsStateWithLifecycle()
     val look = LocalLook.current
+    val prefs = com.lekathedon.visionlite.App.instance.prefs
+    val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
+    val ratings by prefs.ratings.flow.collectAsStateWithLifecycle()
+    val pl = remember(size, ratings) { when (size) { "s" -> PosterLook(100.dp, 150.dp, ratings); "l" -> PosterLook(150.dp, 225.dp, ratings); else -> PosterLook(120.dp, 180.dp, ratings) } }
+    val PosterW = pl.w; val PosterH = pl.h
+    val hiddenText by prefs.rowsHidden.flow.collectAsStateWithLifecycle()
+    val exitConfirm by prefs.exitConfirm.flow.collectAsStateWithLifecycle()
+    var askExit by remember { mutableStateOf(false) }
+    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    androidx.activity.compose.BackHandler(enabled = exitConfirm && !askExit) { askExit = true }
     var focused by remember { mutableStateOf<MetaPreview?>(null) }
     var shown by remember { mutableStateOf<MetaPreview?>(null) }
     LaunchedEffect(Unit) { snapshotFlow { focused }.collectLatest { delay(120); shown = it } }
 
     val cw by vm.continueWatching.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshContinue(force = com.lekathedon.visionlite.player.PlayerReturn.consume()) }
-    val visible = rows.filter { it.items.isNotEmpty() || !it.done }
+    val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
+    val visible = rows.filter { it.key !in hidden && (it.items.isNotEmpty() || !it.done) }
     val firstFocus = remember { FocusRequester() }
     val firstReady = cw.isNotEmpty() || visible.firstOrNull()?.items?.isNotEmpty() == true
     LaunchedEffect(firstReady) { if (firstReady && focused == null) runCatching { firstFocus.requestFocus() } }
 
-    Box(Modifier.fillMaxSize().background(look.page)) {
+    CompositionLocalProvider(LocalPoster provides pl) { Box(Modifier.fillMaxSize().background(look.page)) {
         if (!look.oled) ArtTint(shown?.background ?: shown?.poster)
         Hero(shown)
         Column(Modifier.fillMaxSize()) {
@@ -103,8 +117,8 @@ fun Home(nav: Nav) {
                                         Box {
                                             Poster(m, if (i == 0) Modifier.focusRequester(firstFocus) else Modifier, onFocus = { focused = m },
                                                 onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) })
-                                            if (r.progress > 0f) Box(Modifier.align(Alignment.BottomStart).padding(6.dp).width(108.dp).height(4.dp).background(Color(0x66FFFFFF))) {
-                                                Box(Modifier.fillMaxHeight().width(108.dp * (r.progress / 100f)).background(Palette.Accent))
+                                            if (r.progress > 0f) Box(Modifier.align(Alignment.BottomStart).padding(6.dp).width(PosterW - 12.dp).height(4.dp).background(Color(0x66FFFFFF))) {
+                                                Box(Modifier.fillMaxHeight().width((PosterW - 12.dp) * (r.progress / 100f)).background(Palette.Accent))
                                             }
                                             if (r.season != null) Text("S${r.season}E${r.episode}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.align(Alignment.TopStart).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp))
@@ -143,18 +157,24 @@ fun Home(nav: Nav) {
                 }
             }
         }
-    }
+        if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
+    } }
 }
 
 @Composable
 private fun Poster(m: MetaPreview, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
-    Focusable(onClick, modifier.size(PosterW, PosterH), onFocus = onFocus) {
+    val me = remember { FocusRequester() }
+    val pl = LocalPoster.current
+    val PosterW = pl.w; val PosterH = pl.h; val Ratings = pl.ratings
+    Focusable(onClick, modifier.focusRequester(me).size(PosterW, PosterH), onFocus = { LastFocus = me; onFocus() }) {
         Box(Modifier.fillMaxSize().background(Palette.Card)) {
             if (m.poster.isNullOrBlank()) {
                 Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
             } else {
                 Img(m.poster, PosterW, PosterH, Modifier.fillMaxSize())
             }
+            if (Ratings && !m.imdbRating.isNullOrBlank()) Text("★ ${m.imdbRating}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopEnd).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp))
         }
     }
 }
@@ -164,6 +184,7 @@ private fun TopBar(nav: Nav) {
     Row(Modifier.fillMaxWidth().height(52.dp).padding(start = Start, end = Start, top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("Vision Lite", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        if (com.lekathedon.visionlite.App.instance.prefs.clock.flow.collectAsStateWithLifecycle().value) Clock()
         Button("Search", { nav.push(Screen.Search) })
         Button("Library", { nav.push(Screen.Library) })
         Button("Settings", { nav.push(Screen.Settings) })
@@ -193,6 +214,34 @@ private fun Hero(m: MetaPreview?) {
             if (facts.isNotBlank()) Text(facts, color = Color(0xCCFFFFFF), fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(top = 10.dp))
             m.description?.let {
                 Text(it, color = Palette.TextDim, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+    }
+}
+
+/** hh:mm, redrawn once a minute on the minute. */
+@Composable
+private fun Clock() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val fmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
+    var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
+    LaunchedEffect(Unit) {
+        while (true) { delay(60_000 - System.currentTimeMillis() % 60_000); now = fmt.format(java.util.Date()) }
+    }
+    Text(now, color = Palette.Text, fontSize = 16.sp, modifier = Modifier.padding(end = 6.dp))
+}
+
+@Composable
+private fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
+    val stay = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { stay.requestFocus() } }
+    androidx.activity.compose.BackHandler { onStay() }
+    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+        Column(Modifier.background(Palette.Card).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Leave Vision Lite?", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button("Stay", onStay, Modifier.focusRequester(stay))
+                Button("Leave", onLeave)
             }
         }
     }

@@ -73,13 +73,19 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     if (m.cast.isNotEmpty()) Text("Cast: " + m.cast.take(5).joinToString(", "), color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(top = 8.dp))
                 }
             }
-            if (m.type != "series" || m.videos.isEmpty()) {
-                item {
-                    Button("Play", { nav.push(Screen.Streams(m.type, m.id, m.name, m.id)) }, Modifier.padding(top = 20.dp).focusRequester(first))
+            val isMovie = m.type != "series" || m.videos.isEmpty()
+            item {
+                var saved by remember(m.id) { mutableStateOf(com.lekathedon.visionlite.library.Saves.has(m.id)) }
+                Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isMovie) Button("Play", { nav.push(Screen.Streams(m.type, m.id, m.name, m.id)) }, Modifier.focusRequester(first))
+                    Button(if (saved) "Saved ✓" else "Save", {
+                        saved = com.lekathedon.visionlite.library.Saves.toggle(com.lekathedon.visionlite.library.Saved(m.type, m.id, m.name, m.poster))
+                    })
                 }
-            } else {
+            }
+            if (!isMovie) {
                 item {
-                    LazyRow(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(seasons.keys.toList()) { n ->
                             val mod = if (n == seasons.keys.first()) Modifier.focusRequester(first) else Modifier
                             Button(if (n == 0) "Specials" else "Season $n" + if (n == season) " •" else "", { season = n }, mod)

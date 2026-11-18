@@ -41,19 +41,27 @@ class HomeModel : ViewModel() {
     init {
         viewModelScope.launch {
             app.addons.ensureDefaults()
-            app.addons.addons.collect { list -> rebuild(list) }
+            kotlinx.coroutines.flow.combine(app.addons.addons, app.prefs.rowOrder.flow) { list, _ -> list }.collect { list -> rebuild(list) }
         }
+    }
+
+    /** Refresh: forget every loaded page and ask again as rows come into view. */
+    fun refreshAll() {
+        loading.values.forEach { it.cancel() }; loading.clear()
+        app.client.clearCatalogs()
+        state.value = state.value.map { it.copy(items = emptyList(), done = false) }
     }
 
     private fun rebuild(list: List<Addon>) {
         loading.values.forEach { it.cancel() }; loading.clear()
         val old = state.value.associateBy { it.key }
+        val order = app.prefs.rowOrder.value.split('\n').filter { it.isNotEmpty() }.withIndex().associate { it.value to it.index }
         state.value = list.flatMap { a ->
             a.manifest.catalogs.filter { it.isBoardRow }.map { c ->
                 val key = "${a.manifest.id}/${c.type}/${c.id}"
                 old[key] ?: Row(key, title(a, c), a, c, emptyList(), done = false)
             }
-        }
+        }.withIndex().sortedBy { (i, r) -> order[r.key] ?: (order.size + i) }.map { it.value }
     }
 
     private fun title(a: Addon, c: CatalogDef): String {

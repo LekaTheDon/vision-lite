@@ -14,6 +14,8 @@ class AddonClient(private val store: AddonStore) {
         override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Meta>?) = size > 40
     }
 
+    fun clearCatalogs() = synchronized(catalogCache) { catalogCache.clear() }
+
     suspend fun catalog(addon: Addon, def: CatalogDef, skip: Int = 0, search: String? = null): List<MetaPreview> {
         val extras = buildList {
             if (search != null) add("search=${AddonStore.enc(search)}")

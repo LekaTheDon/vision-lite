@@ -36,23 +36,38 @@ import com.lekathedon.visionlite.ui.Screen
 fun posterOf(imdb: String) = "https://images.metahub.space/poster/medium/$imdb/img"
 fun backdropOf(imdb: String) = "https://images.metahub.space/background/medium/$imdb/img"
 
-/** Library = the Trakt watchlist (newest first). */
+/** Library = local saves, then the Trakt watchlist (newest first). */
 @Composable
 fun Library(nav: Nav) {
     val trakt = App.instance.trakt
     var items by remember { mutableStateOf<List<ListItem>?>(null) }
-    LaunchedEffect(Unit) { items = trakt.watchlist() }
+    val saved = remember { Saves.all() }
+    LaunchedEffect(Unit) { items = if (trakt.connected.value != null) trakt.watchlist() else emptyList() }
     val first = remember { FocusRequester() }
-    LaunchedEffect(items) { if (!items.isNullOrEmpty()) runCatching { first.requestFocus() } }
+    LaunchedEffect(items) { if (saved.isNotEmpty() || !items.isNullOrEmpty()) runCatching { first.requestFocus() } }
     LazyVerticalGrid(GridCells.Adaptive(132.dp), Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (saved.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("Saved · ${saved.size}", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+            }
+            items(saved, key = { "s:" + it.id }) { sv ->
+                val mod = if (sv.id == saved.first().id) Modifier.focusRequester(first) else Modifier
+                Focusable({ nav.push(Screen.Detail(sv.type, sv.id, sv.name)) }, mod.size(120.dp, 180.dp)) {
+                    Box(Modifier.fillMaxSize().background(Palette.Card)) {
+                        Text(sv.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
+                        Img(sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null, 120.dp, 180.dp, Modifier.fillMaxSize())
+                    }
+                }
+            }
+        }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Text(when {
-                trakt.connected.value == null -> "Library: connect Trakt in Settings"
-                items == null -> "Library"
-                items!!.isEmpty() -> "Library: your Trakt watchlist is empty"
-                else -> "Library · ${items!!.size}"
-            }, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                trakt.connected.value == null -> "Trakt watchlist: connect Trakt in Settings"
+                items == null -> "Trakt watchlist"
+                items!!.isEmpty() -> "Trakt watchlist is empty"
+                else -> "Trakt watchlist · ${items!!.size}"
+            }, color = Palette.Text, fontSize = if (saved.isEmpty()) 26.sp else 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = if (saved.isEmpty()) 0.dp else 16.dp, bottom = 8.dp))
         }
         val list = items.orEmpty().mapNotNull { li ->
             when {
@@ -62,7 +77,7 @@ fun Library(nav: Nav) {
             }
         }
         items(list, key = { it.second }) { (type, imdb, title) ->
-            val mod = if (imdb == list.first().second) Modifier.focusRequester(first) else Modifier
+            val mod = if (saved.isEmpty() && imdb == list.first().second) Modifier.focusRequester(first) else Modifier
             Focusable({ nav.push(Screen.Detail(type, imdb, title)) }, mod.size(120.dp, 180.dp)) {
                 Box(Modifier.fillMaxSize().background(Palette.Card)) {
                     Text(title, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
