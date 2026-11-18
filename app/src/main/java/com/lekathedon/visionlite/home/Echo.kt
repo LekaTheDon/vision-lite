@@ -673,7 +673,7 @@ private fun EchoBackdrop(url: String?, trailer: String?, muted: Boolean, onEnded
     url ?: return
     Box(modifier.fillMaxSize()) {
         Img(url, 960.dp, 540.dp, Modifier.fillMaxSize())
-        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer, muted, Modifier.fillMaxSize(), onEnded)
+        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer, muted, Modifier.fillMaxSize(), onEnded = onEnded)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xE6000000), 0.35f to Color(0x80000000), 0.7f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 0.9f to Color(0xE6000000), 1f to Color.Black)))
     }
