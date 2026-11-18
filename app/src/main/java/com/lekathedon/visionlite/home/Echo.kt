@@ -515,7 +515,7 @@ fun BoxScope.TopPill(
                             val key = k.removePrefix("s:")
                             prefs.appSection.value = key; choosing = false
                             Sections.opensAt(key)?.let { if (current != null) nav.replace(it) else nav.push(it) } ?: run {
-                                if (current != null) nav.popToHome() pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
+                                if (current != null) nav.popToHome(); pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
                         } else if (k != entryKey) Sections.pages(section).firstOrNull { it.first == label }?.let {
                             if (current != null) nav.replace(it.second) else nav.push(it.second)
                         }
