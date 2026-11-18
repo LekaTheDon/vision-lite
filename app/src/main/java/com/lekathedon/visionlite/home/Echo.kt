@@ -1,5 +1,7 @@
 // Vision's Echo look (Nuvio Echo, github.com/Laking22/Nuvio-Echo, GPL-3.0, as ported to Nuvio Vision), drawn the
 // Lite way: no motion, focus and scroll in one frame, posters open to landscape at once, images at drawn size.
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.lekathedon.visionlite.home
 
 import android.graphics.Bitmap
