@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -141,12 +140,12 @@ internal fun Controls(
         Modifier.fillMaxSize().focusRequester(root).focusable().onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             lastInput = SystemClock.uptimeMillis()
-            when (e.nativeKeyEvent.keyCode) {
-                android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { toggle(); return@onPreviewKeyEvent true }
-                android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); return@onPreviewKeyEvent true }
-                android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); return@onPreviewKeyEvent true }
-                android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { visible = true; step(true); return@onPreviewKeyEvent true }
-                android.view.KeyEvent.KEYCODE_MEDIA_REWIND -> { visible = true; step(false); return@onPreviewKeyEvent true }
+            when (e.key) {
+                Key.MediaPlayPause -> { toggle(); return@onPreviewKeyEvent true }
+                Key.MediaPlay -> { player.play(); return@onPreviewKeyEvent true }
+                Key.MediaPause -> { player.pause(); return@onPreviewKeyEvent true }
+                Key.MediaFastForward -> { visible = true; step(true); return@onPreviewKeyEvent true }
+                Key.MediaRewind -> { visible = true; step(false); return@onPreviewKeyEvent true }
             }
             if (e.key == Key.Back) {
                 when { panel != null -> panel = null; visible -> visible = false; else -> return@onPreviewKeyEvent false }
