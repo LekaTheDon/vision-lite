@@ -63,7 +63,7 @@ fun Settings(nav: Nav) {
         item { Link("Vision TB", "TorBox-cached links straight from the torrent sites, first in the list") { nav.push(Screen.VisionTb) } }
 
         item { Section("Playback") }
-        item { Toggle("Autoplay", "Play picks the best link (resolution, then size) by itself", p.autoplay) }
+        item { Toggle("Smart autoplay", "Off until Vision TB is autoplay safe. On: after every add-on and Vision TB answer, plays the right episode in the best quality (4K first), then the biggest file", p.autoplay) }
         item { Toggle("Next episode", "When an episode ends (or the popup's 10 s run out), open the next one's links", p.nextEpisode) }
         item { Toggle("Next episode popup", "A card at the outro (or the last 40 s): OK plays the next one", p.nextPopup) }
         item { Choice("Skip intro and outro", "IntroDB, AniSkip for anime (Vision's sources)", p.skipIntro, listOf("button" to "Button (OK skips)", "auto" to "Automatic", "off" to "Off")) }

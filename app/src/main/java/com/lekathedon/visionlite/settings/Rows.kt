@@ -55,6 +55,8 @@ fun Rows() {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button("Refresh all rows", { vm.refreshAll(); msg = "Rows will load fresh" }, Modifier.focusRequester(first))
                 Button("Reset order", { prefs.rowOrder.value = ""; prefs.rowsHidden.value = "" })
+                val addonRows by prefs.addonRows.flow.collectAsState()
+                Button(if (addonRows) "Add-on rows: On" else "Add-on rows: Off", { prefs.addonRows.value = !addonRows })
                 if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp)
             }
         }
@@ -62,7 +64,7 @@ fun Rows() {
             val on = r.key !in hidden
             Row(Modifier.padding(top = 10.dp).fillMaxWidth(0.8f).background(Palette.Card).padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(r.title + " · " + r.addon.manifest.name, color = if (on) Palette.Text else Palette.TextDim, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Text(r.title + " · " + r.source, color = if (on) Palette.Text else Palette.TextDim, fontSize = 15.sp, modifier = Modifier.weight(1f))
                 Button(if (on) "On" else "Off", { prefs.rowsHidden.value = (if (on) hidden + r.key else hidden - r.key).joinToString("\n") })
                 Button("Up", { move(r.key, -1) })
                 Button("Down", { move(r.key, 1) })

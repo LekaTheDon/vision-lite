@@ -81,6 +81,8 @@ class Prefs(context: Context) {
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */
     val rowOrder = Text("row_order", "")
     val rowsHidden = Text("rows_hidden", "")
+    /** Add-on catalogs as Home rows (Vision's "Add-on rows"); off like the user's Vision. */
+    val addonRows = Flag("home_addon_rows", false)
     // Library + search
     /** Local saves, JSON list. */
     val saved = Text("saved", "[]")

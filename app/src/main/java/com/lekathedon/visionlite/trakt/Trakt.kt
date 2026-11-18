@@ -175,6 +175,9 @@ class Trakt(private val prefs: Prefs) {
     suspend fun related(imdb: String, tv: Boolean, limit: Int = 20): List<Related>? = if (!on()) null else
         runCatching { get<List<Related>>("${if (tv) "shows" else "movies"}/$imdb/related?limit=$limit") }.getOrNull()
 
+    /** Every show ever watched (no seasons), newest first. Null when Trakt is off or not reachable. */
+    suspend fun watchedShows(): List<Watched>? = if (!on()) null else runCatching { get<List<Watched>>("sync/watched/shows?extended=noseasons") }.getOrNull()
+
     /** Calendar: episodes of shows you watch and films you follow, from today for [days] days. Empty when Trakt is off. */
     suspend fun calendar(days: Int = 14): Pair<List<CalShow>, List<CalMovie>> = if (!on()) emptyList<CalShow>() to emptyList() else coroutineScope {
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())

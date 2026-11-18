@@ -14,6 +14,8 @@ sealed interface Screen {
     data object Library : Screen
     data object LiveTv : Screen
     data object Sports : Screen
+    data object SportsTeams : Screen
+    data class Standings(val leagueId: String) : Screen
     data object Vod : Screen
     data object Recordings : Screen
     data object Discover : Screen
@@ -21,6 +23,8 @@ sealed interface Screen {
     data object Decades : Screen
     data object Scout : Screen
     data object Calendar : Screen
+    data class Service(val id: String) : Screen
+    data class Person(val id: String, val name: String) : Screen
     data object YouTube : Screen
     data class YtPlay(val id: String, val title: String) : Screen
     data object Music : Screen

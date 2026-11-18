@@ -300,6 +300,7 @@ fun Scout(nav: Nav) {
                 Rail("For you", forYou.map(::meta), nav, subOf = { it.description }, firstFocus = first,
                     onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name) })
             }
+            item(key = "ai") { AiRail(nav) }
             items(because, key = { it.seed }) { b ->
                 Rail("Because you watched ${b.seed}", b.picks.map(::meta), nav, subOf = { it.description },
                     onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name) })
@@ -352,3 +353,106 @@ fun CalendarPage(nav: Nav) {
 
 private fun dayOf(ms: Long) = Calendar.getInstance().apply { timeInMillis = ms }.let { it.get(Calendar.YEAR) * 1000L + it.get(Calendar.DAY_OF_YEAR) }
 private fun dayMs(d: Long) = Calendar.getInstance().apply { set(Calendar.YEAR, (d / 1000).toInt()); set(Calendar.DAY_OF_YEAR, (d % 1000).toInt()) }.timeInMillis
+
+// ---------------------------------------------------------------- Streaming service / person pages (Vision rows)
+
+/** A streaming service's page: its Originals, latest, popular, top rated and most rated (TMDB, your key). */
+@Composable
+fun ServicePage(nav: Nav, id: String) {
+    val s = remember(id) { com.lekathedon.visionlite.home.Services.S.entries.firstOrNull { it.id == id } } ?: return
+    val rows = remember(s) { com.lekathedon.visionlite.home.Services.rows(s) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val first = remember { FocusRequester() }
+    Page(s.title, if (s.region == "GB") "UK" else "US") {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
+            itemsIndexed(rows, key = { _, r -> r.first }) { i, (title, load) ->
+                val items = remember(title) { androidx.compose.runtime.mutableStateListOf<MetaPreview>() }
+                var page by remember(title) { mutableStateOf(0) }
+                var busy by remember(title) { mutableStateOf(false) }
+                fun next() { if (busy || page >= 5) return; busy = true; scope.launch { val more = load(page + 1); page++; items.addAll(more.filter { m -> items.none { it.id == m.id } }); busy = false } }
+                LaunchedEffect(title) { next() }
+                if (i == 0) LaunchedEffect(items.isNotEmpty()) { if (items.isNotEmpty()) runCatching { first.requestFocus() } }
+                TmdbRail(title, items, nav, if (i == 0) first else null) { next() }
+            }
+        }
+    }
+}
+
+/** Like [Rail], but cards with TMDB ids are turned into IMDb ids when opened. */
+@Composable
+private fun TmdbRail(title: String, metas: List<MetaPreview>, nav: Nav, firstFocus: FocusRequester?, onEnd: () -> Unit) {
+    if (metas.isEmpty()) return
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    Text(title, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        itemsIndexed(metas, key = { i, m -> "$i:${m.id}" }) { i, m ->
+            if (i >= metas.size - 6) LaunchedEffect(metas.size) { onEnd() }
+            Column(Modifier.width(130.dp)) {
+                Focusable({ scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) } },
+                    (if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier).size(130.dp, 195.dp)) {
+                    Box(Modifier.fillMaxSize().background(Palette.Card)) {
+                        Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
+                        m.poster?.let { Img(it, 130.dp, 195.dp, Modifier.fillMaxSize()) }
+                    }
+                }
+                Text(listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · "), color = Palette.TextDim, fontSize = 11.sp, maxLines = 1,
+                    modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
+/** A person's films and shows, newest first (IMDb); Follow puts them on Home's Favourite people. */
+@Composable
+fun PersonPage(nav: Nav, id: String, name: String) {
+    val people = com.lekathedon.visionlite.home.People
+    var data by remember(id) { mutableStateOf<Pair<com.lekathedon.visionlite.home.People.Person?, List<MetaPreview>>?>(null) }
+    LaunchedEffect(id) { data = people.titles(id) }
+    val list by people.list.collectAsState()
+    val following = list.any { it.id == id }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    val d = data
+    Page(d?.first?.name?.ifBlank { null } ?: name, if (d == null) "Loading…" else "${d.second.size} titles") {
+        Row(Modifier.padding(top = 10.dp)) {
+            Button(if (following) "Following ✓" else "Follow", {
+                people.toggle(d?.first?.copy(name = d.first!!.name.ifBlank { name }) ?: com.lekathedon.visionlite.home.People.Person(id, name))
+            }, Modifier.focusRequester(first))
+        }
+        val all = d?.second.orEmpty()
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
+            item { Rail("Movies", all.filter { it.type == "movie" }, nav, subOf = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }) }
+            item { Rail("Series", all.filter { it.type == "series" }, nav, subOf = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }) }
+        }
+    }
+}
+
+/** Scout's AI Picks: the row, and how the AIs decide (Vote with weights, or one Boss). */
+@Composable
+private fun AiRail(nav: Nav) {
+    val ai = com.lekathedon.visionlite.recs.AiPicks
+    val picks by ai.picks.collectAsState()
+    val status by ai.status.collectAsState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(Unit) { runCatching { ai.refreshIfDue() } }
+    var tick by remember { mutableStateOf(0) }
+    val on = remember(tick) { ai.configured() }
+    val boss = remember(tick) { ai.boss() }
+    Text("AI Picks" + (status?.let { " · $it" } ?: ""), color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
+    if (on.isNotEmpty()) Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button("New AI picks", { scope.launch { ai.refreshIfDue(force = true) } })
+        Button(if (boss == null) "Mode: Vote" else "Mode: Boss = ${boss.label}", {
+            val order = listOf<com.lekathedon.visionlite.recs.AiPicks.Ai?>(null) + on
+            ai.setBoss(order[(order.indexOf(boss) + 1) % order.size]); tick++
+        })
+        if (boss == null) on.forEach { a ->
+            val w = ai.weight(a)
+            Button("${a.label} ×${if (w % 1.0 == 0.0) w.toInt().toString() else w.toString()}", {
+                val ws = ai.WEIGHTS; ai.setWeight(a, ws[(ws.indexOf(w).coerceAtLeast(0) + 1) % ws.size]); tick++
+            })
+        }
+    }
+    fun meta(p: com.lekathedon.visionlite.recs.Pick) = MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), releaseInfo = p.year?.toString(),
+        imdbRating = p.rating?.toString(), genres = p.genres, description = p.why)
+    Rail("", picks.map(::meta), nav, subOf = { it.description }, onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name); ai.remove(m.id) })
+}

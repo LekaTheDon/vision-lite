@@ -64,8 +64,30 @@ fun arrange(all: List<Link>, p: com.lekathedon.visionlite.data.Prefs): List<Link
     }
 }
 
-/** Autoplay pick: playable, highest resolution, then biggest file. */
-fun best(links: List<Link>): Link? = links.filter { it.playable }.maxWithOrNull(compareBy<Link>({ it.height }, { it.bytes }))
+/**
+ * Smart autoplay (Vision's goal): the right episode first, then 4K / resolution, then file size. Runs only after every
+ * add-on and Vision TB have answered. For an episode ([id] "tt…:S:E"), a link naming another episode or season is never
+ * picked; Vision TB links (matched to the episode already) and links naming this exact episode come before ones that
+ * say nothing. Null = nothing safe to play, so the list stays.
+ */
+fun best(links: List<Link>, id: String = ""): Link? {
+    val parts = id.split(':')
+    val want = if (parts.size >= 3) parts[1].toIntOrNull()?.let { s -> parts[2].toIntOrNull()?.let { e -> s to e } } else null
+    fun evidence(l: Link): Int {
+        if (want == null) return 1
+        if (l.tb != null) return 2
+        val t = "${l.stream.behaviorHints?.filename.orEmpty()} ${l.stream.name.orEmpty()} ${l.stream.details}"
+        val m = EpTag.findAll(t).map { it.groupValues[1].toInt() to it.groupValues[2].toInt() }.toList()
+        if (m.isNotEmpty()) return if (want in m) 2 else -1
+        val season = SeasonTag.findAll(t).map { it.groupValues[1].toInt() }.toList()
+        if (season.isNotEmpty() && want.first !in season) return -1
+        return 1
+    }
+    return links.filter { it.playable }.map { it to evidence(it) }.filter { it.second >= 0 }
+        .maxWithOrNull(compareBy<Pair<Link, Int>>({ it.second }, { it.first.height }, { it.first.bytes }))?.first
+}
+private val EpTag = Regex("""(?i)\bs(\d{1,2})[ ._-]?e(\d{1,3})\b""")
+private val SeasonTag = Regex("""(?i)\b(?:season[ ._]?|s)(\d{1,2})\b(?![ ._-]?e\d)""")
 
 /** Links for a title, asked from every stream add-on only now (Play was pressed); each add-on's answer shows as it lands. */
 @Composable
@@ -95,7 +117,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                 pending--
             }
         }
-        if (app.prefs.autoplay.value) best(arrange(links, app.prefs))?.let { play(nav, s, it, replace = true) { getting = it } }
+        if (app.prefs.autoplay.value) best(arrange(links, app.prefs), s.id)?.let { play(nav, s, it, replace = true) { getting = it } }
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
     val order = remember(s.id) { listOf(com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }

@@ -39,6 +39,7 @@ import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
+import kotlinx.coroutines.launch
 
 /** A title: details, Play (movies) or seasons + episodes (series). One meta call, cached. */
 @Composable
@@ -81,6 +82,14 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     Button(if (saved) "Saved ✓" else "Save", {
                         saved = com.lekathedon.visionlite.library.Saves.toggle(com.lekathedon.visionlite.library.Saved(m.type, m.id, m.name, m.poster))
                     })
+                }
+            }
+            if (m.cast.isNotEmpty()) item {
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                LazyRow(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(m.cast.take(10)) { name ->
+                        Button(name, { scope.launch { com.lekathedon.visionlite.home.People.find(name)?.let { p -> nav.push(Screen.Person(p.id, p.name)) } } })
+                    }
                 }
             }
             if (!isMovie) {

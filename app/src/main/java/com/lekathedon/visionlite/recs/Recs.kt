@@ -84,6 +84,16 @@ object Recs {
         return RecsLogic.rotate(pool.value?.picks.orEmpty().filter { it.imdb !in nope && (it.rating == null || it.rating >= min) }, count, now)
     }
 
+    /** IMDb Picks: the engine's finds IMDb rates highest, without what Vision Picks shows now. */
+    fun imdbPicks(count: Int = 30, now: Long = System.currentTimeMillis()): List<Pick> {
+        val nope = feedback().filter { !it.like }.map { it.imdb() }.toSet()
+        val shown = forYou(30, now).map { it.imdb }.toSet()
+        val min = maxOf(minImdb(), 7.5f)
+        return pool.value?.picks.orEmpty().filter { it.imdb !in nope && it.imdb !in shown && (it.rating ?: 0f) >= min }
+            .sortedWith(compareByDescending<Pick> { it.rating ?: 0f }.thenByDescending { it.sources }).take(count)
+    }
+    private fun Fb.imdb() = id
+
     /** "Because you watched X" rows, strongest first. */
     fun because(): List<Because> {
         val nope = feedback().filter { !it.like }.map { it.id }.toSet()
@@ -236,6 +246,17 @@ object Recs {
             }
         }.awaitAll().flatten().toMap()
     }
+
+    /** IMDb facts (name, year, rating, poster, genres) for [ids], from the saved ones first. */
+    suspend fun factsFor(ids: List<String>): Map<String, Facts> = withContext(Dispatchers.IO) {
+        val have = readFacts()
+        val missing = ids.filter { have[it]?.rating == null }
+        if (missing.isNotEmpty()) lookUp(missing, have)
+        ids.mapNotNull { id -> have[id]?.let { id to it } }.toMap()
+    }
+
+    /** What is never recommended (watched, rated, paused, saved, turned down), as last worked out. */
+    fun seenIds(): Set<String> = (read("seen.json", seenSer)?.toSet() ?: emptySet()) + feedback().filter { !it.like }.map { it.id } + Saves.all().map { it.id.substringBefore(':') }
 
     /** Full facts for [ids], [FACT_BATCH] per request. */
     private suspend fun lookUp(ids: List<String>, facts: MutableMap<String, Facts>) = coroutineScope {

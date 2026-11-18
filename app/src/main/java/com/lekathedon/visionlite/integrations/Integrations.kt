@@ -53,7 +53,7 @@ object Integrations {
         Service("anilist", "AniList", Group.ANIME, null, "Sign in: scan, approve on anilist.co, paste once", signIn = true),
         Service("mal", "MyAnimeList", Group.ANIME, null, "Sign in: scan, approve on myanimelist.net, paste once", signIn = true),
 
-        Service("tmdb", "TMDB", Group.DATA, null, "themoviedb.org/settings/api → API key or read token",
+        Service("tmdb", "TMDB", Group.DATA, "Top 20 Today rows, Streaming services", "themoviedb.org/settings/api → API key or read token",
             listOf(Field("TMDB API key", secret = true))) { v ->
             val k = v[0]
             ok(if (k.length > 40) get("https://api.themoviedb.org/3/configuration", bearer = k) else get("https://api.themoviedb.org/3/configuration?api_key=${enc(k)}")) },
@@ -63,11 +63,11 @@ object Integrations {
         Service("mdblist", "MDBList", Group.DATA, null, "mdblist.com/preferences → API key (ratings and list sync, one entry)",
             listOf(Field("MDBList API key", secret = true))) { v -> ok(get("https://api.mdblist.com/user?apikey=${enc(v[0])}")) },
 
-        Service("gemini", "Gemini", Group.AI, null, "aistudio.google.com/apikey (free tier)",
+        Service("gemini", "Gemini", Group.AI, "AI Picks", "aistudio.google.com/apikey (free tier)",
             listOf(Field("Gemini API key", secret = true))) { v -> ok(get("https://generativelanguage.googleapis.com/v1beta/models?key=${enc(v[0])}")) },
-        Service("groq", "Groq", Group.AI, null, "console.groq.com/keys (free tier)",
+        Service("groq", "Groq", Group.AI, "AI Picks", "console.groq.com/keys (free tier)",
             listOf(Field("Groq API key", secret = true))) { v -> ok(get("https://api.groq.com/openai/v1/models", bearer = v[0])) },
-        Service("mistral", "Mistral", Group.AI, null, "console.mistral.ai/api-keys (free tier)",
+        Service("mistral", "Mistral", Group.AI, "AI Picks", "console.mistral.ai/api-keys (free tier)",
             listOf(Field("Mistral API key", secret = true))) { v -> ok(get("https://api.mistral.ai/v1/models", bearer = v[0])) },
 
         Service("youtube", "YouTube", Group.EXTRAS, null, "Sign-in comes with YouTube"),

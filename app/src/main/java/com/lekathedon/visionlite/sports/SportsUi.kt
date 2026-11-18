@@ -163,7 +163,9 @@ fun SportsScreen(nav: Nav) {
     val status by Sports.status.collectAsState()
     val now = minuteTick()
     var day by rememberSaveable { mutableStateOf(0) }
-    val games = remember(events, matches, day, now / 60_000) { Sports.day(day, now) }
+    var mineOnly by rememberSaveable { mutableStateOf(false) }
+    val follows = remember(events) { Sports.follows }
+    val games = remember(events, matches, day, now / 60_000, mineOnly) { Sports.day(day, now).let { g -> if (mineOnly) g.filter { isMine(it, follows) } else g } }
     var focused by remember { mutableStateOf<SportsEvent?>(null) }
     var open by remember { mutableStateOf<SportsEvent?>(null) }
     var playing by remember { mutableStateOf<ChannelMatch?>(null) }
@@ -188,12 +190,20 @@ fun SportsScreen(nav: Nav) {
             val live = games.count { it.state == GameState.LIVE }
             Text(status.ifEmpty { "${games.size} games" + if (live > 0) " · $live live" else "" }, color = Palette.TextDim, fontSize = 13.sp,
                 modifier = Modifier.weight(1f).padding(start = 10.dp))
+            Focusable({ mineOnly = !mineOnly; open = null; playing = null }, shape = RoundedCornerShape(50)) { f ->
+                Text("My Teams", color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if (mineOnly) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.background(if (f) Color.White else if (mineOnly) Color(0x33FFFFFF) else Color.Transparent).padding(horizontal = 14.dp, vertical = 6.dp))
+            }
+            Button("Teams", { nav.push(com.lekathedon.visionlite.ui.Screen.SportsTeams) })
+            shown?.leagueId?.takeIf { SportsCatalog.league(it)?.espnPath != null }?.let { id ->
+                Button("Table", { nav.push(com.lekathedon.visionlite.ui.Screen.Standings(id)) })
+            }
             Button("Refresh", { Sports.refreshNow() })
         }
         Row(Modifier.fillMaxSize().padding(top = 14.dp)) {
             LazyColumn(Modifier.weight(1f).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (games.isEmpty()) item {
-                    Text(if (status.isNotEmpty() || events.isEmpty()) "Getting the games…" else "No games this day.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(12.dp))
+                    Text(if (status.isNotEmpty() || events.isEmpty()) "Getting the games…" else if (mineOnly) "None of your teams play this day. Teams: pick them." else "No games this day.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(12.dp))
                 }
                 items(games, key = { it.id }) { ev ->
                     Focusable({ open = ev; playing = null }, if (ev == games.first()) Modifier.focusRequester(firstGame) else Modifier,

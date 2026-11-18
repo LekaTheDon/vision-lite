@@ -88,6 +88,12 @@ import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.addons.MetaPreview
 import com.lekathedon.visionlite.library.backdropOf
 import com.lekathedon.visionlite.library.posterOf
+import com.lekathedon.visionlite.library.Saved
+import com.lekathedon.visionlite.library.Saves
+import com.lekathedon.visionlite.recs.AiPicks
+import com.lekathedon.visionlite.recs.Recs
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.Img
 import com.lekathedon.visionlite.ui.LocalLook
@@ -151,7 +157,23 @@ fun EchoHome(nav: Nav) {
     val cw by vm.continueWatching.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshContinue(force = com.lekathedon.visionlite.player.PlayerReturn.consume()) }
     val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
-    val visible = rows.filter { it.key !in hidden && (it.items.isNotEmpty() || !it.done) }
+    val aiOn = remember(rows) { AiPicks.configured().isNotEmpty() }
+    val traktOn = App.instance.trakt.connected.collectAsStateWithLifecycle().value != null
+    val visible = rows.filter { r ->
+        r.key !in hidden && (r.items.isNotEmpty() || !r.done ||
+            (r.key == VisionRows.AI && aiOn) || ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
+    }
+    val aiStatus by AiPicks.status.collectAsStateWithLifecycle()
+    val recsBuilding by Recs.building.collectAsStateWithLifecycle()
+    var hold by remember { mutableStateOf<Pair<Row, MetaPreview>?>(null) }
+    val scope = rememberCoroutineScope()
+    fun open(m: MetaPreview) {
+        when (m.type) {
+            "service" -> nav.push(Screen.Service(m.id.removePrefix("svc:")))
+            "person" -> nav.push(Screen.Person(m.id, m.name))
+            else -> if (m.id.startsWith("tt")) nav.push(Screen.Detail(m.type, m.id, m.name)) else scope.launch { openTitle(nav, m) }
+        }
+    }
     // Vision's start screen: the Legacy billboard over the whole page, focus on View title. It shows the hero's
     // titles (Continue Watching first, else the first row) and, once a card has focus, that card's title.
     val firstItems = visible.firstOrNull { it.items.isNotEmpty() }?.items
@@ -238,18 +260,31 @@ fun EchoHome(nav: Nav) {
                 }
                 items(visible, key = { it.key }) { row ->
                     LaunchedEffect(row.key) { vm.need(row.key) }
-                    EchoRow(row.title, dims, dims.posterHeight, shown?.m) {
-                        if (row.items.isEmpty()) item { Box(Modifier.size(dims.posterWidth, dims.posterHeight).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
-                        itemsIndexed(row.items, key = { _, m -> m.id }) { i, m ->
-                            PosterCard(
-                                m, dims, Modifier,
-                                onFocus = {
-                                    focused = HeroEntry(m, null, null)
-                                    heroFocused = false
-                                    if (i >= row.items.size - 6) vm.more(row.key)
-                                },
-                                onClick = { nav.push(Screen.Detail(m.type, m.id, m.name)) }
-                            )
+                    val wide = row.kind == RowKind.COMING || row.kind == RowKind.SERVICES
+                    val h = if (wide) dims.cwHeight else dims.posterHeight
+                    val title = when {
+                        row.key == VisionRows.AI && aiStatus != null && row.items.isEmpty() -> "${row.title} · $aiStatus"
+                        row.key == VisionRows.AI && aiStatus != null -> "${row.title} · ${aiStatus}"
+                        (row.key == VisionRows.PICKS || row.key == VisionRows.IMDB) && recsBuilding -> "${row.title} · thinking…"
+                        else -> row.title
+                    }
+                    EchoRow(title, dims, h, shown?.m?.takeIf { it.type != "service" && it.type != "person" }) {
+                        if (row.items.isEmpty() && !row.done) item { Box(Modifier.size(if (wide) dims.cwWidth else dims.posterWidth, h).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
+                        itemsIndexed(row.items, key = { i, m -> "$i:${m.id}" }) { i, m ->
+                            val onFocus = {
+                                if (m.type != "service" && m.type != "person") { focused = HeroEntry(m, null, null); heroFocused = false }
+                                if (i >= row.items.size - 6) vm.more(row.key)
+                            }
+                            val onHold: (() -> Unit)? = if (m.type == "service" || m.type == "person") null else ({ hold = row to m })
+                            when (row.kind) {
+                                RowKind.COMING -> ComingCard(m, dims, onFocus, onHold) { open(m) }
+                                RowKind.SERVICES -> ServiceCard(m, dims, onFocus) { open(m) }
+                                RowKind.PEOPLE -> PersonCard(m, dims, onFocus) { open(m) }
+                                RowKind.POSTER -> PosterCard(m, dims, Modifier, onFocus = onFocus, onClick = { open(m) }, onHold = onHold)
+                            }
+                        }
+                        if (VisionRows.isPicks(row.key)) item(key = "refresh") {
+                            RefreshCard(dims, onFocus = { focused = null }) { vm.refreshPicks(row.key) }
                         }
                     }
                 }
@@ -262,6 +297,7 @@ fun EchoHome(nav: Nav) {
             onFocus = { clockFocused = it }, onClick = { clockPanel = true }
         )
         if (clockPanel) com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } }
+        hold?.let { (row, m) -> HoldMenu(row, m, scope) { hold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
@@ -486,6 +522,8 @@ private fun EchoCard(
     width: Dp, height: Dp, radius: Dp, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit,
     /** Focused, the card opens out to this width (posters), in the same frame. */
     openWidth: Dp? = null,
+    /** Hold OK. */
+    onHold: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
     val me = remember { FocusRequester() }
@@ -493,8 +531,18 @@ private fun EchoCard(
     val focused by source.collectIsFocusedAsState()
     LaunchedEffect(focused) { if (focused) { LastFocus = me; onFocus() } }
     val shape = RoundedCornerShape(radius)
+    var held by remember { mutableStateOf(false) }
     Box(
-        modifier.focusRequester(me).size(if (focused && openWidth != null) openWidth else width, height).clip(shape).background(CardBackground)
+        modifier.focusRequester(me)
+            .then(if (onHold == null) Modifier else Modifier.onPreviewKeyEvent { e ->
+                val ok = e.key == Key.DirectionCenter || e.key == Key.Enter
+                when {
+                    ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> { if (!held) { held = true; onHold() }; true }
+                    ok && e.type == KeyEventType.KeyUp && held -> { held = false; true }
+                    else -> false
+                }
+            })
+            .size(if (focused && openWidth != null) openWidth else width, height).clip(shape).background(CardBackground)
             .then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
     ) { content(focused) }
@@ -502,9 +550,9 @@ private fun EchoCard(
 
 /** A poster that opens out to the title's backdrop with its logo while focused: at once, no animation. */
 @Composable
-private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit, onHold: (() -> Unit)? = null) {
     EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, modifier, onFocus = onFocus, onClick = onClick,
-        openWidth = dims.posterOpenWidth) { f ->
+        openWidth = dims.posterOpenWidth, onHold = onHold) { f ->
         if (!f) {
             if (m.poster.isNullOrBlank()) Fallback(m.name) else Img(m.poster, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
         } else {
@@ -739,4 +787,94 @@ private object Sections {
     }
     /** YouTube and Music are one page each: picking the section opens it (as Vision's do). */
     fun opensAt(key: String): Screen? = when (key) { "YOUTUBE" -> Screen.YouTube; "MUSIC" -> Screen.Music; else -> null }
+}
+
+// ---- Vision's own row cards ----
+
+/** Coming up: wide, the show's art, its name, when ("New", "Tonight 21:00", …) and the episode. */
+@Composable
+private fun ComingCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onHold: (() -> Unit)?, onClick: () -> Unit) {
+    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick, onHold = onHold) {
+        Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().bottomShade())
+        val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
+        val isNew = m.releaseInfo == "New"
+        Text(m.releaseInfo.orEmpty(), color = if (isNew) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(RoundedCornerShape(50))
+                .background(if (isNew) ImdbYellow else Color(0xCC121316)).padding(horizontal = 10.dp, vertical = 3.dp))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
+            Text(m.name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shadow)
+            m.description?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shadow) }
+        }
+    }
+}
+
+/** A streaming service: its logo over a backdrop from its shows. */
+@Composable
+private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
+    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick) {
+        Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+        if (m.logo != null) {
+            val context = LocalContext.current
+            val req = remember(m.logo) { ImageRequest.Builder(context).data(m.logo).build() }
+            coil3.compose.AsyncImage(req, m.name, Modifier.align(Alignment.Center).padding(24.dp).widthIn(max = dims.cwWidth * 0.6f).heightIn(max = dims.cwHeight * 0.4f),
+                contentScale = ContentScale.Fit, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White))
+        } else Text(m.name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
+    }
+}
+
+/** A favourite person: photo, name under it. */
+@Composable
+private fun PersonCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
+    EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, Modifier, onFocus, onClick) {
+        if (m.poster.isNullOrBlank()) Fallback(m.name) else Img(m.poster, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().bottomShade())
+        Text(m.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
+    }
+}
+
+/** The end of a Picks row: new picks now. */
+@Composable
+private fun RefreshCard(dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
+    EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, Modifier, onFocus, onClick) {
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("↻", color = Color.White, fontSize = 34.sp)
+            Text("Refresh", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
+}
+
+/** Hold OK on a title: Picks rows get More like this / Not for me; every title gets Add to (or Remove from) Library. */
+@Composable
+private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.CoroutineScope, onClose: () -> Unit) {
+    androidx.activity.compose.BackHandler { onClose() }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    val tv = m.type == "series"
+    val picks = VisionRows.isPicks(row.key)
+    val saved = remember(m.id) { Saves.has(m.id) }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
+        Column(Modifier.width(360.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(m.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            var firstUsed = false
+            @Composable fun Choice(label: String, act: () -> Unit) {
+                val mod = if (!firstUsed) { firstUsed = true; Modifier.fillMaxWidth().focusRequester(first) } else Modifier.fillMaxWidth()
+                com.lekathedon.visionlite.ui.Button(label, { act(); onClose() }, mod)
+            }
+            if (picks) {
+                Choice("More like this") { Recs.moreLikeThis(m.id, tv, m.name) }
+                Choice("Not for me") { Recs.notForMe(m.id, tv, m.name); if (row.key == VisionRows.AI) AiPicks.remove(m.id) }
+            }
+            Choice(if (saved) "Remove from Library" else "Add to Library") {
+                scope.launch {
+                    val id = imdbIdOf(m) ?: return@launch
+                    Saves.toggle(Saved(m.type, id, m.name, m.poster))
+                }
+            }
+            Choice("Cancel") {}
+        }
+    }
 }
