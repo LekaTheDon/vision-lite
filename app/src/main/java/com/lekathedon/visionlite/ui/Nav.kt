@@ -17,6 +17,7 @@ sealed interface Screen {
     data object ThisTv : Screen
     data object Trakt : Screen
     data object Rows : Screen
+    data object VisionTb : Screen
 }
 
 @Stable

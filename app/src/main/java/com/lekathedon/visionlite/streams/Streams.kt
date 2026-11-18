@@ -31,9 +31,10 @@ import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
+import kotlinx.coroutines.launch
 
-data class Link(val source: String, val stream: Stream) {
-    val playable get() = !stream.url.isNullOrBlank()
+data class Link(val source: String, val stream: Stream, val tb: com.lekathedon.visionlite.tb.VisionTb.Pick? = null) {
+    val playable get() = !stream.url.isNullOrBlank() || tb != null
     /** 2160 / 1080 / 720 / 480 read from the add-on's text; 0 if not given. */
     val height: Int get() {
         val t = "${stream.name} ${stream.details} ${stream.behaviorHints?.filename}".lowercase()
@@ -72,17 +73,32 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     val app = App.instance
     val links = remember(s.id) { mutableStateListOf<Link>() }
     var pending by remember(s.id) { mutableStateOf(-1) }
+    var getting by remember(s.id) { mutableStateOf("") }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(s.id) {
-        val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) }
+        val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
+        val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + if (tbOn) 1 else 0
         pending = asked
-        app.client.streams(s.type, s.id) { r ->
-            links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
-            pending--
+        kotlinx.coroutines.coroutineScope {
+            // Add-on subtitles for the player, asked alongside the links (nothing before Play was pressed).
+            launch { runCatching { com.lekathedon.visionlite.addons.Subs.load(s.type, s.id) } }
+            if (tbOn) launch {
+                com.lekathedon.visionlite.tb.VisionTb.discover(s.type, s.id) { rows ->
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        links.addAll(rows.map { (st, pick) -> Link(com.lekathedon.visionlite.tb.VisionTb.NAME, st, pick) })
+                    }
+                }
+                pending--
+            }
+            app.client.streams(s.type, s.id) { r ->
+                links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
+                pending--
+            }
         }
-        if (app.prefs.autoplay.value) best(arrange(links, app.prefs))?.let { play(nav, s, it, replace = true) }
+        if (app.prefs.autoplay.value) best(arrange(links, app.prefs))?.let { play(nav, s, it, replace = true) { getting = it } }
     }
-    // Links from add-ons in installed order, so "Add-on order" is stable however the answers land.
-    val order = remember(s.id) { app.addons.addons.value.map { it.manifest.name } }
+    // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
+    val order = remember(s.id) { listOf(com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }
     val shown = remember(links.size) { arrange(links.sortedBy { order.indexOf(it.source) }, app.prefs) }
     val hiddenCount = links.size - shown.size
     val first = remember { FocusRequester() }
@@ -98,14 +114,14 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                     pending > 0 -> "${shown.size} links · waiting for $pending add-on(s)"
                     pending == 0 -> "${shown.size} links"
                     else -> ""
-                } + if (hiddenCount > 0) " · $hiddenCount hidden by your link settings" else ""
+                } + (if (hiddenCount > 0) " · $hiddenCount hidden by your link settings" else "") + (if (getting.isNotEmpty()) " · $getting" else "")
                 Text(status, color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
             }
             items(shown) { l ->
                 val mod = if (l === firstPlayable) Modifier.focusRequester(first) else Modifier
-                Focusable({ if (l.playable) play(nav, s, l, replace = false) }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
+                Focusable({ if (l.playable) scope.launch { play(nav, s, l, replace = false) { getting = it } } }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
                     Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(12.dp)) {
-                        Text("${l.source} · ${l.stream.name.orEmpty().replace('\n', ' ')}", color = if (l.playable) Palette.Text else Palette.TextDim,
+                        Text((if (l.tb != null) "" else "${l.source} · ") + l.stream.name.orEmpty().replace('\n', ' '), color = if (l.playable) Palette.Text else Palette.TextDim,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         Text(if (l.playable) l.stream.details else "Torrent link: needs a debrid add-on", color = Palette.TextDim, fontSize = 13.sp, maxLines = 3)
                     }
@@ -115,7 +131,12 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     }
 }
 
-private fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean) {
-    val p = Screen.Player(l.stream.url!!, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
+/** Vision TB rows get their TorBox link first (about a second); [say] shows how that goes. */
+private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, say: (String) -> Unit) {
+    val url = l.stream.url ?: l.tb?.let { pick ->
+        say("Getting the TorBox link…")
+        com.lekathedon.visionlite.tb.VisionTb.resolve(pick).fold({ say(""); it }, { say("TorBox: ${it.message}"); null })
+    } ?: return
+    val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
     if (replace) nav.replace(p) else nav.push(p)
 }

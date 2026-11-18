@@ -74,6 +74,9 @@ class Prefs(context: Context) {
     val saved = Text("saved", "[]")
     /** Last searches, newline separated, newest first. */
     val recentSearches = Text("recent_searches", "")
+    // Vision TB (off until switched on; the key comes from the phone form, never from the repo)
+    val visionTb = Flag("vision_tb", false)
+    val torboxKey = Text("torbox_key", "")
     // App
     val exitConfirm = Flag("exit_confirm", true)
 }

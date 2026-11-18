@@ -73,9 +73,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val prefs = App.instance.prefs
     var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && AmlFelSupport.nativeFelUsableOnce()) }
     var resumeAt by remember(s.url) { mutableLongStateOf(0L) }
+    // A dead add-on subtitle link must never stop the film: on a load error the file restarts without them.
+    var addonSubs by remember(s.url) { mutableStateOf(true) }
     val afr = prefs.afr.value
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val player = remember(s.url, felAllowed) {
+    val player = remember(s.url, felAllowed, addonSubs) {
         val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
         ExoPlayer.Builder(context, Renderers(context, felAllowed))
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
@@ -84,7 +86,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             )
             .build().apply {
                 trackSelectionParameters = trackPrefs(trackSelectionParameters)
-                setMediaItem(MediaItem.fromUri(s.url), resumeAt)
+                setMediaItem(if (addonSubs) withSubs(s) else MediaItem.fromUri(s.url), resumeAt)
                 prepare()
                 playWhenReady = true
             }
@@ -104,6 +106,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (state == MediaPlayer.STATE_ENDED && prefs.nextEpisode.value && s.type == "series") scope.launch { nextEpisode(nav, s) }
             }
             override fun onPlayerError(error: PlaybackException) {
+                if (addonSubs && error.errorCode in 2000..2999 && com.lekathedon.visionlite.addons.Subs.forId(s.id).isNotEmpty()) {
+                    resumeAt = player.currentPosition
+                    addonSubs = false
+                    return
+                }
                 if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) {
                     resumeAt = player.currentPosition
                     felAllowed = false
@@ -139,6 +146,22 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         },
         update = { it.player = player }
     )
+}
+
+/** The file plus the add-on subtitles found for this title (side-loaded; picked by the language settings). */
+private fun withSubs(s: Screen.Player): MediaItem {
+    val subs = com.lekathedon.visionlite.addons.Subs.forId(s.id)
+    if (subs.isEmpty()) return MediaItem.fromUri(s.url)
+    return MediaItem.Builder().setUri(s.url).setSubtitleConfigurations(subs.map { sub ->
+        val u = sub.url.substringBefore('?').lowercase()
+        val mime = when {
+            u.endsWith(".vtt") -> androidx.media3.common.MimeTypes.TEXT_VTT
+            u.endsWith(".ass") || u.endsWith(".ssa") -> androidx.media3.common.MimeTypes.TEXT_SSA
+            else -> androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
+        }
+        MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url)).setMimeType(mime)
+            .setLanguage(sub.lang).setLabel("${sub.lang} · add-on").build()
+    }).build()
 }
 
 private fun langs(vararg codes: String) = codes.filter { it.isNotEmpty() }.distinct().toTypedArray()

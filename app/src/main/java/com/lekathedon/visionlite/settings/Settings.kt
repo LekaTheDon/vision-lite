@@ -59,6 +59,7 @@ fun Settings(nav: Nav) {
         item { Link("This TV", "Device check: Dolby Vision 7, frame-rate matching, what the TV and soundbar take", Modifier.focusRequester(first)) { nav.push(Screen.ThisTv) } }
         item { Link("Add-ons", "Install, order, remove") { nav.push(Screen.Addons) } }
         item { Link("Trakt", "Connect by QR: Continue Watching, Library, scrobbling") { nav.push(Screen.Trakt) } }
+        item { Link("Vision TB", "TorBox-cached links straight from the torrent sites, first in the list") { nav.push(Screen.VisionTb) } }
 
         item { Section("Playback") }
         item { Toggle("Autoplay", "Play picks the best link (resolution, then size) by itself", p.autoplay) }
@@ -143,7 +144,7 @@ private fun RowText(title: String, sub: String, focused: Boolean) {
 @Composable
 private fun Title(t: String) = Text(t, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
 
-/** Installed add-ons: add by URL, move up/down, remove. (Phone QR entry comes with Trakt's QR in phase 3.) */
+/** Installed add-ons: add by phone (QR) or by URL, move up/down, remove. */
 @Composable
 fun Addons() {
     val store = App.instance.addons
@@ -151,6 +152,11 @@ fun Addons() {
     val scope = rememberCoroutineScope()
     var url by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf("") }
+    var byPhone by remember { mutableStateOf(false) }
+    fun install(u: String) { scope.launch {
+        msg = "Installing…"
+        msg = runCatching { store.install(u) }.fold({ url = ""; "Installed ${it.manifest.name}" }, { "Could not install: ${it.message}" })
+    } }
     LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp)) {
         item {
             Title("Add-ons")
@@ -165,12 +171,13 @@ fun Addons() {
                     modifier = Modifier.fillMaxWidth(0.55f).background(Palette.Card).padding(12.dp),
                     decorationBox = { inner -> if (url.isEmpty()) Text("Add-on URL (…/manifest.json)", color = Palette.TextDim, fontSize = 15.sp); inner() }
                 )
-                Button("Install", {
-                    scope.launch {
-                        msg = runCatching { store.install(url) }.fold({ url = ""; "Installed ${it.manifest.name}" }, { "Could not install: ${it.message}" })
-                    }
-                })
+                Button("Install", { install(url) })
+                Button("Add by phone", { byPhone = true })
             }
+            if (byPhone) com.lekathedon.visionlite.phone.PhoneBox("Add an add-on",
+                listOf(com.lekathedon.visionlite.phone.PhoneForm.Field("Add-on URL", "https://…/manifest.json", note = "Any Stremio add-on or catalog list (IMDb, Trakt, MDBList…); stremio:// links work too")),
+                onSave = { v -> byPhone = false; v.firstOrNull()?.takeIf { it.isNotBlank() }?.let { install(it) } },
+                onCancel = { byPhone = false })
             if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
         }
         items(list, key = { it.base }) { a ->

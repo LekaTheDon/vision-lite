@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
+                        Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()
                     }
                 }
             }
