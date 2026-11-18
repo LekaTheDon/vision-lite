@@ -88,6 +88,9 @@ fun Settings(nav: Nav) {
         item { Section("Home") }
         item { Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack) }
         item { Choice("Home look", "", p.homeLook, listOf("echo" to "Echo", "classic" to "Classic")) }
+        item { Toggle("Trailers", "Play after focus rests on the billboard or an opened poster", p.trailers) }
+        item { Choice("Trailer delay", "", p.trailerDelay, listOf("1.2" to "1.2 s", "5" to "5 s", "10" to "10 s", "20" to "20 s", "30" to "30 s", "60" to "60 s")) }
+        item { Toggle("Trailer sound", "", p.trailerSound) }
         item { Choice("Poster size", "", p.posterSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large")) }
         item { Toggle("Clock", "Time in the top bar", p.clock) }
         item { Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings) }

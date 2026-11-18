@@ -66,6 +66,10 @@ class Prefs(context: Context) {
     val posterSize = Text("poster_size", "m")
     /** "echo" (Vision's Echo look) or "classic". */
     val homeLook = Text("home_look", "echo")
+    /** Trailers on Home (Vision's IMDb source): after [trailerDelay] seconds of rest on the billboard or an opened poster. */
+    val trailers = Flag("trailers", true)
+    val trailerDelay = Text("trailer_delay", "5")
+    val trailerSound = Flag("trailer_sound", true)
     val clock = Flag("clock", true)
     val ratings = Flag("ratings", false)
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */

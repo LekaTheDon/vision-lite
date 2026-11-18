@@ -189,19 +189,35 @@ fun EchoHome(nav: Nav) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val heroPx = with(density) { 470.dp.toPx() }
     val art = entry?.let { enriched[it.m.id]?.background ?: it.m.wide() }
+    val clockOn by App.instance.prefs.clock.flow.collectAsStateWithLifecycle()
+    // Trailers (Vision's IMDb source): the billboard's after the delay on View title; a poster's in its opened card.
+    val trailersOn by prefs.trailers.flow.collectAsStateWithLifecycle()
+    val delayText by prefs.trailerDelay.flow.collectAsStateWithLifecycle()
+    val sound by prefs.trailerSound.flow.collectAsStateWithLifecycle()
+    val trailerLook = remember(trailersOn, delayText, sound) {
+        TrailerLook(trailersOn, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound)
+    }
+    var heroTrailer by remember { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(heroFocused, heroEntry?.m?.id, trailerLook) {
+        heroTrailer = null
+        val id = heroEntry?.m?.id ?: return@LaunchedEffect
+        if (!heroFocused || !trailerLook.on) return@LaunchedEffect
+        heroTrailer = trailerAfterRest(id, trailerLook.delayMs)?.let { id to it }
+    }
 
     Box(Modifier.fillMaxSize().background(look.page)) {
         if (!look.oled) AmbientPageWash(art, Modifier.fillMaxSize())
         // The billboard's art, wall to wall, fading as the page scrolls past it (read while drawing only).
-        EchoBackdrop(art, Modifier.graphicsLayer {
+        EchoBackdrop(art, heroTrailer?.takeIf { heroFocused && it.first == entry?.m?.id }?.second, trailerLook.muted,
+            onEnded = { heroTrailer = null }, modifier = Modifier.graphicsLayer {
             alpha = if (listState.firstVisibleItemIndex > 0) 0f
             else (1f - listState.firstVisibleItemScrollOffset / heroPx).coerceIn(0f, 1f)
         })
-        CompositionLocalProvider(LocalBringIntoViewSpec provides pageSpec) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides pageSpec, LocalTrailer provides trailerLook) {
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 300.dp)) {
                 item(key = "hero") {
                     Billboard(
-                        entry, enriched[entry?.m?.id], heroEntries.size, heroIndex, viewTitle, clockFocus,
+                        entry, enriched[entry?.m?.id], heroEntries.size, heroIndex, viewTitle, if (clockOn) clockFocus else pillHome,
                         onFocus = { if (it) heroFocused = true },
                         onStep = { d -> if (heroEntries.isNotEmpty()) heroIndex = (heroIndex + d + heroEntries.size) % heroEntries.size },
                         onOpen = { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
@@ -239,14 +255,27 @@ fun EchoHome(nav: Nav) {
             }
         }
         // The menu stays hidden: Up from View title reaches the clock, Up again opens the pill (Vision's Home).
-        val pillOpen = clockFocused || pillFocused
-        TopPill(nav, pillOpen, pillHome, viewTitle) { pillFocused = it }
-        if (App.instance.prefs.clock.flow.collectAsStateWithLifecycle().value) ClockPill(
+        TopPill(nav, pillFocused, pillHome, if (clockOn) clockFocus else viewTitle) { pillFocused = it }
+        if (clockOn) ClockPill(
             Modifier.align(Alignment.TopEnd), clockFocus, pillHome, viewTitle,
             onFocus = { clockFocused = it }, onClick = { nav.push(Screen.Library) }
         )
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
+}
+
+/** Trailer settings for the page, read once by Home. */
+private data class TrailerLook(val on: Boolean, val delayMs: Long, val muted: Boolean)
+private val LocalTrailer = androidx.compose.runtime.staticCompositionLocalOf { TrailerLook(false, 5_000L, false) }
+
+/** Waits out the trailer delay (the lookup starts a second early, so the trailer is ready on time); null for none. */
+private suspend fun trailerAfterRest(id: String, delayMs: Long): String? {
+    val lead = minOf(1_000L, delayMs)
+    delay(delayMs - lead)
+    val started = System.currentTimeMillis()
+    val url = com.lekathedon.visionlite.trailer.Trailers.find(id) ?: return null
+    delay((lead - (System.currentTimeMillis() - started)).coerceAtLeast(0L))
+    return url
 }
 
 /** A billboard title: Continue Watching entries carry their episode. */
@@ -344,7 +373,6 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, down
         Modifier.align(Alignment.TopCenter).padding(top = 11.dp).height(34.dp)
             .graphicsLayer { alpha = if (open) 1f else 0f }
             .onFocusChanged { onFocus(it.hasFocus) }
-            .focusProperties { canFocus = open }
             .clip(shape).background(Color(0x2EFFFFFF)).border(1.dp, Color(0x59FFFFFF), shape).padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -363,7 +391,7 @@ private fun PillItem(label: String?, open: Boolean, down: FocusRequester, select
     val shape = RoundedCornerShape(50)
     val tint = Color.White.copy(alpha = if (f || selected) 1f else 0.85f)
     Box(
-        modifier.fillMaxHeight().focusProperties { canFocus = open; this.down = down }.clip(shape)
+        modifier.fillMaxHeight().focusProperties { this.down = down }.clip(shape)
             .then(if (f) Modifier.background(Color(0x40FFFFFF)).border(1.5.dp, Color(0xCCFFFFFF), shape)
                 else if (selected) Modifier.background(Color(0x26FFFFFF)).border(1.dp, Color(0x40FFFFFF), shape) else Modifier)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
@@ -469,6 +497,11 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
         } else {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 Img(m.wide(), dims.posterOpenWidth, dims.posterHeight, Modifier.fillMaxSize())
+                // The opened card plays the title's trailer once focus has rested (Vision's expanded-card target).
+                val look = LocalTrailer.current
+                var trailer by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs) else null }
+                trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, look.muted, Modifier.fillMaxSize()) { trailer = null } }
                 Box(Modifier.fillMaxSize().background(
                     Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
                 ))
@@ -575,10 +608,11 @@ private fun RatingBadge() {
 // ---- The billboard's art (NetflixLegacyBackdrop): wall to wall, darkened on the left and at the bottom ----
 
 @Composable
-private fun EchoBackdrop(url: String?, modifier: Modifier) {
+private fun EchoBackdrop(url: String?, trailer: String?, muted: Boolean, onEnded: () -> Unit, modifier: Modifier) {
     url ?: return
     Box(modifier.fillMaxSize()) {
         Img(url, 960.dp, 540.dp, Modifier.fillMaxSize())
+        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer, muted, Modifier.fillMaxSize(), onEnded)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xE6000000), 0.35f to Color(0x80000000), 0.7f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 0.9f to Color(0xE6000000), 1f to Color.Black)))
     }
