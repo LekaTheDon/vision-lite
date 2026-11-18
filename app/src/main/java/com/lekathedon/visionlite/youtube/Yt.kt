@@ -40,7 +40,19 @@ object Yt {
     private enum class Client(val cname: String, val version: String, val id: String, val ua: String, val host: String) {
         TV("TVHTML5", "7.20250929.13.00", "7", TV_UA, "https://www.youtube.com"),
         MUSIC("WEB_REMIX", "1.20250929.01.00", "67", WEB_UA, "https://music.youtube.com"),
-        VR("ANDROID_VR", "1.65.10", "28", VR_UA, "https://www.youtube.com")
+        VR("ANDROID_VR", "1.65.10", "28", VR_UA, "https://www.youtube.com"),
+        // Vision's first player client (InAppYouTubeExtractor): plays without a bot check when sent with a visitor id.
+        VISIONOS("VISIONOS", "1.02", "101", VISION_UA, "https://www.youtube.com")
+    }
+    private const val VISION_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+    @Volatile private var visitor: Pair<Long, String>? = null
+    /** YouTube's visitor id from a watch page, kept 6 h (one page load). */
+    private fun visitorId(videoId: String): String? {
+        visitor?.let { (at, v) -> if (System.currentTimeMillis() - at < 6 * 3600_000L) return v }
+        val html = runCatching { text(Request.Builder().url("https://www.youtube.com/watch?v=$videoId&hl=en").header("User-Agent", WEB_UA).build()) }.getOrNull() ?: return null
+        val v = Regex("\"VISITOR_DATA\":\"([^\"]+)\"").find(html)?.groupValues?.get(1) ?: return null
+        visitor = System.currentTimeMillis() to v
+        return v
     }
 
     // ------------------------------------------------------------ sign-in
@@ -116,14 +128,16 @@ object Yt {
     // ------------------------------------------------------------ InnerTube
 
     private fun context(c: Client) = JSONObject().put("client", JSONObject().put("clientName", c.cname).put("clientVersion", c.version).put("hl", "en").put("gl", "US").apply {
+        if (c == Client.VISIONOS) { put("deviceMake", "Apple"); put("deviceModel", "RealityDevice17,1"); put("osName", "visionOS"); put("osVersion", "26.5.23O471") }
         if (c == Client.VR) { put("deviceMake", "Oculus"); put("deviceModel", "Quest 3"); put("androidSdkVersion", 32); put("osName", "Android"); put("osVersion", "12L") }
     })
 
-    private fun call(c: Client, endpoint: String, body: JSONObject, auth: Boolean): JSONObject {
+    private fun call(c: Client, endpoint: String, body: JSONObject, auth: Boolean, visitorId: String? = null): JSONObject {
         body.put("context", context(c))
         fun req(withAuth: Boolean) = Request.Builder().url("${c.host}/youtubei/v1/$endpoint?prettyPrint=false")
             .header("User-Agent", c.ua).header("X-Youtube-Client-Name", c.id).header("X-Youtube-Client-Version", c.version)
             .header("Origin", c.host).header("Referer", c.host + "/")
+            .apply { if (visitorId != null) header("X-Goog-Visitor-Id", visitorId) }
             .apply { if (withAuth) bearer()?.let { header("Authorization", "Bearer $it") } }
             .post(body.toString().toRequestBody(JSON)).build()
         // Music doesn't always take the TV sign-in; then it answers signed out.
@@ -151,7 +165,10 @@ object Yt {
     fun streams(videoId: String, maxHeight: Int = 2160): YtStreams {
         val ck = "$videoId@$maxHeight"
         streamCache[ck]?.let { (at, s) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) return s }
-        val o = call(Client.VR, "player", JSONObject().put("videoId", videoId).put("contentCheckOk", true).put("racyCheckOk", true), false)
+        fun ask(c: Client, v: String?) = call(c, "player", JSONObject().put("videoId", videoId).put("contentCheckOk", true).put("racyCheckOk", true), false, v)
+        // As Vision: visionOS with a visitor id first (the VR client now gets "confirm you're not a bot"), VR as the fallback.
+        val o = visitorId(videoId)?.let { v -> runCatching { ask(Client.VISIONOS, v) }.getOrNull()?.takeIf { it.optJSONObject("playabilityStatus")?.optString("status") == "OK" } }
+            ?: ask(Client.VR, null)
         val ps = o.optJSONObject("playabilityStatus")
         if (ps?.optString("status") != "OK") throw IOException(ps?.optString("reason")?.ifBlank { null } ?: "Not playable")
         val sd = o.optJSONObject("streamingData") ?: throw IOException("No streams")

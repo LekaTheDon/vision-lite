@@ -28,6 +28,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -233,14 +234,36 @@ fun SportsScreen(nav: Nav) {
 
 // ---------------------------------------------------------------- the clock's panel
 
+/** Vision's clock tabs (LegacyClock PanelTab), same order; YouTube and Music only when YouTube is signed in. */
+private enum class PanelTab(val title: String, val chip: String) {
+    SAVED("Saved", "Saved"), ACTIVITY("Activity", "Activity"), LIVE("Live now", "Live"), YOUTUBE("YouTube", "YouTube"),
+    MUSIC("Music", "Music"), NOTICES("Notices", "Notices"), CALENDAR("Calendar", "Calendar")
+}
+
+/** One row of a list tab: poster, title, one line under it; OK opens it. */
+private class PanelLine(val key: String, val title: String, val sub: String, val poster: String?, val header: String? = null, val open: () -> Unit)
+
+private fun ago(ms: Long, now: Long): String {
+    val m = (now - ms) / 60_000
+    return when { m < 1 -> "Just now"; m < 60 -> "${m} min ago"; m < 1440 -> "${m / 60} h ago"; m < 2880 -> "Yesterday"; else -> "${m / 1440} days ago" }
+}
+private fun isoMs(s: String): Long = runCatching { java.time.Instant.parse(s).toEpochMilli() }.getOrDefault(0L)
+private val dayFmt = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
+
 /**
- * The clock's panel (Vision's Legacy clock): Live now (games really under way), OK on a game lists its channels and
- * the first OK on a channel plays it in the window on the left, OK again watches it full screen. Back: the games again,
- * then closes.
+ * The clock's panel (Vision's Legacy clock panel): tabs Saved (continue watching + your saves), Activity (what you
+ * watched last, Trakt), Live now (games under way; OK lists channels, first OK on a channel plays it in the window,
+ * OK again full screen), YouTube (your recommendations), Music (a random batch from your YouTube subscriptions),
+ * Notices (new episodes of the shows you follow), Calendar (the next 14 days). Each tab reads only when it's opened
+ * (YouTube / Music after a short stay, as Vision). Back: the games again (Live), then closes.
  */
 @Composable
 fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
-    SportsViewer()
+    val app = com.lekathedon.visionlite.App.instance
+    val ytOn by com.lekathedon.visionlite.youtube.Yt.signed.collectAsState()
+    val tabs = remember(ytOn) { PanelTab.entries.filter { (it != PanelTab.YOUTUBE && it != PanelTab.MUSIC) || ytOn } }
+    var tab by rememberSaveable { mutableStateOf(PanelTab.SAVED) }
+    LaunchedEffect(tabs) { if (tab !in tabs) tab = PanelTab.SAVED }
     val events by Sports.events.collectAsState()
     val matches by Sports.matches.collectAsState()
     val status by Sports.status.collectAsState()
@@ -249,27 +272,130 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
     var game by remember { mutableStateOf<SportsEvent?>(null) }
     var playing by remember { mutableStateOf<ChannelMatch?>(null) }
     var returnTo by remember { mutableStateOf<String?>(null) }
+    val tabFocus = remember { FocusRequester() }
     val first = remember { FocusRequester() }
     val rowFocus = remember { HashMap<String, FocusRequester>() }
-    LaunchedEffect(game, live.isNotEmpty()) {
+    if (tab == PanelTab.LIVE) SportsViewer()
+    LaunchedEffect(tab) { if (tab != PanelTab.LIVE) { game = null; playing = null } }
+    LaunchedEffect(Unit) { delay(60); runCatching { tabFocus.requestFocus() } }
+    LaunchedEffect(game) {
+        if (game == null && returnTo == null) return@LaunchedEffect
         delay(60)
-        val target = returnTo?.let { rowFocus[it] }
-        runCatching { (target ?: first).requestFocus() }
+        runCatching { (returnTo?.let { rowFocus[it] } ?: first).requestFocus() }
         returnTo = null
     }
+
+    // The list tabs, each read when opened.
+    val cw by produceState(emptyList<com.lekathedon.visionlite.trakt.Resume>(), tab) {
+        if (tab == PanelTab.SAVED) value = runCatching { app.trakt.continueWatching() }.getOrDefault(emptyList())
+    }
+    val history by produceState(emptyList<com.lekathedon.visionlite.trakt.HistoryItem>(), tab) {
+        if (tab == PanelTab.ACTIVITY) value = runCatching { app.trakt.history() }.getOrDefault(emptyList())
+    }
+    var ytRound by remember { mutableStateOf(0) }
+    val yt by produceState<List<com.lekathedon.visionlite.youtube.YtItem>?>(null, tab, ytRound) {
+        if (tab != PanelTab.YOUTUBE) return@produceState
+        delay(600)
+        value = runCatching { com.lekathedon.visionlite.youtube.Yt.home().flatMap { it.items }.filter { it.videoId != null }.distinctBy { it.videoId }.take(40) }.getOrDefault(emptyList())
+    }
+    val music by produceState<List<com.lekathedon.visionlite.youtube.YtItem>?>(null, tab, ytRound) {
+        if (tab != PanelTab.MUSIC) return@produceState
+        delay(600)
+        value = runCatching { com.lekathedon.visionlite.youtube.Yt.subscriptions().flatMap { it.items }.filter { it.videoId != null }.distinctBy { it.videoId }.shuffled().take(30) }.getOrDefault(emptyList())
+    }
+    val coming by com.lekathedon.visionlite.home.ComingUp.items.collectAsState()
+    fun detail(type: String, id: String, name: String) { onDismiss(); nav.push(Screen.Detail(type, id, name)) }
+    fun epText(s: Int?, e: Int?) = if (s != null && e != null) "S$s E$e" else null
+
+    val lines: List<PanelLine> = when (tab) {
+        PanelTab.SAVED -> {
+            val saves = com.lekathedon.visionlite.library.Saves.all()
+            cw.mapIndexed { i, r -> PanelLine("cw:${r.streamId}", r.name, listOfNotNull(epText(r.season, r.episode), if (r.progress > 0f) "${r.progress.toInt()}% watched" else "Up next").joinToString(" · "),
+                com.lekathedon.visionlite.library.posterOf(r.imdb), if (i == 0) "CONTINUE WATCHING" else null) {
+                onDismiss(); nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) } } +
+            saves.mapIndexed { i, sv -> PanelLine("sv:${sv.id}", sv.name, if (sv.type == "series") "Series" else "Movie",
+                sv.poster ?: com.lekathedon.visionlite.library.posterOf(sv.id.substringBefore(':')), if (i == 0) "SAVED" else null) { detail(sv.type, sv.id, sv.name) } }
+        }
+        PanelTab.ACTIVITY -> history.mapNotNull { h ->
+            val at = isoMs(h.watchedAt)
+            when {
+                h.movie != null -> h.movie.ids.imdb?.let { id -> PanelLine("act:${h.id}", h.movie.title, "${ago(at, now)} · Movie", com.lekathedon.visionlite.library.posterOf(id)) { detail("movie", id, h.movie.title) } }
+                h.show != null && h.episode != null -> h.show.ids.imdb?.let { id -> PanelLine("act:${h.id}", h.show.title,
+                    listOfNotNull(ago(at, now), epText(h.episode.season, h.episode.number), h.episode.title).joinToString(" · "), com.lekathedon.visionlite.library.posterOf(id)) { detail("series", id, h.show.title) } }
+                else -> null
+            }
+        }
+        PanelTab.YOUTUBE -> yt.orEmpty().map { v -> PanelLine("yt:${v.videoId}", v.title, v.sub, v.image) { onDismiss(); nav.push(Screen.YtPlay(v.videoId!!, v.title)) } }
+        PanelTab.MUSIC -> music.orEmpty().let { list -> list.mapIndexed { i, v -> PanelLine("m:${v.videoId}", v.title, v.sub, v.image) {
+            com.lekathedon.visionlite.music.MusicPlayer.play(list, i) } } }
+        PanelTab.NOTICES -> coming.filter { it.isNew }.sortedByDescending { it.at }.map { c ->
+            PanelLine("n:${c.key}", c.name, listOfNotNull(if (c.type == "movie") "Now available to stream" else "New episode", epText(c.season, c.episode), c.epTitle, ago(c.at, now)).joinToString(" · "),
+                c.image ?: com.lekathedon.visionlite.library.posterOf(c.imdb)) { detail(c.type, c.imdb, c.name) } }
+        PanelTab.CALENDAR -> coming.filter { it.at in (now - 86_400_000L)..(now + 14 * 86_400_000L) }.sortedBy { it.at }.map { c ->
+            PanelLine("c:${c.key}", c.name, listOfNotNull(dayFmt.format(Date(c.at)), epText(c.season, c.episode), c.epTitle).joinToString(" · "),
+                c.image ?: com.lekathedon.visionlite.library.posterOf(c.imdb)) { detail(c.type, c.imdb, c.name) } }
+        PanelTab.LIVE -> emptyList()
+    }
+    val kicker = when (tab) {
+        PanelTab.SAVED -> "${(cw.map { it.imdb } + com.lekathedon.visionlite.library.Saves.all().map { it.id }).toSet().size} TITLES · ${cw.size} TO RESUME"
+        PanelTab.ACTIVITY -> "${history.size} RECENTLY WATCHED"
+        PanelTab.LIVE -> "${live.size} LIVE NOW"
+        PanelTab.YOUTUBE -> if (yt.isNullOrEmpty()) "RECOMMENDED" else "${yt!!.size} RECOMMENDED"
+        PanelTab.MUSIC -> if (music.isNullOrEmpty()) "FROM YOUR SUBSCRIPTIONS" else "${music!!.size} FROM YOUR SUBSCRIPTIONS"
+        PanelTab.NOTICES -> "${lines.size} NEW"
+        PanelTab.CALENDAR -> "NEXT 14 DAYS"
+    }
+    val empty = when (tab) {
+        PanelTab.SAVED -> "Nothing saved or to resume yet."
+        PanelTab.ACTIVITY -> if (app.trakt.connected.value == null) "Sign in to Trakt to see what you watched." else "Nothing watched yet."
+        PanelTab.YOUTUBE -> if (yt == null) "Loading YouTube…" else "Nothing from YouTube right now."
+        PanelTab.MUSIC -> if (music == null) "Loading your subscriptions…" else "Nothing from your subscriptions right now."
+        PanelTab.NOTICES -> "No new episodes in the last 10 days."
+        PanelTab.CALENDAR -> "Nothing airing in the next 14 days."
+        PanelTab.LIVE -> ""
+    }
+
     val back: () -> Unit = { val g = game; if (g != null) { game = null; playing = null; returnTo = g.id } else onDismiss() }
     Dialog(onDismissRequest = back, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
             game?.let { Window(it, playing, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
             Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(388.dp).fillMaxHeight().clip(RoundedCornerShape(18.dp))
                 .background(Color(0xF2161618)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)).padding(top = 20.dp)) {
-                Text("${live.size} LIVE NOW", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.padding(horizontal = 24.dp))
-                Text(game?.title ?: "Live now", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+                Text(kicker, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.padding(horizontal = 24.dp))
+                Text(if (tab == PanelTab.LIVE) game?.title ?: tab.title else tab.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+                // Tabs: focus moving over a tab opens it (as Vision); Down goes into its list.
+                androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(tabs, key = { it.name }) { t ->
+                        Focusable({ if (t == PanelTab.YOUTUBE || t == PanelTab.MUSIC) ytRound++ }, if (t == tab) Modifier.focusRequester(tabFocus) else Modifier,
+                            RoundedCornerShape(50), onFocus = { if (tab != t) tab = t }) { f ->
+                            Text(t.chip, color = if (f) Color.Black else if (t == tab) Color.White else Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.background(if (f) Color.White else if (t == tab) Color(0x26FFFFFF) else Color.Transparent).padding(horizontal = 10.dp, vertical = 5.dp))
+                        }
+                    }
+                }
                 val g = game
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 20.dp),
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (g == null) {
+                    if (tab != PanelTab.LIVE) {
+                        if (lines.isEmpty()) item { Text(empty, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp)) }
+                        items(lines, key = { it.key }) { l ->
+                            Column {
+                                l.header?.let { Text(it, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 4.dp)) }
+                                Focusable(l.open, if (l == lines.first()) Modifier.focusRequester(first) else Modifier) { f ->
+                                    Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x12FFFFFF)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        val wide = tab == PanelTab.YOUTUBE || tab == PanelTab.MUSIC
+                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x22FFFFFF))) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
+                                        Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                                            Text(l.title, color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(l.sub, color = if (f) Color.DarkGray else Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (g == null) {
                         if (live.isEmpty()) item {
                             Text(when { status.isNotEmpty() -> status; events.isEmpty() -> "Getting the scores…"; else -> "Nothing live right now." },
                                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp))

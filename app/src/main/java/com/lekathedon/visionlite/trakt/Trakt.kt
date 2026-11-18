@@ -38,6 +38,8 @@ import java.io.IOException
 /** What the recommendation engine learns from: everything watched, rated and paused. */
 class TraktTaste(val movies: List<WatchedMovie>, val shows: List<Watched>, val ratings: List<Rated>, val paused: List<Playback>)
 @Serializable data class Progress(@SerialName("next_episode") val next: TEpisode? = null, val aired: Int = 0, val completed: Int = 0)
+@Serializable data class HistoryItem(val id: Long = 0, @SerialName("watched_at") val watchedAt: String = "", val type: String = "",
+                                     val movie: TMovie? = null, val show: TShow? = null, val episode: TEpisode? = null)
 @Serializable data class ListItem(val type: String = "", val movie: TMovie? = null, val show: TShow? = null)
 @Serializable data class DeviceCode(@SerialName("device_code") val deviceCode: String, @SerialName("user_code") val userCode: String,
                                     @SerialName("verification_url") val url: String, @SerialName("expires_in") val expiresIn: Int, val interval: Int)
@@ -151,6 +153,10 @@ class Trakt(private val prefs: Prefs) {
         // One card per title (like Vision/Nuvio): a show's newest entry wins, whether a paused episode or its next one.
         (p + next).sortedByDescending { it.at }.distinctBy { it.imdb }
     }
+
+    /** What you watched last (the clock's Activity tab): one request. */
+    suspend fun history(limit: Int = 40): List<HistoryItem> = if (!on()) emptyList()
+        else runCatching { get<List<HistoryItem>>("sync/history?limit=$limit") }.getOrDefault(emptyList())
 
     suspend fun watchlist(): List<ListItem> = if (!on()) emptyList()
         else runCatching { get<List<ListItem>>("sync/watchlist?sort_by=added&sort_how=desc") }.getOrDefault(emptyList())

@@ -94,6 +94,9 @@ import com.lekathedon.visionlite.recs.AiPicks
 import com.lekathedon.visionlite.recs.Recs
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.animation.using
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.Img
 import com.lekathedon.visionlite.ui.LocalLook
@@ -291,9 +294,13 @@ fun EchoHome(nav: Nav) {
             }
         }
         // The menu stays hidden: Up from View title reaches the clock, Up again opens the pill (Vision's Home).
-        TopPill(nav, pillFocused, pillHome, if (clockOn) clockFocus else viewTitle) { pillFocused = it }
+        // Down to the billboard always works: the list is brought back to the top first (the billboard may have
+        // scrolled out, and then its button isn't there to take focus — the old "stuck on the clock").
+        val toHero: () -> Unit = { scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { viewTitle.requestFocus() } } }
+        TopPill(nav, pillFocused, pillHome, onDown = { if (clockOn) runCatching { clockFocus.requestFocus() } else toHero() },
+            onRight = if (clockOn) ({ runCatching { clockFocus.requestFocus() } }) else null) { pillFocused = it }
         if (clockOn) ClockPill(
-            Modifier.align(Alignment.TopEnd), clockFocus, pillHome, viewTitle,
+            Modifier.align(Alignment.TopEnd), clockFocus, pillHome, toHero,
             onFocus = { clockFocused = it }, onClick = { clockPanel = true }
         )
         if (clockPanel) com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } }
@@ -405,42 +412,113 @@ private fun Billboard(
 
 // ---- Top band: PillNavigationBar (glass pill, top centre, hidden until reached) and LegacyClockPill (top right) ----
 
+/**
+ * Vision's PillNavigationBar: Home and the section entry fixed on the left, the section's pages three at a time in a
+ * window that slides a page along when focus steps past its last (or first) slot, the gear fixed on the right. The pill
+ * never grows: OK on the section entry shows the sections in that same window. Hidden until reached; from outside
+ * only Home takes focus. Up stays, Down = the clock (or the billboard), Right past the gear = the clock. Back folds
+ * the sections away, then returns to Nuvio.
+ */
 @Composable
-private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, down: FocusRequester, onFocus: (Boolean) -> Unit) {
+private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, onDown: () -> Unit, onRight: (() -> Unit)?, onFocus: (Boolean) -> Unit) {
     val shape = RoundedCornerShape(50)
+    val prefs = App.instance.prefs
+    val section by prefs.appSection.flow.collectAsStateWithLifecycle()
+    var choosing by remember { mutableStateOf(false) }
+    LaunchedEffect(open) { if (!open) choosing = false }
+    val middle: List<Pair<String, String>> = if (choosing) Sections.all.map { "s:" + it.first to it.second }
+        else Sections.pages(section).map { "p:" + it.first to it.first }
+    val keys = listOf("home", "section") + middle.map { it.first } + "settings"
+    val req = remember { HashMap<String, FocusRequester>() }
+    fun r(k: String) = if (k == "home") home else req.getOrPut(k) { FocusRequester() }
+    var focusedKey by remember { mutableStateOf<String?>(null) }
+    var page by remember { mutableStateOf(0) }
+    val pages = ((middle.size + 2) / 3).coerceAtLeast(1)
+    LaunchedEffect(choosing, section) { page = if (choosing) Sections.all.indexOfFirst { it.first == section }.coerceAtLeast(0) / 3 else 0 }
+    var pending by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pending) {
+        val k = pending ?: return@LaunchedEffect
+        repeat(20) { withFrameNanos { }; if (focusedKey == k) { pending = null; return@LaunchedEffect }; runCatching { r(k).requestFocus() } }
+        pending = null
+    }
+    fun go(k: String) { val mi = middle.indexOfFirst { it.first == k }; if (mi >= 0) page = mi / 3; pending = k }
+    fun step(forward: Boolean): Boolean {
+        val k = focusedKey ?: return false
+        val mi = middle.indexOfFirst { it.first == k }
+        when {
+            k == "home" -> if (forward) go("section")
+            k == "section" -> if (forward) middle.getOrNull(page * 3)?.let { go(it.first) } ?: go("settings") else go("home")
+            k == "settings" -> if (forward) onRight?.invoke() else middle.getOrNull(minOf(page * 3 + 2, middle.lastIndex))?.let { go(it.first) } ?: go("section")
+            mi >= 0 -> { val n = middle.getOrNull(if (forward) mi + 1 else mi - 1); if (n != null) go(n.first) else go(if (forward) "settings" else "section") }
+            else -> return false
+        }
+        return true
+    }
+    val inSettings = !choosing && section != "NUVIO"
+    androidx.activity.compose.BackHandler(enabled = open && (choosing || inSettings)) {
+        if (choosing) choosing = false else prefs.appSection.value = "NUVIO"
+        pending = "section"
+    }
+    val pillAlpha by androidx.compose.animation.core.animateFloatAsState(if (open) 1f else 0f, tween(if (open) 320 else 240), label = "pill")
     Row(
         Modifier.align(Alignment.TopCenter).padding(top = 11.dp).height(34.dp)
-            .graphicsLayer { alpha = if (open) 1f else 0f }
+            .graphicsLayer { alpha = pillAlpha; translationY = (1f - pillAlpha) * -40f }
             .onFocusChanged { onFocus(it.hasFocus) }
+            .onPreviewKeyEvent { e ->
+                if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    androidx.compose.ui.input.key.Key.DirectionUp -> true
+                    androidx.compose.ui.input.key.Key.DirectionDown -> { onDown(); true }
+                    androidx.compose.ui.input.key.Key.DirectionRight -> step(true)
+                    androidx.compose.ui.input.key.Key.DirectionLeft -> step(false)
+                    else -> false
+                }
+            }
             .clip(shape).background(Color(0x2EFFFFFF)).border(1.dp, Color(0x59FFFFFF), shape).padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Vision's pill: Home · the section (OK shows the sections to pick) · that section's pages · Settings.
-        val prefs = App.instance.prefs
-        val section by prefs.appSection.flow.collectAsStateWithLifecycle()
-        var choosing by remember { mutableStateOf(false) }
-        LaunchedEffect(open) { if (!open) choosing = false }
-        val sectionFocus = remember { FocusRequester() }
-        PillItem("Home", open, down, selected = true, modifier = Modifier.focusRequester(home)) {}
-        PillItem(Sections.label(section), open, down, modifier = Modifier.focusRequester(sectionFocus)) { choosing = !choosing }
-        if (choosing) Sections.all.forEach { (key, label) ->
-            PillItem(label, open, down, selected = key == section) {
-                prefs.appSection.value = key; choosing = false; runCatching { sectionFocus.requestFocus() }; Sections.opensAt(key)?.let(nav::push)
+        @Composable fun item(k: String, label: String?, selected: Boolean = false, onClick: () -> Unit) =
+            PillItem(label, k == "home" || open, selected, Modifier.focusRequester(r(k)).onFocusChanged { if (it.isFocused) focusedKey = k }, onClick)
+        item("home", "Home", selected = true) {}
+        item("section", Sections.label(section)) { if (!choosing) { choosing = true; pending = "s:$section" } }
+        PillDivider()
+        // The window: the three items of the shown page, sliding a page along.
+        androidx.compose.animation.AnimatedContent(page to choosing, transitionSpec = {
+            val dir = if (targetState.first >= initialState.first) 1 else -1
+            (androidx.compose.animation.slideInHorizontally(tween(320)) { it * dir } + androidx.compose.animation.fadeIn(tween(200))) togetherWith
+                (androidx.compose.animation.slideOutHorizontally(tween(320)) { -it * dir } + androidx.compose.animation.fadeOut(tween(160))) using
+                androidx.compose.animation.SizeTransform(clip = true) { _, _ -> tween(320) }
+        }, label = "pillPage") { (pg, ch) ->
+            Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                val list = if (ch) Sections.all.map { "s:" + it.first to it.second } else Sections.pages(section).map { "p:" + it.first to it.first }
+                list.drop(pg * 3).take(3).forEach { (k, label) ->
+                    item(k, label, selected = ch && k == "s:$section") {
+                        if (ch) {
+                            val key = k.removePrefix("s:")
+                            prefs.appSection.value = key; choosing = false
+                            Sections.opensAt(key)?.let(nav::push) ?: run { pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
+                        } else Sections.pages(section).firstOrNull { it.first == label }?.let { nav.push(it.second) }
+                    }
+                }
             }
-        } else Sections.pages(section).forEach { (label, screen) -> PillItem(label, open, down) { nav.push(screen) } }
-        Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
-        PillItem(null, open, down) { nav.push(Screen.Settings) }
+        }
+        if (pages > 1) Text("${page + 1}/$pages", color = Color(0x88FFFFFF), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        PillDivider()
+        item("settings", null) { nav.push(Screen.Settings) }
     }
 }
 
 @Composable
-private fun PillItem(label: String?, open: Boolean, down: FocusRequester, selected: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
+
+@Composable
+private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
     val shape = RoundedCornerShape(50)
     val tint = Color.White.copy(alpha = if (f || selected) 1f else 0.85f)
     Box(
-        modifier.fillMaxHeight().focusProperties { this.down = down }.clip(shape)
+        modifier.fillMaxHeight().focusProperties { this.canFocus = canFocus }.clip(shape)
             .then(if (f) Modifier.background(Color(0x40FFFFFF)).border(1.5.dp, Color(0xCCFFFFFF), shape)
                 else if (selected) Modifier.background(Color(0x26FFFFFF)).border(1.dp, Color(0x40FFFFFF), shape) else Modifier)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
@@ -463,7 +541,7 @@ private fun PillItem(label: String?, open: Boolean, down: FocusRequester, select
 
 /** Legacy's clock island: the time on a dark capsule, top right; focused, a white ring. OK opens its panel (Live now). */
 @Composable
-private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, down: FocusRequester, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
+private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, onDown: () -> Unit, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
     val context = LocalContext.current
     val fmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
     var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
@@ -477,7 +555,17 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
     Box(
         modifier.padding(top = 12.dp, end = 25.dp).height(25.dp)
             .then(if (f) Modifier.border(1.5.dp, Color.White, shape) else Modifier)
-            .focusRequester(me).focusProperties { this.up = up; this.down = down }
+            .focusRequester(me)
+            // Between the menu and the billboard (Vision's LegacyClockFocus): Up / Left = the menu, Down = the billboard.
+            .onPreviewKeyEvent { e ->
+                if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    androidx.compose.ui.input.key.Key.DirectionUp, androidx.compose.ui.input.key.Key.DirectionLeft -> { runCatching { up.requestFocus() }; true }
+                    androidx.compose.ui.input.key.Key.DirectionDown -> { onDown(); true }
+                    androidx.compose.ui.input.key.Key.DirectionRight -> true
+                    else -> false
+                }
+            }
             .clip(shape).background(Color(0xFF121316).copy(alpha = 0.86f))
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = 11.dp),
