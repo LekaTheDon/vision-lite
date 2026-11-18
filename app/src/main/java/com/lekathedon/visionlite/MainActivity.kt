@@ -12,6 +12,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.lekathedon.visionlite.home.TopPill
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
@@ -42,8 +44,16 @@ class MainActivity : ComponentActivity() {
             val saved = rememberSaveableStateHolder()
             val setupDone by com.lekathedon.visionlite.integrations.Integrations.setupDone.flow.collectAsState()
             BackHandler(enabled = nav.canPop) { nav.pop() }
+            // Music never plays over a video: a film, an episode, Live TV or a YouTube video pauses it.
+            val top = nav.current
+            androidx.compose.runtime.LaunchedEffect(top) {
+                if (top is Screen.Player || top is Screen.YtPlay) com.lekathedon.visionlite.music.MusicPlayer.pause()
+            }
             CompositionLocalProvider(LocalLook provides look) {
                 Box(Modifier.fillMaxSize().background(look.page)) {
+                  // A hub's pages (Discover, Library, Live TV…) carry the pill on top, that page marked (Vision).
+                  val hub = com.lekathedon.visionlite.home.hubPageOf(nav.current)
+                  Box(Modifier.fillMaxSize().padding(top = if (hub != null) 50.dp else 0.dp)) {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
@@ -84,6 +94,14 @@ class MainActivity : ComponentActivity() {
                         Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)
                         is Screen.SignIn -> com.lekathedon.visionlite.integrations.SignInScreen(nav, s.id)
                     }
+                  }
+                  if (hub != null) {
+                      val pillHome = remember { androidx.compose.ui.focus.FocusRequester() }
+                      var pillFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
+                      val fm = androidx.compose.ui.platform.LocalFocusManager.current
+                      TopPill(nav, pillFocused, pillHome, onDown = { fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }, onRight = null,
+                          onFocus = { pillFocused = it }, current = hub)
+                  }
                 }
             }
         }

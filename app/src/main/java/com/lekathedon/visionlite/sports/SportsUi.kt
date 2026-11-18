@@ -304,6 +304,17 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         value = runCatching { com.lekathedon.visionlite.youtube.Yt.subscriptions().flatMap { it.items }.filter { it.videoId != null }.distinctBy { it.videoId }.shuffled().take(30) }.getOrDefault(emptyList())
     }
     val coming by com.lekathedon.visionlite.home.ComingUp.items.collectAsState()
+    // Vision's windows on the left: the first OK on a video or a song plays it there, OK again goes full screen.
+    // Back closes the window (music stops); leaving the tab closes it too.
+    var ytShown by remember { mutableStateOf<com.lekathedon.visionlite.youtube.YtItem?>(null) }
+    var musicShown by remember { mutableStateOf<String?>(null) }
+    var musicFull by remember { mutableStateOf(false) }
+    LaunchedEffect(tab) {
+        if (tab != PanelTab.YOUTUBE) ytShown = null
+        if (tab != PanelTab.MUSIC && musicShown != null) { com.lekathedon.visionlite.music.MusicPlayer.stop(); musicShown = null }
+    }
+    // The panel closing stops music it started, unless it went full screen.
+    DisposableEffect(Unit) { onDispose { if (musicShown != null && !musicFull) com.lekathedon.visionlite.music.MusicPlayer.stop() } }
     fun detail(type: String, id: String, name: String) { onDismiss(); nav.push(Screen.Detail(type, id, name)) }
     fun epText(s: Int?, e: Int?) = if (s != null && e != null) "S$s E$e" else null
 
@@ -325,9 +336,14 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                 else -> null
             }
         }
-        PanelTab.YOUTUBE -> yt.orEmpty().map { v -> PanelLine("yt:${v.videoId}", v.title, v.sub, v.image) { onDismiss(); nav.push(Screen.YtPlay(v.videoId!!, v.title)) } }
-        PanelTab.MUSIC -> music.orEmpty().let { list -> list.mapIndexed { i, v -> PanelLine("m:${v.videoId}", v.title, v.sub, v.image) {
-            com.lekathedon.visionlite.music.MusicPlayer.play(list, i) } } }
+        PanelTab.YOUTUBE -> yt.orEmpty().map { v -> PanelLine("yt:${v.videoId}", v.title,
+            if (ytShown?.videoId == v.videoId) "Playing on the left · OK again: full screen" else v.sub, v.image) {
+            if (ytShown?.videoId == v.videoId) { onDismiss(); nav.push(Screen.YtPlay(v.videoId!!, v.title)) }
+            else { com.lekathedon.visionlite.music.MusicPlayer.pause(); ytShown = v } } }
+        PanelTab.MUSIC -> music.orEmpty().let { list -> list.mapIndexed { i, v -> PanelLine("m:${v.videoId}", v.title,
+            if (musicShown == v.videoId) "Playing on the left · OK again: full screen" else v.sub, v.image) {
+            if (musicShown == v.videoId) { musicFull = true; onDismiss(); nav.push(Screen.Music) }
+            else { com.lekathedon.visionlite.music.MusicPlayer.play(list, i); musicShown = v.videoId } } } }
         PanelTab.NOTICES -> coming.filter { it.isNew }.sortedByDescending { it.at }.map { c ->
             PanelLine("n:${c.key}", c.name, listOfNotNull(if (c.type == "movie") "Now available to stream" else "New episode", epText(c.season, c.episode), c.epTitle, ago(c.at, now)).joinToString(" · "),
                 c.image ?: com.lekathedon.visionlite.library.posterOf(c.imdb)) { detail(c.type, c.imdb, c.name) } }
@@ -355,10 +371,20 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         PanelTab.LIVE -> ""
     }
 
-    val back: () -> Unit = { val g = game; if (g != null) { game = null; playing = null; returnTo = g.id } else onDismiss() }
+    val back: () -> Unit = {
+        val g = game
+        when {
+            g != null -> { game = null; playing = null; returnTo = g.id }
+            musicShown != null -> { com.lekathedon.visionlite.music.MusicPlayer.stop(); musicShown = null }
+            ytShown != null -> ytShown = null
+            else -> onDismiss()
+        }
+    }
     Dialog(onDismissRequest = back, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
             game?.let { Window(it, playing, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
+            ytShown?.let { YtWindow(it, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
+            if (musicShown != null) MusicWindow(Modifier.align(Alignment.CenterStart).padding(start = 40.dp))
             Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(388.dp).fillMaxHeight().clip(RoundedCornerShape(18.dp))
                 .background(Color(0xF2161618)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)).padding(top = 20.dp)) {
                 Text(kicker, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.padding(horizontal = 24.dp))
@@ -425,6 +451,38 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** The clock's YouTube window (Vision's YouTubePreviewWindow): the video plays with sound, 16:9, title under it. */
+@Composable
+private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modifier) {
+    val s by androidx.compose.runtime.produceState<com.lekathedon.visionlite.youtube.YtStreams?>(null, v.videoId) {
+        value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.youtube.Yt.streams(v.videoId!!, 1080) } }.getOrNull()
+    }
+    Column(modifier.width(560.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF2161618))) {
+        Box(Modifier.fillMaxWidth().height(315.dp).background(Color.Black)) {
+            Img(v.image, 560.dp, 315.dp, Modifier.fillMaxSize())
+            val url = s?.video ?: s?.hls
+            if (url != null) com.lekathedon.visionlite.trailer.TrailerVideo(url, false, Modifier.fillMaxSize(), s?.audio?.takeIf { s?.video != null }) {}
+        }
+        Text(v.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
+        Text(v.sub, color = Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 12.dp))
+    }
+}
+
+/** The clock's Music window (Vision's MusicPreviewWindow): the song's art, title and artist, playing state. Back stops it. */
+@Composable
+private fun MusicWindow(modifier: Modifier) {
+    val now by com.lekathedon.visionlite.music.MusicPlayer.now.collectAsState()
+    val n = now
+    Column(modifier.width(420.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF2161618)).padding(16.dp)) {
+        Box(Modifier.fillMaxWidth().height(236.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
+            n?.art?.let { Img(it, 388.dp, 236.dp, Modifier.fillMaxSize()) }
+        }
+        Text(n?.title ?: "Loading…", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp))
+        Text(n?.let { "${it.artist} · ${if (it.playing) "Playing" else "Paused"}" } ?: "", color = Muted, fontSize = 12.sp, maxLines = 1)
+        Text("Back stops the music · OK again: full screen", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
     }
 }
 

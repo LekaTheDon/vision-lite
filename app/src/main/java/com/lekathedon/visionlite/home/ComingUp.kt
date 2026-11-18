@@ -73,6 +73,16 @@ object ComingUp {
         if (System.currentTimeMillis() - last > EVERY_MS) refresh(false)
     }
 
+    /** Shows you dropped from Coming up (hold OK on its card): never followed again, until brought back in Settings. */
+    fun dropped(): Set<String> = App.instance.prefs.sp.getStringSet("comingup_dropped", emptySet()).orEmpty()
+    fun drop(imdb: String) {
+        val id = imdb.substringBefore(':')
+        App.instance.prefs.sp.edit().putStringSet("comingup_dropped", dropped() + id).apply()
+        _items.value = _items.value.filter { it.imdb != id }
+        write("items.json", itemSer, _items.value)
+    }
+    fun undropAll() { App.instance.prefs.sp.edit().remove("comingup_dropped").apply(); refresh(false) }
+
     fun refresh(force: Boolean) {
         scope.launch {
             if (!lock.tryLock()) return@launch
@@ -171,7 +181,8 @@ object ComingUp {
     private fun publish(names: Map<String, String>, lastWatched: Map<String, Long>, ids: Map<String, Int>, shows: Map<String, Show>, now: Long, films: List<Item>? = null) {
         if (films != null) this.films = films
         val newSince = now - NEW_DAYS * 24 * 3600_000L
-        val list = shows.filterKeys { it in names }.flatMap { (imdb, s) ->
+        val gone = dropped()
+        val list = shows.filterKeys { it in names && it !in gone }.flatMap { (imdb, s) ->
             val name = names[imdb] ?: s.name
             buildList {
                 // Aired in the last days and after you last watched it: New.
@@ -182,7 +193,7 @@ object ComingUp {
         }
         val sorted = list.filter { it.isNew }.sortedByDescending { it.at } +
             (list.filter { !it.isNew } + this.films.filter { it.at >= now - 24 * 3600_000L }).sortedBy { it.at }
-        val out = sorted.distinctBy { it.key }.take(80)
+        val out = sorted.filter { it.imdb !in gone }.distinctBy { it.key }.take(80)
         _items.value = out
         write("items.json", itemSer, out)
     }

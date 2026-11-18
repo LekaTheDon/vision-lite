@@ -412,28 +412,38 @@ private fun Billboard(
 // ---- Top band: PillNavigationBar (glass pill, top centre, hidden until reached) and LegacyClockPill (top right) ----
 
 /**
- * Vision's PillNavigationBar: Home and the section entry fixed on the left, the section's pages three at a time in a
- * window that slides a page along when focus steps past its last (or first) slot, the gear fixed on the right. The pill
- * never grows: OK on the section entry shows the sections in that same window. Hidden until reached; from outside
- * only Home takes focus. Up stays, Down = the clock (or the billboard), Right past the gear = the clock. Back folds
- * the sections away, then returns to Nuvio.
+ * Vision's PillNavigationBar: Home and the hub entry fixed on the left (on a dark capsule in the clock's colour, the
+ * hub's name in white: where you are), the hub's pages three at a time in a window that slides a page along when focus
+ * steps past its last (or first) slot, the gear and your account fixed on the right. The pill never grows: OK on the
+ * hub entry shows the hubs in that same window. On Home it hides until reached; on a hub's pages it stays shown with
+ * that page marked. From outside only the marked item takes focus. Up stays, Down = [onDown], Right past the end =
+ * [onRight]. Back folds the hubs away, then returns to Nuvio.
  */
 @Composable
-private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, onDown: () -> Unit, onRight: (() -> Unit)?, onFocus: (Boolean) -> Unit) {
+fun BoxScope.TopPill(
+    nav: Nav, open: Boolean, home: FocusRequester, onDown: () -> Unit, onRight: (() -> Unit)?, onFocus: (Boolean) -> Unit,
+    /** The hub page on screen (its pill label); null = Home. */
+    current: String? = null
+) {
     val shape = RoundedCornerShape(50)
     val prefs = App.instance.prefs
     val section by prefs.appSection.flow.collectAsStateWithLifecycle()
     var choosing by remember { mutableStateOf(false) }
     LaunchedEffect(open) { if (!open) choosing = false }
-    val middle: List<Pair<String, String>> = if (choosing) Sections.all.map { "s:" + it.first to it.second }
-        else Sections.pages(section).map { "p:" + it.first to it.first }
-    val keys = listOf("home", "section") + middle.map { it.first } + "settings"
+    fun midOf(ch: Boolean) = if (ch) Sections.all.map { "s:" + it.first to it.second } else Sections.pages(section).map { "p:" + it.first to it.first }
+    val middle = midOf(choosing)
     val req = remember { HashMap<String, FocusRequester>() }
     fun r(k: String) = if (k == "home") home else req.getOrPut(k) { FocusRequester() }
+    val entryKey = current?.let { "p:$it" } ?: "home"
     var focusedKey by remember { mutableStateOf<String?>(null) }
     var page by remember { mutableStateOf(0) }
     val pages = ((middle.size + 2) / 3).coerceAtLeast(1)
-    LaunchedEffect(choosing, section) { page = if (choosing) Sections.all.indexOfFirst { it.first == section }.coerceAtLeast(0) / 3 else 0 }
+    LaunchedEffect(choosing, section, open) {
+        if (open) return@LaunchedEffect
+        page = if (choosing) Sections.all.indexOfFirst { it.first == section }.coerceAtLeast(0) / 3
+            else (middle.indexOfFirst { it.first == entryKey }.coerceAtLeast(0)) / 3
+    }
+    LaunchedEffect(choosing) { if (choosing) page = Sections.all.indexOfFirst { it.first == section }.coerceAtLeast(0) / 3 }
     var pending by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(pending) {
         val k = pending ?: return@LaunchedEffect
@@ -441,26 +451,33 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, onDo
         pending = null
     }
     fun go(k: String) { val mi = middle.indexOfFirst { it.first == k }; if (mi >= 0) page = mi / 3; pending = k }
+    val account = remember(open) {
+        val sp = prefs.sp
+        (sp.getString("si_nuvio_profile_name", "") ?: "").ifBlank { (sp.getString("si_nuvio_user", "") ?: "").substringBefore('@') }
+    }
+    val ends = buildList { add("settings"); if (account.isNotBlank()) add("account") }
     fun step(forward: Boolean): Boolean {
         val k = focusedKey ?: return false
         val mi = middle.indexOfFirst { it.first == k }
+        val ei = ends.indexOf(k)
         when {
             k == "home" -> if (forward) go("section")
-            k == "section" -> if (forward) middle.getOrNull(page * 3)?.let { go(it.first) } ?: go("settings") else go("home")
-            k == "settings" -> if (forward) onRight?.invoke() else middle.getOrNull(minOf(page * 3 + 2, middle.lastIndex))?.let { go(it.first) } ?: go("section")
-            mi >= 0 -> { val n = middle.getOrNull(if (forward) mi + 1 else mi - 1); if (n != null) go(n.first) else go(if (forward) "settings" else "section") }
+            k == "section" -> if (forward) middle.getOrNull(page * 3)?.let { go(it.first) } ?: go(ends.first()) else go("home")
+            ei >= 0 -> if (forward) { ends.getOrNull(ei + 1)?.let(::go) ?: onRight?.invoke() }
+                else ends.getOrNull(ei - 1)?.let(::go) ?: (middle.getOrNull(minOf(page * 3 + 2, middle.lastIndex))?.let { go(it.first) } ?: go("section"))
+            mi >= 0 -> { val n = middle.getOrNull(if (forward) mi + 1 else mi - 1); if (n != null) go(n.first) else go(if (forward) ends.first() else "section") }
             else -> return false
         }
         return true
     }
-    val inSettings = !choosing && section != "NUVIO"
-    androidx.activity.compose.BackHandler(enabled = open && (choosing || inSettings)) {
+    androidx.activity.compose.BackHandler(enabled = open && (choosing || (current == null && section != "NUVIO"))) {
         if (choosing) choosing = false else prefs.appSection.value = "NUVIO"
         pending = "section"
     }
-    val pillAlpha by androidx.compose.animation.core.animateFloatAsState(if (open) 1f else 0f, tween(if (open) 320 else 240), label = "pill")
+    val shown = open || current != null
+    val pillAlpha by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f, tween(if (shown) 320 else 240), label = "pill")
     Row(
-        Modifier.align(Alignment.TopCenter).padding(top = 11.dp).height(34.dp)
+        Modifier.align(Alignment.TopCenter).padding(top = 11.dp).height(36.dp)
             .graphicsLayer { alpha = pillAlpha; translationY = (1f - pillAlpha) * -40f }
             .onFocusChanged { onFocus(it.hasFocus) }
             .onPreviewKeyEvent { e ->
@@ -476,12 +493,15 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, onDo
             .clip(shape).background(Color(0x2EFFFFFF)).border(1.dp, Color(0x59FFFFFF), shape).padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        @Composable fun item(k: String, label: String?, selected: Boolean = false, onClick: () -> Unit) =
-            PillItem(label, k == "home" || open, selected, Modifier.focusRequester(r(k)).onFocusChanged { if (it.isFocused) focusedKey = k }, onClick)
-        item("home", "Home", selected = true) {}
-        item("section", Sections.label(section)) { if (!choosing) { choosing = true; pending = "s:$section" } }
+        @Composable fun item(k: String, label: String?, selected: Boolean = false, white: Boolean = false, onClick: () -> Unit) =
+            PillItem(label, k == entryKey || open, selected, Modifier.focusRequester(r(k)).onFocusChanged { if (it.isFocused) focusedKey = k }, white, onClick)
+        // Where you are: Home and the hub's name on the clock's dark capsule, up to the line.
+        Row(Modifier.fillMaxHeight().clip(shape).background(Color(0xFF121316).copy(alpha = 0.86f)).padding(end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            item("home", "Home", selected = current == null) { if (current != null) nav.popToHome() }
+            item("section", Sections.label(section), white = true) { if (!choosing) { choosing = true; pending = "s:$section" } }
+        }
         PillDivider()
-        // The window: the three items of the shown page, sliding a page along.
         androidx.compose.animation.AnimatedContent(page to choosing, transitionSpec = {
             val dir = if (targetState.first >= initialState.first) 1 else -1
             (androidx.compose.animation.slideInHorizontally(tween(320)) { it * dir } + androidx.compose.animation.fadeIn(tween(200))) togetherWith
@@ -489,14 +509,15 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, onDo
                 androidx.compose.animation.SizeTransform(clip = true) { _, _ -> tween(320) }
         }, label = "pillPage") { (pg, ch) ->
             Row(Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                val list = if (ch) Sections.all.map { "s:" + it.first to it.second } else Sections.pages(section).map { "p:" + it.first to it.first }
-                list.drop(pg * 3).take(3).forEach { (k, label) ->
-                    item(k, label, selected = ch && k == "s:$section") {
+                midOf(ch).drop(pg * 3).take(3).forEach { (k, label) ->
+                    item(k, label, selected = if (ch) k == "s:$section" else k == entryKey) {
                         if (ch) {
                             val key = k.removePrefix("s:")
                             prefs.appSection.value = key; choosing = false
                             Sections.opensAt(key)?.let(nav::push) ?: run { pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
-                        } else Sections.pages(section).firstOrNull { it.first == label }?.let { nav.push(it.second) }
+                        } else if (k != entryKey) Sections.pages(section).firstOrNull { it.first == label }?.let {
+                            if (current != null) nav.replace(it.second) else nav.push(it.second)
+                        }
                     }
                 }
             }
@@ -504,18 +525,24 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, onDo
         if (pages > 1) Text("${page + 1}/$pages", color = Color(0x88FFFFFF), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
         PillDivider()
         item("settings", null) { nav.push(Screen.Settings) }
+        if (account.isNotBlank()) item("account", account) {
+            nav.push(if (prefs.sp.getString("si_nuvio_token", "").isNullOrBlank()) Screen.Integrations else Screen.SignIn("nuvio"))
+        }
     }
 }
+
+/** The hub page each menu screen is (for the pill on that page): its label, or null when it isn't one. */
+fun hubPageOf(s: Screen): String? = Sections.all.firstNotNullOfOrNull { (key, _) -> Sections.pages(key).firstOrNull { it.second == s }?.first }
 
 @Composable
 private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
 
 @Composable
-private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = false, modifier: Modifier = Modifier, white: Boolean = false, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
     val shape = RoundedCornerShape(50)
-    val tint = Color.White.copy(alpha = if (f || selected) 1f else 0.85f)
+    val tint = Color.White.copy(alpha = if (f || selected || white) 1f else 0.85f)
     Box(
         modifier.fillMaxHeight().focusProperties { this.canFocus = canFocus }.clip(shape)
             .then(if (f) Modifier.background(Color(0x40FFFFFF)).border(1.5.dp, Color(0xCCFFFFFF), shape)
@@ -524,7 +551,7 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
             .padding(horizontal = 11.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (label != null) Text(label, color = tint, fontSize = 15.sp)
+        if (label != null) Text(label, color = tint, fontSize = 15.sp, fontWeight = if (white) FontWeight.SemiBold else FontWeight.Normal)
         else androidx.compose.foundation.Canvas(Modifier.size(17.dp)) {
             val w = size.width
             val c = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
@@ -657,6 +684,39 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
             }
         }
     }
+}
+
+/**
+ * Echo's poster for every other page (Discover, Genres, Decades, Scout, Library, Search…): the same card, size, corner,
+ * white focus ring, logo-on-backdrop when opened, trailer by the Home settings. [expand] = opens out to the backdrop
+ * (rows); grids keep it closed so cells don't jump.
+ */
+@Composable
+fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = true, sub: String? = null, onHold: (() -> Unit)? = null, onClick: () -> Unit) {
+    val prefs = App.instance.prefs
+    val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
+    val dims = remember(size) { EchoDims.of(size) }
+    val trailersOn by prefs.trailers.flow.collectAsStateWithLifecycle()
+    val delayText by prefs.trailerDelay.flow.collectAsStateWithLifecycle()
+    val sound by prefs.trailerSound.flow.collectAsStateWithLifecycle()
+    val look = remember(trailersOn, delayText, sound) { TrailerLook(trailersOn && expand, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound) }
+    val mm = remember(m) { if (m.poster.isNullOrBlank() && m.id.startsWith("tt")) m.copy(poster = posterOf(m.id)) else m }
+    Column {
+        CompositionLocalProvider(LocalTrailer provides look) {
+            if (expand) PosterCard(mm, dims, modifier, onFocus = {}, onClick = onClick, onHold = onHold)
+            else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, modifier, onFocus = {}, onClick = onClick, onHold = onHold) {
+                if (mm.poster.isNullOrBlank()) Fallback(mm.name) else Img(mm.poster, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
+            }
+        }
+        if (sub != null) Text(sub, color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(dims.posterWidth).padding(top = 6.dp))
+    }
+}
+
+/** Echo's row title, for rows on other pages. */
+@Composable
+fun EchoRowTitle(title: String) {
+    if (title.isNotBlank()) Text(title, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1, modifier = Modifier.padding(top = 18.dp, bottom = 10.dp))
 }
 
 /** Continue Watching: wide, title and episode bottom-left, progress along the bottom edge. */
@@ -977,6 +1037,7 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
                 Choice("More like this") { Recs.moreLikeThis(m.id, tv, m.name) }
                 Choice("Not for me") { Recs.notForMe(m.id, tv, m.name); if (row.key == VisionRows.AI) AiPicks.remove(m.id) }
             }
+            if (row.key == VisionRows.COMING_UP) Choice("Drop from Coming up") { ComingUp.drop(m.id) }
             Choice(if (saved) "Remove from Library" else "Add to Library") {
                 scope.launch {
                     val id = imdbIdOf(m) ?: return@launch

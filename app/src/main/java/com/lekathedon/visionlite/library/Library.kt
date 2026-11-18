@@ -45,7 +45,7 @@ fun Library(nav: Nav) {
     LaunchedEffect(Unit) { items = if (trakt.connected.value != null) trakt.watchlist() else emptyList() }
     val first = remember { FocusRequester() }
     LaunchedEffect(items) { if (saved.isNotEmpty() || !items.isNullOrEmpty()) runCatching { first.requestFocus() } }
-    LazyVerticalGrid(GridCells.Adaptive(132.dp), Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp),
+    LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (saved.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -53,12 +53,8 @@ fun Library(nav: Nav) {
             }
             items(saved, key = { "s:" + it.id }) { sv ->
                 val mod = if (sv.id == saved.first().id) Modifier.focusRequester(first) else Modifier
-                Focusable({ nav.push(Screen.Detail(sv.type, sv.id, sv.name)) }, mod.size(120.dp, 180.dp)) {
-                    Box(Modifier.fillMaxSize().background(Palette.Card)) {
-                        Text(sv.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                        Img(sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null, 120.dp, 180.dp, Modifier.fillMaxSize())
-                    }
-                }
+                com.lekathedon.visionlite.home.EchoPoster(com.lekathedon.visionlite.addons.MetaPreview(sv.id, sv.type, sv.name, sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null),
+                    mod, expand = false) { nav.push(Screen.Detail(sv.type, sv.id, sv.name)) }
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -78,11 +74,8 @@ fun Library(nav: Nav) {
         }
         items(list, key = { it.second }) { (type, imdb, title) ->
             val mod = if (saved.isEmpty() && imdb == list.first().second) Modifier.focusRequester(first) else Modifier
-            Focusable({ nav.push(Screen.Detail(type, imdb, title)) }, mod.size(120.dp, 180.dp)) {
-                Box(Modifier.fillMaxSize().background(Palette.Card)) {
-                    Text(title, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                    Img(posterOf(imdb), 120.dp, 180.dp, Modifier.fillMaxSize())
-                }
+            com.lekathedon.visionlite.home.EchoPoster(com.lekathedon.visionlite.addons.MetaPreview(imdb, type, title, posterOf(imdb)), mod, expand = false) {
+                nav.push(Screen.Detail(type, imdb, title))
             }
         }
     }

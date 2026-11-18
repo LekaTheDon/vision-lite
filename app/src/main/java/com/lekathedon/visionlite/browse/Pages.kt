@@ -71,36 +71,17 @@ import java.util.Calendar
 
 // ---------------------------------------------------------------- shared parts
 
-/** A poster: OK opens it, hold OK (when given) does [onHold]. Shows the name when there's no art. */
+/** A poster in Echo's look: OK opens it, hold OK (when given) does [onHold]. [expand] = opens out when focused (rows). */
 @Composable
-fun Poster(m: MetaPreview, nav: Nav, modifier: Modifier = Modifier, sub: String? = null, onHold: (() -> Unit)? = null) {
-    var held by remember { mutableStateOf(false) }
-    Column(modifier.width(130.dp)) {
-        Focusable({ nav.push(Screen.Detail(m.type, m.id, m.name)) }, Modifier.size(130.dp, 195.dp).onPreviewKeyEvent { e ->
-            if (onHold == null) return@onPreviewKeyEvent false
-            val ok = e.key == Key.DirectionCenter || e.key == Key.Enter
-            when {
-                ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> { if (!held) { held = true; onHold() }; true }
-                ok && e.type == KeyEventType.KeyUp && held -> { held = false; true }
-                else -> false
-            }
-        }) {
-            Box(Modifier.fillMaxSize().background(Palette.Card)) {
-                Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                val art = m.poster?.takeIf { it.isNotBlank() } ?: m.id.takeIf { it.startsWith("tt") }?.let(::posterOf)
-                if (art != null) Img(art, 130.dp, 195.dp, Modifier.fillMaxSize())
-            }
-        }
-        if (sub != null) Text(sub, color = Palette.TextDim, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-    }
-}
+fun Poster(m: MetaPreview, nav: Nav, modifier: Modifier = Modifier, sub: String? = null, onHold: (() -> Unit)? = null, expand: Boolean = true) =
+    com.lekathedon.visionlite.home.EchoPoster(m, modifier, expand, sub, onHold) { nav.push(Screen.Detail(m.type, m.id, m.name)) }
 
 @Composable
 fun Rail(title: String, metas: List<MetaPreview>, nav: Nav, subOf: (MetaPreview) -> String? = { null }, onHold: ((MetaPreview) -> Unit)? = null,
          firstFocus: FocusRequester? = null, onEnd: (() -> Unit)? = null) {
     if (metas.isEmpty()) return
-    Text(title, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    com.lekathedon.visionlite.home.EchoRowTitle(title)
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         itemsIndexed(metas, key = { _, m -> m.id }) { i, m ->
             if (onEnd != null && i >= metas.size - 6) LaunchedEffect(metas.size) { onEnd() }
             Poster(m, nav, if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier, subOf(m), onHold?.let { h -> { h(m) } })
@@ -172,11 +153,11 @@ fun Discover(nav: Nav) {
         Chips(types.map { it to typeName(it) }, t, Modifier.padding(top = 12.dp)) { type = it }
         Chips(cats.map { key(it) to ((it.second.name ?: it.second.id) + " · " + it.first.manifest.name) }, cat?.let(::key), Modifier.padding(top = 8.dp)) { catKey = it }
         if (genres.isNotEmpty()) Chips((if (genreRequired) emptyList() else listOf("" to "All")) + genres.map { it to it }, g ?: "", Modifier.padding(top = 8.dp)) { genre = it.ifEmpty { null } }
-        LazyVerticalGrid(GridCells.Adaptive(130.dp), Modifier.fillMaxSize().padding(top = 14.dp), contentPadding = PaddingValues(bottom = 40.dp),
+        LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().padding(top = 14.dp), contentPadding = PaddingValues(bottom = 40.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             itemsIndexed(items, key = { _, m -> m.id }) { i, m ->
                 if (i >= items.size - 12) LaunchedEffect(items.size) { load() }
-                Poster(m, nav, sub = listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null })
+                Poster(m, nav, sub = listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null }, expand = false)
             }
             if (items.isEmpty() && !loading && cat != null) item(span = { GridItemSpan(maxLineSpan) }) { Text("Nothing here.", color = Palette.TextDim, fontSize = 15.sp) }
         }
@@ -383,20 +364,13 @@ fun ServicePage(nav: Nav, id: String) {
 private fun TmdbRail(title: String, metas: List<MetaPreview>, nav: Nav, firstFocus: FocusRequester?, onEnd: () -> Unit) {
     if (metas.isEmpty()) return
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    Text(title, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    com.lekathedon.visionlite.home.EchoRowTitle(title)
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         itemsIndexed(metas, key = { i, m -> "$i:${m.id}" }) { i, m ->
             if (i >= metas.size - 6) LaunchedEffect(metas.size) { onEnd() }
-            Column(Modifier.width(130.dp)) {
-                Focusable({ scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) } },
-                    (if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier).size(130.dp, 195.dp)) {
-                    Box(Modifier.fillMaxSize().background(Palette.Card)) {
-                        Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                        m.poster?.let { Img(it, 130.dp, 195.dp, Modifier.fillMaxSize()) }
-                    }
-                }
-                Text(listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · "), color = Palette.TextDim, fontSize = 11.sp, maxLines = 1,
-                    modifier = Modifier.padding(top = 4.dp))
+            com.lekathedon.visionlite.home.EchoPoster(m, if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier,
+                sub = listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null }) {
+                scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
             }
         }
     }

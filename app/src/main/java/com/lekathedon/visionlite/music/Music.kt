@@ -104,6 +104,7 @@ object MusicPlayer {
         player.setMediaItems(items, start.coerceIn(0, items.lastIndex), 0); player.prepare(); player.playWhenReady = true
     }
 
+    fun pause() { if (made) player.playWhenReady = false }
     fun toggle() { if (made) player.playWhenReady = !player.playWhenReady }
     fun next() { if (made && player.hasNextMediaItem()) player.seekToNextMediaItem() }
     fun previous() { if (made) player.seekToPreviousMediaItem() }

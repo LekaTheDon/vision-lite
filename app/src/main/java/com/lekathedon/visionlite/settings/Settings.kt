@@ -98,6 +98,12 @@ fun Settings(nav: Nav) {
         item { Toggle("Clock", "Time in the top bar", p.clock) }
         item { Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings) }
         item { Link("Home rows", "On / off, order, refresh") { nav.push(Screen.Rows) } }
+        item {
+            var n by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }
+            Link("Dropped from Coming up", if (n == 0) "None (hold OK on a Coming up card to drop a show)" else "$n shows · OK brings them all back") {
+                com.lekathedon.visionlite.home.ComingUp.undropAll(); n = 0
+            }
+        }
 
         item { Section("Details page") }
         item { Choice("Episode IMDb ratings", "", p.epRatings, listOf("all" to "Show all", "watched" to "Hide on episodes not watched yet", "off" to "Hide")) }

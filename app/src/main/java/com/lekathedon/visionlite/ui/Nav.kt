@@ -45,5 +45,6 @@ class Nav {
     val canPop: Boolean get() = stack.size > 1
     fun push(s: Screen) { stack.add(s) }
     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
+    fun popToHome() { while (stack.size > 1) stack.removeAt(stack.lastIndex) }
     fun replace(s: Screen) { stack[stack.lastIndex] = s }
 }

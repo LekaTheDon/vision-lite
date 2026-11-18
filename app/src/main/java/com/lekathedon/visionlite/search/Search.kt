@@ -84,15 +84,10 @@ fun Search(nav: Nav) {
             }
         }
         items(results, key = { it.first }) { (title, metas) ->
-            Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            com.lekathedon.visionlite.home.EchoRowTitle(title)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(metas, key = { it.id }) { m ->
-                    Focusable({ nav.push(Screen.Detail(m.type, m.id, m.name)) }, Modifier.size(120.dp, 180.dp)) {
-                        Box(Modifier.fillMaxSize().background(Palette.Card)) {
-                            if (m.poster.isNullOrBlank()) Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                            else Img(m.poster, 120.dp, 180.dp, Modifier.fillMaxSize())
-                        }
-                    }
+                    com.lekathedon.visionlite.home.EchoPoster(m) { nav.push(Screen.Detail(m.type, m.id, m.name)) }
                 }
             }
         }
