@@ -4,6 +4,8 @@ on:
     inputs:
       version_name: { description: "Version name", required: true, default: "0.1.0" }
       code: { description: "Version code", required: true, default: "1" }
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,5 +24,9 @@ jobs:
           VL_KEY_ALIAS: ${{ secrets.VL_KEY_ALIAS }}
           VL_KEY_PASSWORD: ${{ secrets.VL_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:assembleRelease -PvlName=${{ inputs.version_name }} -PvlCode=${{ inputs.code }}
-      - uses: actions/upload-artifact@v4
-        with: { name: "${{ inputs.version_name }}", path: app/build/outputs/apk/release/*.apk }
+      - name: Release (Actions artifact storage is full on this account)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          T=v${{ inputs.version_name }}-${{ inputs.code }}
+          gh release delete "$T" -y --cleanup-tag 2>/dev/null || true
+          gh release create "$T" app/build/outputs/apk/release/*.apk --target "$GITHUB_SHA" --title "$T" --notes "CI build"
