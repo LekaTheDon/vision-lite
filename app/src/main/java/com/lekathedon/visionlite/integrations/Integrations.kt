@@ -48,8 +48,6 @@ object Integrations {
 
         Service("trakt", "Trakt", Group.TRACKING, "Continue Watching, Library, scrobbling, resume", "Sign in with the QR", signIn = true),
         Service("simkl", "Simkl", Group.TRACKING, null, "Sign in: scan, approve on simkl.com", signIn = true),
-        Service("mdblist_sync", "MDBList", Group.TRACKING, null, "mdblist.com/preferences → API key (one key for both MDBList entries)",
-            listOf(Field("MDBList API key", secret = true))) { v -> ok(get("https://api.mdblist.com/user?apikey=${enc(v[0])}")) },
         Service("imdb", "IMDb", Group.TRACKING, null, "Sign-in comes with IMDb sync"),
 
         Service("anilist", "AniList", Group.ANIME, null, "Sign in: scan, approve on anilist.co, paste once", signIn = true),
@@ -62,7 +60,7 @@ object Integrations {
         Service("tvdb", "TVDB", Group.DATA, null, "thetvdb.com/dashboard/account/apikey",
             listOf(Field("TVDB API key", secret = true))) { v ->
             ok(post("https://api4.thetvdb.com/v4/login", org.json.JSONObject().put("apikey", v[0]).toString())) },
-        Service("mdblist", "MDBList", Group.DATA, null, "mdblist.com/preferences → API key",
+        Service("mdblist", "MDBList", Group.DATA, null, "mdblist.com/preferences → API key (ratings and list sync, one entry)",
             listOf(Field("MDBList API key", secret = true))) { v -> ok(get("https://api.mdblist.com/user?apikey=${enc(v[0])}")) },
 
         Service("gemini", "Gemini", Group.AI, null, "aistudio.google.com/apikey (free tier)",
@@ -92,8 +90,8 @@ object Integrations {
     /** Sign-ins on the service's website (SignInScreen); Trakt has its own page. */
     val WEB = setOf("simkl", "anilist", "mal")
 
-    /** MDBList's one key serves both its tracking and its ratings entry; TorBox keeps Vision TB's key. */
-    private fun keyId(s: Service) = if (s.id == "mdblist_sync") "mdblist" else s.id
+    /** TorBox keeps Vision TB's key. */
+    private fun keyId(s: Service) = s.id
     private fun field(s: Service, i: Int): Prefs.Text = if (s.id == "torbox" && i == 0) p.torboxKey else text("int_${keyId(s)}_$i")
 
     fun values(s: Service): List<String> = s.fields.indices.map { field(s, it).value }
