@@ -87,6 +87,7 @@ fun Settings(nav: Nav) {
 
         item { Section("Home") }
         item { Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack) }
+        item { Choice("Home look", "", p.homeLook, listOf("echo" to "Echo", "classic" to "Classic")) }
         item { Choice("Poster size", "", p.posterSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large")) }
         item { Toggle("Clock", "Time in the top bar", p.clock) }
         item { Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings) }

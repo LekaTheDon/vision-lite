@@ -64,6 +64,8 @@ class Prefs(context: Context) {
     // Home
     /** "s", "m", "l". */
     val posterSize = Text("poster_size", "m")
+    /** "echo" (Vision's Echo look) or "classic". */
+    val homeLook = Text("home_look", "echo")
     val clock = Flag("clock", true)
     val ratings = Flag("ratings", false)
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */

@@ -47,7 +47,10 @@ class MainActivity : ComponentActivity() {
                     when (val s = nav.current) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
                         Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck()
-                            else saved.SaveableStateProvider("home") { Home(nav) }
+                            else saved.SaveableStateProvider("home") {
+                                if (app.prefs.homeLook.flow.collectAsState().value == "classic") Home(nav)
+                                else com.lekathedon.visionlite.home.EchoHome(nav)
+                            }
                         is Screen.Detail -> Detail(nav, s)
                         is Screen.Streams -> Streams(nav, s)
                         is Screen.Player -> Player(nav, s)

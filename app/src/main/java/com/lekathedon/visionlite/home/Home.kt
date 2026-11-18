@@ -64,7 +64,7 @@ private val HeroH = 230.dp
 private data class PosterLook(val w: androidx.compose.ui.unit.Dp, val h: androidx.compose.ui.unit.Dp, val ratings: Boolean)
 private val LocalPoster = androidx.compose.runtime.staticCompositionLocalOf { PosterLook(120.dp, 180.dp, false) }
 /** The poster that had focus last, so focus goes back to it after the exit question. */
-private var LastFocus: FocusRequester? = null
+internal var LastFocus: FocusRequester? = null
 
 /**
  * Home: focused title's details on top, rows below. No motion: focus and scroll move in one frame, the focused row
@@ -221,7 +221,7 @@ private fun Hero(m: MetaPreview?) {
 
 /** hh:mm, redrawn once a minute on the minute. */
 @Composable
-private fun Clock() {
+internal fun Clock() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val fmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
     var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
@@ -232,7 +232,7 @@ private fun Clock() {
 }
 
 @Composable
-private fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
+internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
     val stay = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { stay.requestFocus() } }
     androidx.activity.compose.BackHandler { onStay() }
