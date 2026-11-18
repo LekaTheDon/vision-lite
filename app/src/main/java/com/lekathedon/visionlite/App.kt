@@ -17,6 +17,7 @@ class App : Application(), SingletonImageLoader.Factory {
     lateinit var prefs: Prefs; private set
     lateinit var addons: AddonStore; private set
     lateinit var client: AddonClient; private set
+    lateinit var trakt: com.lekathedon.visionlite.trakt.Trakt; private set
 
     override fun onCreate() {
         super.onCreate()
@@ -24,6 +25,7 @@ class App : Application(), SingletonImageLoader.Factory {
         prefs = Prefs(this)
         addons = AddonStore(prefs)
         client = AddonClient(addons)
+        trakt = com.lekathedon.visionlite.trakt.Trakt(prefs)
     }
 
     /** Images: shared HTTP client, no crossfade, memory cache sized to a quarter of the app's heap share. */

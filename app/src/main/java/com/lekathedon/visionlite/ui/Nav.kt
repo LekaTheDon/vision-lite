@@ -8,12 +8,14 @@ sealed interface Screen {
     data object Home : Screen
     data class Detail(val type: String, val id: String, val name: String) : Screen
     data class Streams(val type: String, val id: String, val title: String, val metaId: String) : Screen
-    data class Player(val url: String, val title: String, val headers: Map<String, String> = emptyMap()) : Screen
+    /** [type]/[id] = what is playing ("tt…" or "tt…:s:e"), for Trakt scrobbling and resume. */
+    data class Player(val url: String, val title: String, val headers: Map<String, String> = emptyMap(), val type: String = "", val id: String = "") : Screen
     data object Search : Screen
     data object Library : Screen
     data object Settings : Screen
     data object Addons : Screen
     data object ThisTv : Screen
+    data object Trakt : Screen
 }
 
 @Stable

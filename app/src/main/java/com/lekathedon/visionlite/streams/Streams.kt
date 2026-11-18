@@ -92,6 +92,6 @@ fun Streams(nav: Nav, s: Screen.Streams) {
 }
 
 private fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean) {
-    val p = Screen.Player(l.stream.url!!, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty())
+    val p = Screen.Player(l.stream.url!!, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
     if (replace) nav.replace(p) else nav.push(p)
 }

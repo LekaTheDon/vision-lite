@@ -77,9 +77,11 @@ fun Home(nav: Nav) {
     var shown by remember { mutableStateOf<MetaPreview?>(null) }
     LaunchedEffect(Unit) { snapshotFlow { focused }.collectLatest { delay(120); shown = it } }
 
+    val cw by vm.continueWatching.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { vm.refreshContinue(force = com.lekathedon.visionlite.player.PlayerReturn.consume()) }
     val visible = rows.filter { it.items.isNotEmpty() || !it.done }
     val firstFocus = remember { FocusRequester() }
-    val firstReady = visible.firstOrNull()?.items?.isNotEmpty() == true
+    val firstReady = cw.isNotEmpty() || visible.firstOrNull()?.items?.isNotEmpty() == true
     LaunchedEffect(firstReady) { if (firstReady && focused == null) runCatching { firstFocus.requestFocus() } }
 
     Box(Modifier.fillMaxSize().background(look.page)) {
@@ -90,6 +92,28 @@ fun Home(nav: Nav) {
             Spacer(Modifier.height(HeroH - 52.dp))
             CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }) {
                 LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 280.dp)) {
+                    if (cw.isNotEmpty()) item(key = "cw") {
+                        Column(Modifier.padding(bottom = 18.dp)) {
+                            Text("Continue Watching", color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = Start, bottom = 8.dp))
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }) {
+                                LazyRow(contentPadding = PaddingValues(horizontal = Start), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    itemsIndexed(cw, key = { _, r -> r.streamId }) { i, r ->
+                                        val m = remember(r) { MetaPreview(r.imdb, r.type, r.label, com.lekathedon.visionlite.library.posterOf(r.imdb), com.lekathedon.visionlite.library.backdropOf(r.imdb)) }
+                                        Box {
+                                            Poster(m, if (i == 0) Modifier.focusRequester(firstFocus) else Modifier, onFocus = { focused = m },
+                                                onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) })
+                                            if (r.progress > 0f) Box(Modifier.align(Alignment.BottomStart).padding(6.dp).width(108.dp).height(4.dp).background(Color(0x66FFFFFF))) {
+                                                Box(Modifier.fillMaxHeight().width(108.dp * (r.progress / 100f)).background(Palette.Accent))
+                                            }
+                                            if (r.season != null) Text("S${r.season}E${r.episode}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.align(Alignment.TopStart).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     items(visible, key = { it.key }) { row ->
                         LaunchedEffect(row.key) { vm.need(row.key) }
                         Column(Modifier.padding(bottom = 18.dp)) {
@@ -103,7 +127,7 @@ fun Home(nav: Nav) {
                                         itemsIndexed(row.items, key = { _, m -> m.id }) { i, m ->
                                             Poster(
                                                 m,
-                                                modifier = if (row.key == visible.first().key && i == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                                                modifier = if (cw.isEmpty() && row.key == visible.first().key && i == 0) Modifier.focusRequester(firstFocus) else Modifier,
                                                 onFocus = {
                                                     focused = m
                                                     if (i >= row.items.size - 6) vm.more(row.key)

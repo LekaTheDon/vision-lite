@@ -55,7 +55,8 @@ class MainActivity : ComponentActivity() {
                         Screen.Settings -> Settings(nav)
                         Screen.Addons -> Addons()
                         Screen.ThisTv -> com.lekathedon.visionlite.device.ThisTv()
-                        Screen.Library -> Text("Library comes with Trakt (phase 3).", color = Palette.Text, fontSize = 20.sp, modifier = Modifier.padding(48.dp))
+                        Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
+                        Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                     }
                 }
             }

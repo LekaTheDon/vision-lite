@@ -22,6 +22,21 @@ class HomeModel : ViewModel() {
     private val state = MutableStateFlow<List<Row>>(emptyList())
     val rows: StateFlow<List<Row>> get() = state
     private val loading = HashMap<String, Job>()
+    private val cwState = MutableStateFlow<List<com.lekathedon.visionlite.trakt.Resume>>(emptyList())
+    /** Trakt Continue Watching (empty when not connected). */
+    val continueWatching: StateFlow<List<com.lekathedon.visionlite.trakt.Resume>> get() = cwState
+    private var cwAt = 0L
+    private var cwJob: Job? = null
+
+    /** Asked when Home shows; at most every 30 s (coming back from the player always refreshes via [force]). */
+    fun refreshContinue(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (app.trakt.connected.value == null) { cwState.value = emptyList(); return }
+        if (!force && now - cwAt < 30_000) return
+        cwAt = now
+        cwJob?.cancel()
+        cwJob = viewModelScope.launch { cwState.value = runCatching { app.trakt.continueWatching() }.getOrDefault(cwState.value) }
+    }
 
     init {
         viewModelScope.launch {

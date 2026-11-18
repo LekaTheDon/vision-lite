@@ -23,6 +23,8 @@ jobs:
           VL_STORE_PASSWORD: ${{ secrets.VL_STORE_PASSWORD }}
           VL_KEY_ALIAS: ${{ secrets.VL_KEY_ALIAS }}
           VL_KEY_PASSWORD: ${{ secrets.VL_KEY_PASSWORD }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
         run: ./gradlew --no-daemon :app:assembleRelease -PvlName=${{ inputs.version_name }} -PvlCode=${{ inputs.code }}
       - name: Release (Actions artifact storage is full on this account)
         env: { GH_TOKEN: "${{ github.token }}" }

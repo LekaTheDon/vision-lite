@@ -38,7 +38,15 @@ import com.lekathedon.visionlite.player.fel.AmlDvFelVideoRenderer
 import com.lekathedon.visionlite.player.fel.AmlFelSupport
 import com.lekathedon.visionlite.ui.Screen
 import kotlin.math.abs
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+/** Set when the player closes, so Home refreshes Continue Watching right away. */
+object PlayerReturn {
+    @Volatile private var flag = false
+    fun mark() { flag = true }
+    fun consume(): Boolean = flag.also { flag = false }
+}
 
 /** Native FEL first (DV7 only, when chosen and the box can), then the normal decoders. */
 @OptIn(UnstableApi::class)
@@ -98,6 +106,7 @@ fun Player(s: Screen.Player) {
         onDispose { player.removeListener(listener); player.release() }
     }
     DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
+    TraktSync(player, s)
     AndroidView(
         modifier = Modifier.fillMaxSize().background(Color.Black),
         factory = { ctx ->
@@ -132,4 +141,51 @@ private fun matchFrameRate(context: Context, fps: Float) {
 private fun restoreMode(context: Context) {
     val window = (context as? Activity)?.window ?: return
     window.attributes = window.attributes.also { it.preferredDisplayModeId = 0 }
+}
+
+/**
+ * Trakt: resume from the saved % (asked once, only when Trakt is connected), scrobble start / pause / stop.
+ * Stop at 80 % or more marks it watched on Trakt.
+ */
+@OptIn(UnstableApi::class)
+@Composable
+private fun TraktSync(player: ExoPlayer, s: Screen.Player) {
+    val trakt = App.instance.trakt
+    if (s.id.isBlank() || !s.id.startsWith("tt")) return
+    val parts = s.id.split(':')
+    val imdb = parts[0]
+    val season = parts.getOrNull(1)?.toIntOrNull()
+    val episode = parts.getOrNull(2)?.toIntOrNull()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun pct(): Float = player.duration.takeIf { it > 0 }?.let { player.currentPosition * 100f / it } ?: 0f
+    DisposableEffect(player) {
+        var resumeTo = -1f
+        var asked = false
+        var resumed = false
+        if (trakt.connected.value != null) scope.launch {
+            resumeTo = trakt.savedProgress(imdb, season, episode)
+            asked = true
+        }
+        val listener = object : MediaPlayer.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == MediaPlayer.STATE_READY && !resumed && asked && resumeTo in 2f..92f && player.duration > 0 && player.currentPosition < 60_000) {
+                    resumed = true
+                    player.seekTo((player.duration * resumeTo / 100f).toLong())
+                }
+                if (state == MediaPlayer.STATE_ENDED) scope.launch { trakt.scrobble("stop", imdb, season, episode, 100f) }
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (player.duration <= 0) return
+                val p = pct()
+                scope.launch { trakt.scrobble(if (isPlaying) "start" else "pause", imdb, season, episode, p) }
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            val p = pct()
+            PlayerReturn.mark()
+            if (p > 0f) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { trakt.scrobble("stop", imdb, season, episode, p) }
+        }
+    }
 }
