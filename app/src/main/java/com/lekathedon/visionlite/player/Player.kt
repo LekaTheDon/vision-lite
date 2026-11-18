@@ -129,23 +129,28 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     }
     DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
     TraktSync(player, s)
-    AndroidView(
-        modifier = Modifier.fillMaxSize().background(Color.Black),
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                keepScreenOn = true
-                setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                controllerShowTimeoutMs = 3000
-                isFocusable = true
-                subtitleView?.let { styleSubtitles(it) }
-                requestFocus()
-                setOnKeyListener { _, code, e ->
-                    if (e.action == KeyEvent.ACTION_DOWN && code == KeyEvent.KEYCODE_DPAD_CENTER && !isControllerFullyVisible) { showController(); true } else false
+    var view by remember { mutableStateOf<PlayerView?>(null) }
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    keepScreenOn = true
+                    useController = false
+                    isFocusable = false
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                    subtitleView?.let { styleSubtitles(it) }
+                    view = this
                 }
-            }
-        },
-        update = { it.player = player }
-    )
+            },
+            update = { it.player = player }
+        )
+        // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
+        Controls(player, s.title, canNext = s.type == "series",
+            onNext = { scope.launch { nextEpisode(nav, s) } },
+            onSources = { nav.pop() },
+            onAspect = { mode -> view?.resizeMode = mode })
+    }
 }
 
 /** The file plus the add-on subtitles found for this title (side-loaded; picked by the language settings). */

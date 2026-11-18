@@ -4,6 +4,9 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!-- VS10 Engine (the player's VS10 button shows only when it is installed). -->
+    <queries><package android:name="com.am9fel.vs10" /></queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"

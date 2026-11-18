@@ -1,0 +1,357 @@
+package com.lekathedon.visionlite.player
+
+import android.os.SystemClock
+import androidx.annotation.OptIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.ui.AspectRatioFrameLayout
+import com.lekathedon.visionlite.ui.Focusable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
+
+private enum class Panel { AUDIO, SUBS, SPEED, STATS }
+
+private val Aspects = listOf(
+    AspectRatioFrameLayout.RESIZE_MODE_FIT to "Fit",
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "Zoom",
+    AspectRatioFrameLayout.RESIZE_MODE_FILL to "Stretch",
+)
+private val Speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+
+/**
+ * The player's own controls (Vision's button set, drawn light): title and end time on top; seek bar and labelled
+ * buttons below; side panels for audio, subtitles, speed and stats. Hidden: OK = pause/play, Left/Right = seek,
+ * Up/Down = show. Shown: Back hides. Updates only while shown (once a second otherwise, for the auto-hide).
+ */
+@OptIn(UnstableApi::class)
+@Composable
+internal fun Controls(
+    player: ExoPlayer, title: String, canNext: Boolean,
+    onNext: () -> Unit, onSources: () -> Unit, onAspect: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var visible by remember { mutableStateOf(true) }
+    var lastInput by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
+    var playing by remember { mutableStateOf(player.playWhenReady) }
+    var pos by remember { mutableLongStateOf(0L) }
+    var dur by remember { mutableLongStateOf(0L) }
+    var buffered by remember { mutableLongStateOf(0L) }
+    var panel by remember { mutableStateOf<Panel?>(null) }
+    var aspect by remember { mutableIntStateOf(0) }
+    var speed by remember { mutableStateOf(1f) }
+    var seekTo by remember { mutableStateOf<Long?>(null) }
+    var seekRepeats by remember { mutableIntStateOf(0) }
+    var note by remember { mutableStateOf("") }
+    var dropped by remember { mutableLongStateOf(0L) }
+    val vs10 = remember { Vs10Engine.installed(context) }
+    val root = remember { FocusRequester() }
+    val bar = remember { FocusRequester() }
+    val playButton = remember { FocusRequester() }
+
+    DisposableEffect(player) {
+        val l = object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { playing = playWhenReady }
+        }
+        val a = object : AnalyticsListener {
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) { dropped += droppedFrames }
+        }
+        player.addListener(l); player.addAnalyticsListener(a)
+        onDispose { player.removeListener(l); player.removeAnalyticsListener(a) }
+    }
+    LaunchedEffect(player) {
+        while (true) {
+            pos = player.currentPosition; dur = player.duration.coerceAtLeast(0L); buffered = player.bufferedPosition
+            if (visible && playing && panel == null && seekTo == null && SystemClock.uptimeMillis() - lastInput > 4_000) visible = false
+            delay(if (visible) 250 else 1_000)
+        }
+    }
+    // A seek runs once the presses stop (so ten presses are one jump, not ten).
+    LaunchedEffect(seekTo) {
+        val t = seekTo ?: return@LaunchedEffect
+        delay(650); player.seekTo(t); pos = t; seekTo = null; seekRepeats = 0
+    }
+    LaunchedEffect(note) { if (note.isNotEmpty()) { delay(3_500); note = "" } }
+    LaunchedEffect(visible) { runCatching { if (visible) playButton.requestFocus() else root.requestFocus() } }
+
+    fun toggle() { if (player.playWhenReady) player.pause() else player.play() }
+    fun step(forward: Boolean) {
+        seekRepeats++
+        val stepMs = when { seekRepeats > 15 -> 60_000L; seekRepeats > 5 -> 30_000L; else -> 10_000L }
+        val from = seekTo ?: player.currentPosition
+        seekTo = (from + if (forward) stepMs else -stepMs).coerceIn(0L, dur.takeIf { it > 0 } ?: Long.MAX_VALUE)
+    }
+
+    Box(
+        Modifier.fillMaxSize().focusRequester(root).focusable().onPreviewKeyEvent { e ->
+            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            lastInput = SystemClock.uptimeMillis()
+            when (e.nativeKeyEvent.keyCode) {
+                android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { toggle(); return@onPreviewKeyEvent true }
+                android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); return@onPreviewKeyEvent true }
+                android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); return@onPreviewKeyEvent true }
+                android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { visible = true; step(true); return@onPreviewKeyEvent true }
+                android.view.KeyEvent.KEYCODE_MEDIA_REWIND -> { visible = true; step(false); return@onPreviewKeyEvent true }
+            }
+            if (e.key == Key.Back) {
+                when { panel != null -> panel = null; visible -> visible = false; else -> return@onPreviewKeyEvent false }
+                return@onPreviewKeyEvent true
+            }
+            if (visible) return@onPreviewKeyEvent false
+            when (e.key) {
+                Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { toggle(); visible = true }
+                Key.DirectionLeft, Key.DirectionRight -> { visible = true; step(e.key == Key.DirectionRight); scope.launch { delay(50); runCatching { bar.requestFocus() } } }
+                Key.DirectionUp, Key.DirectionDown -> visible = true
+                else -> return@onPreviewKeyEvent false
+            }
+            true
+        }
+    ) {
+        if (note.isNotEmpty()) Text(note, color = Color.White, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+            .background(Color(0xCC000000), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
+        if (!visible) return@Box
+
+        // Top: title and when it ends.
+        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))).padding(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 40.dp)) {
+            Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            if (dur > 0) Text("Ends at ${endsAt(dur - pos, speed)}", color = Color(0xFFBDBDBD), fontSize = 14.sp)
+        }
+
+        // Bottom: seek bar and buttons.
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000)))).padding(start = 48.dp, end = 48.dp, top = 60.dp, bottom = 28.dp)) {
+            val shown = seekTo ?: pos
+            var barFocused by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(clock(shown), color = Color.White, fontSize = 14.sp)
+                Box(Modifier.weight(1f).padding(horizontal = 14.dp).height(if (barFocused) 8.dp else 4.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x40FFFFFF))
+                    .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
+                    .onKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when (e.key) {
+                            Key.DirectionLeft -> { step(false); true }
+                            Key.DirectionRight -> { step(true); true }
+                            Key.DirectionCenter, Key.Enter -> { toggle(); true }
+                            else -> false
+                        }
+                    }) {
+                    if (dur > 0) {
+                        Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color(0x66FFFFFF)))
+                        Box(Modifier.fillMaxHeight().fillMaxWidth((shown.toFloat() / dur).coerceIn(0f, 1f)).background(if (barFocused) Color(0xFFD9DC8E) else Color.White))
+                    }
+                }
+                Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White, fontSize = 14.sp)
+            }
+            Row(Modifier.padding(top = 16.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Pill(if (playing) "Pause" else "Play", Modifier.focusRequester(playButton)) { toggle() }
+                Pill("Restart") { player.seekTo(0); player.play() }
+                if (canNext) Pill("Next episode") { onNext() }
+                Pill("Audio") { panel = Panel.AUDIO }
+                Pill("Subtitles") { panel = Panel.SUBS }
+                Pill("Speed ${fmtSpeed(speed)}") { panel = Panel.SPEED }
+                Pill("Aspect: ${Aspects[aspect].second}") { aspect = (aspect + 1) % Aspects.size; onAspect(Aspects[aspect].first) }
+                if (vs10) Pill("VS10") {
+                    note = "VS10…"
+                    scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
+                }
+                Pill("Stats") { panel = if (panel == Panel.STATS) null else Panel.STATS }
+                Pill("Sources") { onSources() }
+            }
+        }
+
+        when (panel) {
+            Panel.AUDIO -> TrackPanel("Audio", player, C.TRACK_TYPE_AUDIO, allowOff = false) { panel = null }
+            Panel.SUBS -> TrackPanel("Subtitles", player, C.TRACK_TYPE_TEXT, allowOff = true) { panel = null }
+            Panel.SPEED -> SidePanel("Speed", Speeds.map { fmtSpeed(it) }, Speeds.indexOf(speed)) { i -> speed = Speeds[i]; player.setPlaybackSpeed(speed); panel = null }
+            Panel.STATS -> Stats(player, dropped, buffered - pos, Modifier.align(Alignment.TopEnd))
+            null -> {}
+        }
+    }
+}
+
+private fun vs10Text(s: Vs10Engine.Step): String {
+    if (s.source == null) return "VS10: nothing to convert (${s.unconverted ?: "this video"} plays as is)"
+    val src = when (s.source) { Vs10Engine.Source.SDR -> "SDR"; Vs10Engine.Source.HDR10 -> "HDR10"; Vs10Engine.Source.MPV -> "mpv" }
+    val to = when (s.mode) { Vs10Engine.Mode.OFF -> "off"; Vs10Engine.Mode.HDR10 -> "HDR10"; Vs10Engine.Mode.DV -> "Dolby Vision"; null -> "?" }
+    return "VS10: $src → $to"
+}
+
+@Composable
+private fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Focusable(onClick, modifier, RoundedCornerShape(20.dp)) { f ->
+        Text(text, color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+            modifier = Modifier.background(if (f) Color.White else Color(0x33FFFFFF)).padding(horizontal = 18.dp, vertical = 9.dp))
+    }
+}
+
+@Composable
+private fun SidePanel(title: String, items: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(30); runCatching { first.requestFocus() } }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Color(0xF0101114)).padding(24.dp)) {
+            Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            LazyColumn {
+                itemsIndexed(items) { i, label ->
+                    Focusable({ onPick(i) }, (if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier).padding(top = 6.dp).fillMaxWidth()) { f ->
+                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x14FFFFFF)).padding(12.dp)) {
+                            Text(if (i == selected) "● " else "   ", color = if (f) Color.Black else Color(0xFFD9DC8E), fontSize = 15.sp)
+                            Text(label, color = if (f) Color.Black else Color.White, fontSize = 15.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The file's tracks of [type]; picking one pins it, "Off" turns subtitles off. */
+@Composable
+private fun TrackPanel(title: String, player: ExoPlayer, type: Int, allowOff: Boolean, close: () -> Unit) {
+    val groups = player.currentTracks.groups.filter { it.type == type }
+    val options = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
+    val off = allowOff && player.trackSelectionParameters.disabledTrackTypes.contains(type)
+    val selected = if (off) 0 else options.indexOfFirst { (g, i) -> g.isTrackSelected(i) }.let { if (allowOff && it >= 0) it + 1 else it }
+    val labels = (if (allowOff) listOf("Off") else emptyList()) + options.map { (g, i) -> trackLabel(g.getTrackFormat(i), type) }
+    if (labels.isEmpty()) { SidePanel(title, listOf("None in this file"), -1) { close() }; return }
+    SidePanel(title, labels, selected) { pick ->
+        val b = player.trackSelectionParameters.buildUpon()
+        if (allowOff && pick == 0) b.setTrackTypeDisabled(type, true)
+        else {
+            val (g, i) = options[if (allowOff) pick - 1 else pick]
+            b.setTrackTypeDisabled(type, false).setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
+        }
+        player.trackSelectionParameters = b.build()
+        close()
+    }
+}
+
+private fun trackLabel(f: Format, type: Int): String {
+    val lang = f.language?.takeIf { it != "und" }?.let { Locale.forLanguageTag(it).displayLanguage.ifBlank { it } } ?: "Unknown"
+    val extra = buildList {
+        f.label?.takeIf { it.isNotBlank() && !it.equals(lang, true) }?.let { add(it) }
+        if (type == C.TRACK_TYPE_AUDIO) {
+            codecName(f.sampleMimeType)?.let { add(it) }
+            when (f.channelCount) { 1 -> add("mono"); 2 -> add("stereo"); 6 -> add("5.1"); 8 -> add("7.1"); Format.NO_VALUE -> {} else -> add("${f.channelCount} ch") }
+        } else {
+            if (f.selectionFlags and C.SELECTION_FLAG_FORCED != 0) add("forced")
+            codecName(f.sampleMimeType)?.let { add(it) }
+        }
+    }
+    return (listOf(lang) + extra).joinToString(" · ")
+}
+
+private fun codecName(mime: String?): String? = when (mime) {
+    "audio/eac3-joc" -> "Atmos (DD+)"
+    "audio/eac3" -> "DD+"
+    "audio/ac3" -> "Dolby Digital"
+    "audio/true-hd" -> "TrueHD"
+    "audio/vnd.dts", "audio/vnd.dts.hd", "audio/vnd.dts.hd;profile=lbr" -> if (mime == "audio/vnd.dts") "DTS" else "DTS-HD"
+    "audio/mp4a-latm" -> "AAC"
+    "audio/opus" -> "Opus"
+    "audio/flac" -> "FLAC"
+    "audio/raw" -> "PCM"
+    "application/x-subrip" -> "SRT"
+    "text/x-ssa" -> "ASS"
+    "application/pgs" -> "PGS"
+    "text/vtt" -> "VTT"
+    "video/hevc" -> "HEVC"
+    "video/avc" -> "H.264"
+    "video/av01" -> "AV1"
+    "video/dolby-vision" -> "Dolby Vision"
+    "video/x-vnd.on2.vp9" -> "VP9"
+    else -> null
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun Stats(player: ExoPlayer, dropped: Long, aheadMs: Long, modifier: Modifier) {
+    val v = player.videoFormat
+    val a = player.audioFormat
+    val hdr = when (v?.colorInfo?.colorTransfer) {
+        C.COLOR_TRANSFER_ST2084 -> if (v.sampleMimeType == "video/dolby-vision" || v.codecs?.startsWith("dv") == true) "Dolby Vision" else "HDR10"
+        C.COLOR_TRANSFER_HLG -> "HLG"
+        else -> if (v?.sampleMimeType == "video/dolby-vision") "Dolby Vision" else "SDR"
+    }
+    val lines = listOfNotNull(
+        v?.let { "Video  ${it.width}×${it.height} · ${codecName(it.sampleMimeType) ?: it.sampleMimeType} · $hdr" + (if (it.frameRate > 0) " · ${"%.3f".format(it.frameRate)} fps" else "") },
+        v?.bitrate?.takeIf { it > 0 }?.let { "Video bitrate  ${"%.1f".format(it / 1e6)} Mb/s" },
+        a?.let { "Audio  ${trackLabel(it, C.TRACK_TYPE_AUDIO)}" + (if (it.sampleRate > 0) " · ${it.sampleRate / 1000} kHz" else "") },
+        "Decoder  ${player.videoDecoderCounters?.let { "${it.renderedOutputBufferCount} frames shown" } ?: "-"}",
+        "Dropped frames  $dropped",
+        "Buffer ahead  ${(aheadMs.coerceAtLeast(0) / 1000)} s",
+    )
+    Column(modifier.padding(top = 96.dp, end = 48.dp).background(Color(0xD9101114), RoundedCornerShape(10.dp)).padding(18.dp)) {
+        Text("Stats", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        lines.forEach { Text(it, color = Color(0xFFDADADA), fontSize = 14.sp) }
+    }
+}
+
+private fun fmtSpeed(s: Float) = if (s == 1f) "1×" else "${s.toString().trimEnd('0').trimEnd('.')}×"
+
+private fun clock(ms: Long): String {
+    val t = (ms.coerceAtLeast(0) / 1000)
+    val h = t / 3600; val m = t % 3600 / 60; val s = t % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
+
+private fun endsAt(leftMs: Long, speed: Float): String {
+    val at = System.currentTimeMillis() + (leftMs / speed).toLong()
+    return java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date(at))
+}
