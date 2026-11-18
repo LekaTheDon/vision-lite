@@ -87,13 +87,23 @@ object ComingUp {
         val watched = trakt.watchedShows()
         val lastWatched = HashMap<String, Long>()
         val names = HashMap<String, String>()
-        watched?.forEach { w -> w.show.ids.imdb?.let { lastWatched[it] = ms(w.lastWatchedAt); names[it] = w.show.title } }
+        val tvdb = HashMap<String, Long>()
+        watched?.forEach { w -> w.show.ids.imdb?.let { lastWatched[it] = ms(w.lastWatchedAt); names[it] = w.show.title; w.show.ids.tvdb?.let { t -> tvdb[it] = t } } }
+        // Trakt's own calendar of your shows (next 30 days): checked first, so they show even mid first run.
+        val calendar = runCatching { trakt.calendar(30).first }.getOrDefault(emptyList())
+        val soon = LinkedHashSet<String>()
+        calendar.forEach { c -> c.show.ids.imdb?.let { soon += it; names.putIfAbsent(it, c.show.title); c.show.ids.tvdb?.let { t -> tvdb.putIfAbsent(it, t) } } }
         runCatching { trakt.watchlist() }.getOrDefault(emptyList()).forEach { l -> l.show?.let { s -> s.ids.imdb?.let { names.putIfAbsent(it, s.title) } } }
         Saves.all().filter { it.type == "series" && it.id.startsWith("tt") }.forEach { names.putIfAbsent(it.id.substringBefore(':'), it.name) }
         if (names.isEmpty()) { _items.value = emptyList(); return }
 
         val ids = (read("tvmaze_ids.json", idSer) ?: emptyMap()).toMutableMap()
         val shows = (read("shows.json", showSer) ?: emptyMap()).toMutableMap()
+        // Shows that weren't found before but are on Trakt's calendar now: look again.
+        soon.forEach { if (ids[it] == -1) ids.remove(it) }
+        // Refresh, or once after this fix (older builds kept failed lookups as "not on TVmaze"): ask all misses again.
+        val sp = App.instance.prefs.sp
+        if (force || !sp.getBoolean("comingup_v2", false)) { ids.values.removeAll { it < 0 }; sp.edit().putBoolean("comingup_v2", true).apply() }
         // Which shows TVmaze changed since the last check (one call); a first run or a long gap reads them all.
         val since = App.instance.prefs.sp.getLong("comingup_at", 0)
         val changed: Set<Int>? = if (force || since == 0L || now - since > 6 * 24 * 3600_000L) null else runCatching {
@@ -102,16 +112,25 @@ object ComingUp {
         }.getOrNull()
 
         var done = 0
-        val todo = names.keys.toList()
+        // Trakt's calendar first, then the most recently watched; the rest after.
+        val todo = names.keys.sortedWith(compareByDescending<String> { it in soon }.thenByDescending { lastWatched[it] ?: 0L })
         for (imdb in todo) {
             done++
-            if (done % 20 == 0) { _status.value = "Checking your shows… $done/${todo.size}"; publish(names, lastWatched, ids, shows, now) }
-            val id = ids[imdb] ?: run {
-                val found = lookup(imdb) ?: -1
-                ids[imdb] = found
-                delay(450)
-                found
+            if (done % 20 == 0) {
+                _status.value = "Checking your shows… $done/${todo.size}"
+                publish(names, lastWatched, ids, shows, now)
+                // Kept as it goes: an interrupted first run carries on where it stopped next time.
+                write("tvmaze_ids.json", idSer, ids); write("shows.json", showSer, shows)
             }
+            val id = ids[imdb] ?: run {
+                // Not on TVmaze by IMDb id: try its TheTVDB id. A failed call (busy, offline) is NOT kept, so the show
+                // is asked again next time instead of being dropped for good.
+                var found = lookup("imdb", imdb)
+                if (found == -1) tvdb[imdb]?.let { t -> delay(450); found = lookup("thetvdb", t.toString()) }
+                delay(450)
+                found?.also { ids[imdb] = it } ?: return@run -2
+            }
+            if (id == -2) continue
             if (id < 0) continue
             val s = shows[imdb]
             val aired = s != null && s.nextAt in 1..now
@@ -157,8 +176,9 @@ object ComingUp {
         write("items.json", itemSer, out)
     }
 
-    private fun lookup(imdb: String): Int? = runCatching {
-        Net.http.newCall(Request.Builder().url("$TVMAZE/lookup/shows?imdb=$imdb").build()).execute().use { r ->
+    /** TVmaze id; -1 = TVmaze doesn't have it; null = no answer this time. */
+    private fun lookup(by: String, id: String): Int? = runCatching {
+        Net.http.newCall(Request.Builder().url("$TVMAZE/lookup/shows?$by=$id").build()).execute().use { r ->
             if (r.code == 404) return -1
             if (!r.isSuccessful) return null
             JSONObject(r.body!!.string()).optInt("id").takeIf { it > 0 }

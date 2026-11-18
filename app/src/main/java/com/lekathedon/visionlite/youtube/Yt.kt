@@ -148,8 +148,9 @@ object Yt {
     private val streamCache = ConcurrentHashMap<String, Pair<Long, YtStreams>>()
 
     /** Playable links for a video: best video (to 2160p) + best audio, or HLS for live. Cached 3 hours. */
-    fun streams(videoId: String): YtStreams {
-        streamCache[videoId]?.let { (at, s) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) return s }
+    fun streams(videoId: String, maxHeight: Int = 2160): YtStreams {
+        val ck = "$videoId@$maxHeight"
+        streamCache[ck]?.let { (at, s) -> if (System.currentTimeMillis() - at < 3 * 3600_000L) return s }
         val o = call(Client.VR, "player", JSONObject().put("videoId", videoId).put("contentCheckOk", true).put("racyCheckOk", true), false)
         val ps = o.optJSONObject("playabilityStatus")
         if (ps?.optString("status") != "OK") throw IOException(ps?.optString("reason")?.ifBlank { null } ?: "Not playable")
@@ -157,13 +158,13 @@ object Yt {
         val fmts = sd.optJSONArray("adaptiveFormats") ?: JSONArray()
         val list = (0 until fmts.length()).map { fmts.getJSONObject(it) }.filter { it.has("url") }
         fun codecRank(m: String) = when { "vp9" in m || "vp09" in m -> 0; "avc1" in m -> 1; "av01" in m -> 2; else -> 3 }
-        val video = list.filter { it.optString("mimeType").startsWith("video/") && it.optInt("height") <= 2160 }
+        val video = list.filter { it.optString("mimeType").startsWith("video/") && it.optInt("height") <= maxHeight }
             .sortedWith(compareByDescending<JSONObject> { it.optInt("height") }.thenBy { codecRank(it.optString("mimeType")) }.thenByDescending { it.optInt("fps") }).firstOrNull()
         val audio = list.filter { it.optString("mimeType").startsWith("audio/") }.maxByOrNull { it.optInt("bitrate") }
         val d = o.optJSONObject("videoDetails")
         val s = YtStreams(video?.getString("url"), audio?.getString("url"), sd.optString("hlsManifestUrl").ifBlank { null },
             d?.optString("title").orEmpty(), d?.optString("author").orEmpty(), video?.optInt("height") ?: 0)
-        streamCache[videoId] = System.currentTimeMillis() to s
+        streamCache[ck] = System.currentTimeMillis() to s
         return s
     }
 

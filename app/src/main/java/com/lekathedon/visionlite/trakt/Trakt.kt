@@ -22,7 +22,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
-@Serializable data class Ids(val trakt: Long? = null, val imdb: String? = null, val tmdb: Long? = null)
+@Serializable data class Ids(val trakt: Long? = null, val imdb: String? = null, val tmdb: Long? = null, val tvdb: Long? = null)
 @Serializable data class TMovie(val title: String = "", val year: Int? = null, val ids: Ids = Ids())
 @Serializable data class TShow(val title: String = "", val year: Int? = null, val ids: Ids = Ids())
 @Serializable data class TEpisode(val season: Int = 0, val number: Int = 0, val title: String? = null, val ids: Ids = Ids())
@@ -185,6 +185,34 @@ class Trakt(private val prefs: Prefs) {
         val m = async { runCatching { get<List<CalMovie>>("calendars/my/movies/$today/$days") }.getOrDefault(emptyList()) }
         s.await() to m.await()
     }
+
+    // --- details page ---
+
+    @Serializable data class PEp(val number: Int = 0, val completed: Boolean = false)
+    @Serializable data class PSeason(val number: Int = 0, val episodes: List<PEp> = emptyList())
+    @Serializable data class Progress(val seasons: List<PSeason> = emptyList(), @SerialName("next_episode") val next: TEpisode? = null,
+                                      @SerialName("last_episode") val last: TEpisode? = null)
+    @Serializable data class TUser(val username: String = "")
+    @Serializable data class UStats(val rating: Int? = null)
+    @Serializable data class Comment(val id: Long = 0, val comment: String = "", val spoiler: Boolean = false, val review: Boolean = false,
+                                     val likes: Int = 0, @SerialName("created_at") val createdAt: String = "", val user: TUser = TUser(),
+                                     @SerialName("user_stats") val stats: UStats = UStats())
+    @Serializable data class TRating(val rating: Double = 0.0, val votes: Int = 0)
+
+    /** A show's watched episodes and the next one to watch (null when Trakt is off). */
+    suspend fun progress(imdb: String): Progress? = if (!on()) null else
+        runCatching { get<Progress>("shows/$imdb/progress/watched?specials=false&count_specials=false") }.getOrNull()
+
+    /** Trakt's own rating (0-10) and vote count. Public: no sign-in needed. */
+    suspend fun rating(imdb: String, tv: Boolean): TRating? = if (!configured) null else
+        runCatching { val (c, t) = call("GET", "${if (tv) "shows" else "movies"}/$imdb/ratings", auth = false); if (c in 200..299) Net.json.decodeFromString<TRating>(t) else null }.getOrNull()
+
+    /** Trakt comments, most liked first (an episode's when [season]/[episode] are given). Public. */
+    suspend fun comments(imdb: String, tv: Boolean, season: Int? = null, episode: Int? = null): List<Comment> = if (!configured) emptyList() else runCatching {
+        val path = if (!tv) "movies/$imdb/comments/likes" else if (season != null && episode != null) "shows/$imdb/seasons/$season/episodes/$episode/comments/likes" else "shows/$imdb/comments/likes"
+        val (c, t) = call("GET", "$path?limit=25", auth = false)
+        if (c in 200..299) Net.json.decodeFromString<List<Comment>>(t) else emptyList()
+    }.getOrDefault(emptyList())
 
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {

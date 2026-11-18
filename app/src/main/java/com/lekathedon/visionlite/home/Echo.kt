@@ -809,18 +809,40 @@ private fun ComingCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onHo
     }
 }
 
-/** A streaming service: its logo over a backdrop from its shows. */
+/**
+ * A streaming service, drawn as Vision's ServiceTileOverlay: backdrop from its shows, its logo in its own colours on a
+ * soft round shade (white for the dark-on-clear ones), and resting on it plays the service's intro clip (ServiceClips),
+ * fading in on its first frame and back to the still tile when it ends or focus leaves.
+ */
 @Composable
 private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
-    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick) {
+    val sid = m.id.removePrefix("svc:")
+    LaunchedEffect(Unit) { ServiceClips.preloadAll() }
+    val look = LocalTrailer.current
+    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick) { focused ->
         Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
         if (m.logo != null) {
-            val context = LocalContext.current
-            val req = remember(m.logo) { ImageRequest.Builder(context).data(m.logo).build() }
-            coil3.compose.AsyncImage(req, m.name, Modifier.align(Alignment.Center).padding(24.dp).widthIn(max = dims.cwWidth * 0.6f).heightIn(max = dims.cwHeight * 0.4f),
-                contentScale = ContentScale.Fit, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White))
-        } else Text(m.name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
+            Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.15f)))),
+                contentAlignment = Alignment.Center) {
+                val context = LocalContext.current
+                val req = remember(m.logo) { ImageRequest.Builder(context).data(m.logo).build() }
+                coil3.compose.AsyncImage(req, m.name, Modifier.fillMaxWidth(0.62f).fillMaxHeight(0.42f), contentScale = ContentScale.Fit,
+                    colorFilter = if (sid in ServiceClips.LIGHT_LOGO) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null)
+            }
+        } else {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+            Text(m.name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
+        }
+        var clip by remember(sid) { mutableStateOf<ServiceClips.Clip?>(null) }
+        LaunchedEffect(focused, sid) {
+            clip = null
+            if (!focused || !ServiceClips.has(sid)) return@LaunchedEffect
+            delay(ServiceClips.START_AFTER_MS)
+            clip = ServiceClips.clipFor(sid)
+        }
+        clip?.takeIf { focused }?.let { c ->
+            com.lekathedon.visionlite.trailer.TrailerVideo(c.video, look.muted || !look.on, Modifier.fillMaxSize(), c.audio) { clip = null }
+        }
     }
 }
 

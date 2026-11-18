@@ -78,6 +78,13 @@ class Prefs(context: Context) {
     /** The pill's section (Vision's AppSection): "NUVIO" or "IPTV" (YouTube and Music join as they're built). */
     val appSection = Text("app_section", "NUVIO")
     val ratings = Flag("ratings", false)
+    // Details page (Vision's IMDb parts)
+    /** Episode IMDb ratings: "all", "watched" (hide on episodes not watched yet: no spoilers), "off". */
+    val epRatings = Text("detail_ep_ratings", "all")
+    /** Reviews row source: "imdb" or "trakt". */
+    val reviewsSource = Text("detail_reviews", "imdb")
+    val sequelPrequel = Flag("detail_sequel_prequel", true)
+    val connections = Flag("detail_connections", true)
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */
     val rowOrder = Text("row_order", "")
     val rowsHidden = Text("rows_hidden", "")

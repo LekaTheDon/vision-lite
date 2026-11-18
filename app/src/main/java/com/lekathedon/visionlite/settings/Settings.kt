@@ -99,6 +99,12 @@ fun Settings(nav: Nav) {
         item { Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings) }
         item { Link("Home rows", "On / off, order, refresh") { nav.push(Screen.Rows) } }
 
+        item { Section("Details page") }
+        item { Choice("Episode IMDb ratings", "", p.epRatings, listOf("all" to "Show all", "watched" to "Hide on episodes not watched yet", "off" to "Hide")) }
+        item { Choice("Reviews", "Which reviews the page shows first", p.reviewsSource, listOf("imdb" to "IMDb", "trakt" to "Trakt")) }
+        item { Toggle("Sequel / Prequel", "IMDb's Follows / Followed by", p.sequelPrequel) }
+        item { Toggle("Connections", "Spin-offs, remakes and other versions (IMDb)", p.connections) }
+
         item { Section("Recommendations") }
         item { Choice("IMDb minimum", "Nothing rated lower is recommended (unrated titles stay)", p.recMinImdb,
             listOf("0" to "Off", "6" to "6", "6.5" to "6.5", "7" to "7", "7.5" to "7.5", "8" to "8")) }

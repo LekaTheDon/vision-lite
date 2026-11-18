@@ -24,7 +24,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, onEnded: () -> Unit) {
+fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: String? = null, onEnded: () -> Unit) {
     val context = LocalContext.current
     var shown by remember(url) { mutableStateOf(false) }
     val frame = remember { AspectRatioFrameLayout(context).apply { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM } }
@@ -50,7 +50,13 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, onEnded: () ->
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) onEnded() }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) { onEnded() }
         })
-        player.setMediaItem(MediaItem.fromUri(url))
+        if (audioUrl == null) player.setMediaItem(MediaItem.fromUri(url))
+        else {
+            // YouTube gives picture and sound as two files (a service's intro clip): played together.
+            val f = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
+            player.setMediaSource(androidx.media3.exoplayer.source.MergingMediaSource(
+                f.createMediaSource(MediaItem.fromUri(url)), f.createMediaSource(MediaItem.fromUri(audioUrl))))
+        }
         player.playWhenReady = true
         player.prepare()
         onDispose { player.release() }
