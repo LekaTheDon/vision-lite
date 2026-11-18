@@ -67,6 +67,7 @@ private val PosterH = 180.dp
  * Home: focused title's details on top, rows below. No motion: focus and scroll move in one frame, the focused row
  * snaps under the details. The details/tint follow focus after 120 ms, so holding a direction never loads art.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun Home(nav: Nav) {
     val vm: HomeModel = viewModel()
