@@ -90,7 +90,7 @@ class Trakt(private val prefs: Prefs) {
         while (System.currentTimeMillis() < until) {
             delay(interval)
             val (code, text) = call("POST", "oauth/device/token", buildJsonObject {
-                put("code", dc.deviceCode); put("client_id", BuildConfig.TRAKT_ID); put("client_secret", BuildConfig.TRAKT_SECRET)
+                put("code", dc.deviceCode); put("client_id", BuildConfig.TRAKT_ID); if (BuildConfig.TRAKT_SECRET.isNotBlank()) put("client_secret", BuildConfig.TRAKT_SECRET)
             }, auth = false)
             when (code) {
                 200 -> { save(Net.json.decodeFromString(text)); return true }
@@ -106,9 +106,10 @@ class Trakt(private val prefs: Prefs) {
 
     private suspend fun refreshIfNeeded() {
         val t = tokens.value ?: return
-        if (System.currentTimeMillis() / 1000 < t.createdAt + t.expiresIn - 86_400) return
+        // Refreshed in the last quarter of its life (Trakt's tokens can be as short as a day).
+        if (System.currentTimeMillis() / 1000 < t.createdAt + t.expiresIn - minOf(86_400L, t.expiresIn / 4L)) return
         val (code, text) = call("POST", "oauth/token", buildJsonObject {
-            put("refresh_token", t.refresh); put("client_id", BuildConfig.TRAKT_ID); put("client_secret", BuildConfig.TRAKT_SECRET)
+            put("refresh_token", t.refresh); put("client_id", BuildConfig.TRAKT_ID); if (BuildConfig.TRAKT_SECRET.isNotBlank()) put("client_secret", BuildConfig.TRAKT_SECRET)
             put("redirect_uri", "urn:ietf:wg:oauth:2.0:oob"); put("grant_type", "refresh_token")
         }, auth = false)
         if (code == 200) save(Net.json.decodeFromString(text)) else if (code in 400..499) save(null)
