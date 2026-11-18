@@ -93,7 +93,9 @@ const int SET_SIDEBAND_STREAM = 18;
 // native_handle_t + 1 fd + 3 ints = Amlogic's sideband handle (id, video flags, channel).
 struct Sideband { ANativeWindow *window; int version, fds, ints, fd; uint32_t id; int flags, channel; };
 const uint32_t SIDEBAND_ID = 0xabcdcdef;
-const int FLAG_VIDEO_OVERLAY = 0x10;
+// MesonHwc shows VD1 only for the OMX sideband type (PRIV_FLAGS_VIDEO_OMX) on channel 1.
+const int FLAG_VIDEO_OMX = 0x20;
+const int CHANNEL = 1;
 
 }  // namespace
 
@@ -217,7 +219,7 @@ EXPORT jlong JNICALL Java_com_lekathedon_visionlite_player_fel_FelNative_attach(
         return -ENOSYS;
     }
     int fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
-    auto *sb = fd < 0 ? nullptr : new (std::nothrow) Sideband{nw, 12, 1, 3, fd, SIDEBAND_ID, FLAG_VIDEO_OVERLAY, 0};
+    auto *sb = fd < 0 ? nullptr : new (std::nothrow) Sideband{nw, 12, 1, 3, fd, SIDEBAND_ID, FLAG_VIDEO_OMX, CHANNEL};
     if (!sb) {
         if (fd >= 0) close(fd);
         ANativeWindow_release(nw);

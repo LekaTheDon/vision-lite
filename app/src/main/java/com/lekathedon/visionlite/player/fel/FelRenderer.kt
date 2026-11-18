@@ -243,7 +243,7 @@ class FelRenderer : BaseRenderer(C.TRACK_TYPE_VIDEO) {
         port = h
         val now = SystemClock.elapsedRealtime()
         openedAt = now; progressAt = now; lastClockAt = 0L
-        firstFrame = false; ready = false; held = false; clockSet = false
+        firstFrame = false; ready = false; held = false; clockSet = false; movedAt = 0L
         mode = readMode()
         ptsAtOpen = FelNative.shownPts(port); lastPts = ptsAtOpen
         f.initializationData.firstOrNull()?.takeIf { it.isNotEmpty() }?.let { csd ->
@@ -276,6 +276,12 @@ class FelRenderer : BaseRenderer(C.TRACK_TYPE_VIDEO) {
 
     private var clockSet = false
 
+    private var movedAt = 0L
+
+    /**
+     * First frame = the shown PTS moved off the value it had at open (a stale one from the last session) and sits
+     * near the start position; one elsewhere (open GOP) is taken after the clock has moved for 750 ms.
+     */
     private fun watchFirstFrame(now: Long) {
         if (firstFrame) return
         val pts = FelNative.shownPts(port)
@@ -283,9 +289,14 @@ class FelRenderer : BaseRenderer(C.TRACK_TYPE_VIDEO) {
             if (playing && now - openedAt > 6000) throw fallback("no first frame")
             return
         }
+        if (movedAt == 0L) movedAt = now
         if (!clockSet) { FelNative.setClock(port, pts90k(positionUs)); clockSet = true }
+        val delta = pts.toInt() - pts90k(positionUs)
+        val frame90k = (frameUs() * 9 / 100).toInt()
+        if ((delta < -frame90k || delta > 2 * frame90k) && now - movedAt < 750) return
+        if (surface?.isValid != true) return
         firstFrame = true; firstFrameAt = now; progressAt = now
-        surface?.let { Log.i(TAG, "first frame ${now - openedAt} ms after open") }
+        Log.i(TAG, "first frame ${now - openedAt} ms after open, ${delta / 90} ms from target")
         if (!playing) hold()
     }
 
