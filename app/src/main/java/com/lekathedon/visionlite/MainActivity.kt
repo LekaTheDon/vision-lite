@@ -33,6 +33,9 @@ import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
 
 class MainActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        com.lekathedon.visionlite.ui.HoldGuard.consume(event) || super.dispatchKeyEvent(event)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as App
@@ -53,6 +56,8 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().background(look.page)) {
                   // A hub's pages (Discover, Library, Live TV…) carry the pill on top, that page marked (Vision).
                   val hub = com.lekathedon.visionlite.home.hubPageOf(nav.current)
+                  // The pill on a hub's page shows that hub, however the page was reached.
+                  androidx.compose.runtime.LaunchedEffect(nav.current) { com.lekathedon.visionlite.home.hubOf(nav.current)?.let { App.instance.prefs.appSection.value = it } }
                   Box(Modifier.fillMaxSize().padding(top = if (hub != null) 50.dp else 0.dp)) {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {
@@ -85,9 +90,9 @@ class MainActivity : ComponentActivity() {
                         Screen.Calendar -> com.lekathedon.visionlite.browse.CalendarPage(nav)
                         is Screen.Service -> com.lekathedon.visionlite.browse.ServicePage(nav, s.id)
                         is Screen.Person -> com.lekathedon.visionlite.browse.PersonPage(nav, s.id, s.name)
-                        Screen.YouTube -> com.lekathedon.visionlite.youtube.YouTubeScreen(nav)
+                        is Screen.YouTube -> com.lekathedon.visionlite.youtube.YouTubeScreen(nav, s.tab)
                         is Screen.YtPlay -> com.lekathedon.visionlite.youtube.YtPlayer(nav, s)
-                        Screen.Music -> com.lekathedon.visionlite.music.MusicScreen(nav)
+                        is Screen.Music -> com.lekathedon.visionlite.music.MusicScreen(nav, s.tab)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()

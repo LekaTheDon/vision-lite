@@ -25,9 +25,9 @@ sealed interface Screen {
     data object Calendar : Screen
     data class Service(val id: String) : Screen
     data class Person(val id: String, val name: String) : Screen
-    data object YouTube : Screen
+    data class YouTube(val tab: String = "HOME") : Screen
     data class YtPlay(val id: String, val title: String) : Screen
-    data object Music : Screen
+    data class Music(val tab: String = "HOME") : Screen
     data object Settings : Screen
     data object Addons : Screen
     data object ThisTv : Screen

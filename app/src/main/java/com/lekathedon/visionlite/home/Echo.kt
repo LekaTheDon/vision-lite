@@ -514,7 +514,8 @@ fun BoxScope.TopPill(
                         if (ch) {
                             val key = k.removePrefix("s:")
                             prefs.appSection.value = key; choosing = false
-                            Sections.opensAt(key)?.let(nav::push) ?: run { pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
+                            Sections.opensAt(key)?.let { if (current != null) nav.replace(it) else nav.push(it) } ?: run {
+                                if (current != null) nav.popToHome() pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
                         } else if (k != entryKey) Sections.pages(section).firstOrNull { it.first == label }?.let {
                             if (current != null) nav.replace(it.second) else nav.push(it.second)
                         }
@@ -532,6 +533,9 @@ fun BoxScope.TopPill(
 }
 
 /** The hub page each menu screen is (for the pill on that page): its label, or null when it isn't one. */
+/** The hub (section key) a menu screen belongs to, or null. */
+fun hubOf(s: Screen): String? = Sections.all.firstOrNull { (key, _) -> Sections.pages(key).any { it.second == s } }?.first
+
 fun hubPageOf(s: Screen): String? = Sections.all.firstNotNullOfOrNull { (key, _) -> Sections.pages(key).firstOrNull { it.second == s }?.first }
 
 @Composable
@@ -645,14 +649,12 @@ private fun EchoCard(
     val focused by source.collectIsFocusedAsState()
     LaunchedEffect(focused) { if (focused) { LastFocus = me; onFocus() } }
     val shape = RoundedCornerShape(radius)
-    var held by remember { mutableStateOf(false) }
     Box(
         modifier.focusRequester(me)
             .then(if (onHold == null) Modifier else Modifier.onPreviewKeyEvent { e ->
                 val ok = e.key == Key.DirectionCenter || e.key == Key.Enter
                 when {
-                    ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> { if (!held) { held = true; onHold() }; true }
-                    ok && e.type == KeyEventType.KeyUp && held -> { held = false; true }
+                    ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> { com.lekathedon.visionlite.ui.HoldGuard.held(); onHold(); true }
                     else -> false
                 }
             })
@@ -927,13 +929,13 @@ private object Sections {
     fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Nuvio"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
-        "YOUTUBE" -> listOf("YouTube" to Screen.YouTube)
-        "MUSIC" -> listOf("Music" to Screen.Music)
+        "YOUTUBE" -> com.lekathedon.visionlite.youtube.YtTabs.tabs().map { (k, l) -> l to Screen.YouTube(k) }
+        "MUSIC" -> com.lekathedon.visionlite.music.MusicTabs.all.map { (k, l) -> l to Screen.Music(k) }
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search, "Genres" to Screen.Genres, "Decades" to Screen.Decades,
             "Scout" to Screen.Scout, "Library" to Screen.Library, "Calendar" to Screen.Calendar)
     }
-    /** YouTube and Music are one page each: picking the section opens it (as Vision's do). */
-    fun opensAt(key: String): Screen? = when (key) { "YOUTUBE" -> Screen.YouTube; "MUSIC" -> Screen.Music; else -> null }
+    /** Picking YouTube or Music opens its first tab (as Vision's do); Nuvio and IPTV stay on Home with their pages in the pill. */
+    fun opensAt(key: String): Screen? = if (key == "YOUTUBE" || key == "MUSIC") pages(key).firstOrNull()?.second else null
 }
 
 // ---- Vision's own row cards ----

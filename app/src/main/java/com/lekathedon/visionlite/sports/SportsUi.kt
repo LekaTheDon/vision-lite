@@ -342,7 +342,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
             else { com.lekathedon.visionlite.music.MusicPlayer.pause(); ytShown = v } } }
         PanelTab.MUSIC -> music.orEmpty().let { list -> list.mapIndexed { i, v -> PanelLine("m:${v.videoId}", v.title,
             if (musicShown == v.videoId) "Playing on the left · OK again: full screen" else v.sub, v.image) {
-            if (musicShown == v.videoId) { musicFull = true; onDismiss(); nav.push(Screen.Music) }
+            if (musicShown == v.videoId) { musicFull = true; onDismiss(); nav.push(Screen.Music()) }
             else { com.lekathedon.visionlite.music.MusicPlayer.play(list, i); musicShown = v.videoId } } } }
         PanelTab.NOTICES -> coming.filter { it.isNew }.sortedByDescending { it.at }.map { c ->
             PanelLine("n:${c.key}", c.name, listOfNotNull(if (c.type == "movie") "Now available to stream" else "New episode", epText(c.season, c.episode), c.epTitle, ago(c.at, now)).joinToString(" · "),

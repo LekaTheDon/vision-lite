@@ -38,6 +38,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,7 +53,6 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
-import com.lekathedon.visionlite.browse.Chips
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.ui.Button
 import com.lekathedon.visionlite.ui.Focusable
@@ -68,7 +68,8 @@ import kotlinx.coroutines.withContext
 /** "yt-v://id" / "yt-a://id" → the real video / audio link, asked when the player opens it (and again when it expires). */
 @OptIn(UnstableApi::class)
 fun ytDataSource(): ResolvingDataSource.Factory = ResolvingDataSource.Factory(
-    OkHttpDataSource.Factory(Net.http).setUserAgent(Yt.VR_UA)
+    // DefaultDataSource: web links go through OkHttp, songs on the box (content://, file://) are read directly.
+    androidx.media3.datasource.DefaultDataSource.Factory(com.lekathedon.visionlite.App.instance, OkHttpDataSource.Factory(Net.http).setUserAgent(Yt.VR_UA))
 ) { spec: DataSpec ->
     val u = spec.uri
     if (u.scheme != "yt-v" && u.scheme != "yt-a") spec
@@ -79,21 +80,40 @@ fun ytDataSource(): ResolvingDataSource.Factory = ResolvingDataSource.Factory(
     }
 }
 
-/** YouTube: Home, Subscriptions (signed in), Search; sign in by approving a code at youtube.com/activate. */
+/**
+ * Vision's YouTube tabs, in its order (Recommended, Subscriptions, History, Playlists, Channels, Shorts, Music, Gaming,
+ * News, Live, Sports, Trending), then Search and the sign-in. Each tab is a page of the YouTube hub in the pill; the
+ * ones that need your account show once you're signed in. OK on a channel or playlist opens it here; Back returns.
+ */
+object YtTabs {
+    private val all = listOf("HOME" to "Recommended", "SUBSCRIPTIONS" to "Subscriptions", "HISTORY" to "History", "PLAYLISTS" to "Playlists",
+        "CHANNELS" to "Channels", "SHORTS" to "Shorts", "MUSIC" to "Music", "GAMING" to "Gaming", "NEWS" to "News", "LIVE" to "Live",
+        "SPORTS" to "Sports", "TRENDING" to "Trending", "SEARCH" to "Search", "ACCOUNT" to "Account")
+    private val needsAccount = setOf("SUBSCRIPTIONS", "HISTORY", "PLAYLISTS", "CHANNELS")
+    fun tabs(signed: Boolean = Yt.signedIn): List<Pair<String, String>> =
+        all.filter { signed || it.first !in needsAccount }.map { if (!signed && it.first == "ACCOUNT") it.first to "Sign in" else it }
+}
+
 @Composable
-fun YouTubeScreen(nav: Nav) {
+fun YouTubeScreen(nav: Nav, tab: String = "HOME") {
     val signed by Yt.signed.collectAsState()
-    var tab by rememberSaveable { mutableStateOf("home") }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("YouTube", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 18.dp))
-            Chips(listOfNotNull("home" to "Home", if (signed) "subs" to "Subscriptions" else null, "search" to "Search", "account" to if (signed) "Account" else "Sign in"), tab) { tab = it }
+    val pages = remember(tab) { mutableStateListOf<Pair<String, String>>() } // (title, browseId) opened in this tab
+    androidx.activity.compose.BackHandler(pages.isNotEmpty()) { pages.removeAt(pages.lastIndex) }
+    fun open(v: YtItem) {
+        when {
+            v.videoId != null -> nav.push(Screen.YtPlay(v.videoId, v.title))
+            v.browseId != null -> pages.add(v.title to v.browseId)
+            v.playlistId != null -> pages.add(v.title to "VL" + v.playlistId)
         }
-        when (tab) {
-            "account" -> Account()
-            "search" -> SearchBox()?.let { q -> Feed(nav, "s:$q") { Yt.search(q) } }
-            "subs" -> Feed(nav, "subs") { Yt.subscriptions() }
-            else -> Feed(nav, "home$signed") { Yt.home() }
+    }
+    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 8.dp)) {
+        pages.lastOrNull()?.let { Text(it.first, color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        val page = pages.lastOrNull()
+        when {
+            page != null -> Feed("b:${page.second}", ::open) { Yt.browse(page.second) }
+            tab == "ACCOUNT" -> Account()
+            tab == "SEARCH" -> SearchBox()?.let { q -> Feed("s:$q", ::open) { Yt.search(q) } }
+            else -> Feed("$tab:$signed", ::open) { Yt.tab(tab) }
         }
     }
 }
@@ -111,7 +131,7 @@ fun SearchBox(): String? {
 }
 
 @Composable
-private fun Feed(nav: Nav, key: String, load: suspend () -> List<YtShelf>) {
+private fun Feed(key: String, open: (YtItem) -> Unit, load: suspend () -> List<YtShelf>) {
     var shelves by remember(key) { mutableStateOf<List<YtShelf>?>(null) }
     var err by remember(key) { mutableStateOf("") }
     LaunchedEffect(key) { runCatching { shelves = load() }.onFailure { err = it.message ?: "error"; shelves = emptyList() } }
@@ -119,10 +139,15 @@ private fun Feed(nav: Nav, key: String, load: suspend () -> List<YtShelf>) {
         shelves == null -> Text("Loading…", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp))
         shelves!!.isEmpty() -> Text(if (err.isNotEmpty()) "YouTube didn't answer: $err" else "Nothing here.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp))
         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp)) {
-            items(shelves!!.filter { s -> s.items.any { it.videoId != null } }, key = { it.title + it.items.first().key }) { s ->
-                Text(s.title.ifEmpty { "Videos" }, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+            items(shelves!!, key = { it.title + it.items.first().key }) { s ->
+                com.lekathedon.visionlite.home.EchoRowTitle(s.title.ifEmpty { "Videos" })
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(s.items.filter { it.videoId != null }, key = { it.key }) { v -> Card(v, 240.dp, 135.dp) { nav.push(Screen.YtPlay(v.videoId!!, v.title)) } }
+                    items(s.items, key = { it.key }) { v ->
+                        // Channels round-ish and square, videos wide, Shorts tall (as Vision's cards).
+                        val (w, h) = when { v.videoId == null && v.browseId?.startsWith("UC") == true -> 150.dp to 150.dp
+                            v.title == "Short" -> 135.dp to 240.dp; else -> 240.dp to 135.dp }
+                        Card(v, w, h) { open(v) }
+                    }
                 }
             }
         }

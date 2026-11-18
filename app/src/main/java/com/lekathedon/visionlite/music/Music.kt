@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
@@ -45,7 +46,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.lekathedon.visionlite.App
-import com.lekathedon.visionlite.browse.Chips
 import com.lekathedon.visionlite.ui.Button
 import com.lekathedon.visionlite.ui.Img
 import com.lekathedon.visionlite.ui.LocalLook
@@ -104,6 +104,17 @@ object MusicPlayer {
         player.setMediaItems(items, start.coerceIn(0, items.lastIndex), 0); player.prepare(); player.playWhenReady = true
     }
 
+    /** Songs on the box (Music › Local), in order from [start]. */
+    fun playLocal(songs: List<LocalSong>, start: Int = 0) {
+        val items = songs.map { t ->
+            MediaItem.Builder().setUri(t.uri).setMediaId(t.uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setArtworkUri(t.art?.let(android.net.Uri::parse)).build()).build()
+        }
+        if (items.isEmpty()) return
+        made = true
+        player.setMediaItems(items, start.coerceIn(0, items.lastIndex), 0); player.prepare(); player.playWhenReady = true
+    }
+
     fun pause() { if (made) player.playWhenReady = false }
     fun toggle() { if (made) player.playWhenReady = !player.playWhenReady }
     fun next() { if (made && player.hasNextMediaItem()) player.seekToNextMediaItem() }
@@ -125,11 +136,15 @@ class MusicService : Service() {
     }
 }
 
-/** Vision Music, the lite way: YouTube Music's home and search; OK on a song plays its radio, on an album/playlist/artist opens it. */
+/** Vision Music's tabs (Home, Explore, Library, Local, Search): each a page of the Music hub in the pill. */
+object MusicTabs {
+    val all = listOf("HOME" to "Home", "EXPLORE" to "Explore", "LIBRARY" to "Library", "LOCAL" to "Local", "SEARCH" to "Search")
+}
+
+/** Vision Music, the lite way: OK on a song plays its radio, on an album/playlist/artist opens it; Local = songs on the box. */
 @Composable
-fun MusicScreen(nav: Nav) {
-    var tab by rememberSaveable { mutableStateOf("home") }
-    val pages = remember { mutableStateListOf<Pair<String, String>>() } // (title, browseId) opened inside Music
+fun MusicScreen(nav: Nav, tab: String = "HOME") {
+    val pages = remember(tab) { mutableStateListOf<Pair<String, String>>() } // (title, browseId) opened inside Music
     androidx.activity.compose.BackHandler(pages.isNotEmpty()) { pages.removeAt(pages.lastIndex) }
     val scope = rememberCoroutineScope()
     fun open(it: YtItem, shelf: List<YtItem>) {
@@ -144,20 +159,78 @@ fun MusicScreen(nav: Nav) {
             it.browseId != null -> pages.add(it.title to it.browseId)
         }
     }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(pages.lastOrNull()?.first ?: "Vision Music", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 18.dp))
-            if (pages.isEmpty()) Chips(listOf("home" to "Home", "search" to "Search"), tab) { tab = it }
-        }
+    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 8.dp)) {
+        pages.lastOrNull()?.let { Text(it.first, color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         NowPlaying()
         val page = pages.lastOrNull()
         when {
             page != null -> Shelves("b:${page.second}", { Yt.musicBrowse(page.second) }, ::open)
-            tab == "search" -> SearchBox()?.let { q -> Shelves("s:$q", { Yt.musicSearch(q) }, ::open) }
+            tab == "SEARCH" -> SearchBox()?.let { q -> Shelves("s:$q", { Yt.musicSearch(q) }, ::open) }
+            tab == "EXPLORE" -> Shelves("explore", { Yt.musicExplore() }, ::open)
+            tab == "LIBRARY" -> if (!Yt.signedIn) Text("Sign in to YouTube (YouTube › Sign in) to see what you played, your artists and playlists.",
+                color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp))
+                else Shelves("library", { Yt.musicLibrary() }, ::open)
+            tab == "LOCAL" -> LocalMusic()
             else -> Shelves("home", { Yt.musicHome() }, ::open)
         }
     }
+}
+
+data class LocalSong(val uri: String, val title: String, val artist: String, val album: String, val art: String?)
+
+/** Songs on the box (USB, SD, internal) from Android's media index; asks for the music permission the first time. */
+@Composable
+private fun LocalMusic() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val perm = if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    fun granted() = ctx.checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    var ok by remember { mutableStateOf(granted()) }
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok = it }
+    if (!ok) {
+        Text("Lite needs to see the music on this box.", color = Palette.Text, fontSize = 16.sp, modifier = Modifier.padding(top = 16.dp))
+        Button("Allow", { ask.launch(perm) }, Modifier.padding(top = 12.dp))
+        return
+    }
+    val songs by androidx.compose.runtime.produceState<List<LocalSong>?>(null) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { localSongs(ctx) }.getOrDefault(emptyList()) }
+    }
+    val list = songs
+    when {
+        list == null -> Text("Loading…", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp))
+        list.isEmpty() -> Text("No music found on this box.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp))
+        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp)) {
+            list.groupBy { it.album.ifBlank { "Songs" } }.forEach { (album, tracks) ->
+                item(key = "a:$album") {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)) {
+                        Text(album, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (tracks.size > 1) Button("Play all", { MusicPlayer.playLocal(tracks) }, Modifier.padding(start = 12.dp))
+                    }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(tracks, key = { it.uri }) { t ->
+                            Card(YtItem(null, null, null, t.title, t.artist, t.art), 150.dp, 150.dp) { MusicPlayer.playLocal(tracks, tracks.indexOf(t)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun localSongs(ctx: android.content.Context): List<LocalSong> {
+    val uri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+    val cols = arrayOf(android.provider.MediaStore.Audio.Media._ID, android.provider.MediaStore.Audio.Media.TITLE, android.provider.MediaStore.Audio.Media.ARTIST,
+        android.provider.MediaStore.Audio.Media.ALBUM, android.provider.MediaStore.Audio.Media.ALBUM_ID)
+    val out = ArrayList<LocalSong>()
+    ctx.contentResolver.query(uri, cols, "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0", null,
+        "${android.provider.MediaStore.Audio.Media.ALBUM} COLLATE NOCASE, ${android.provider.MediaStore.Audio.Media.TRACK}")?.use { c ->
+        while (c.moveToNext() && out.size < 2000) {
+            val id = c.getLong(0)
+            out += LocalSong(android.content.ContentUris.withAppendedId(uri, id).toString(), c.getString(1).orEmpty(),
+                c.getString(2)?.takeIf { it != "<unknown>" }.orEmpty(), c.getString(3).orEmpty(),
+                "content://media/external/audio/albumart/${c.getLong(4)}")
+        }
+    }
+    return out
 }
 
 @Composable

@@ -149,7 +149,6 @@ private fun Schedule(nav: Nav, c: Channel, minute: Long, version: Int) {
             val archive = if (past) Iptv.catchupUrl(c, pr, now) else null
             val recs by Recorder.list.collectAsState()
             val set = !past && !live && recs.any { it.url == c.url && it.title == pr.title && it.start == pr.startMs - 60_000L && it.state == "scheduled" }
-            var held by remember { mutableStateOf(false) }
             Focusable({
                 when {
                     live -> { Iptv.played(c); nav.push(Screen.Player(c.url, c.name, c.headers, type = "live")) }
@@ -161,8 +160,7 @@ private fun Schedule(nav: Nav, c: Channel, minute: Long, version: Int) {
                 when {
                     !live -> false
                     ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> {
-                        if (!held) { held = true; if (recs.none { it.url == c.url && it.title == pr.title && it.state == "recording" }) Recorder.recordNow(c, pr.title, pr.stopMs + 120_000L) }; true }
-                    ok && e.type == KeyEventType.KeyUp && held -> { held = false; true }
+                        run { com.lekathedon.visionlite.ui.HoldGuard.held(); if (recs.none { it.url == c.url && it.title == pr.title && it.state == "recording" }) Recorder.recordNow(c, pr.title, pr.stopMs + 120_000L) }; true }
                     else -> false
                 }
             }) { f ->
@@ -187,12 +185,10 @@ private fun Schedule(nav: Nav, c: Channel, minute: Long, version: Int) {
 private fun ChannelRow(c: Channel, minute: Long, modifier: Modifier, onFocus: () -> Unit, onPlay: () -> Unit, onHold: () -> Unit) {
     val version by Iptv.version.collectAsState()
     val now by produceState<EpgProgram?>(null, c, minute, version) { value = withContext(Dispatchers.IO) { Iptv.nowNext(c).firstOrNull { it.isLive(System.currentTimeMillis()) } } }
-    var held by remember { mutableStateOf(false) }
     Focusable(onPlay, modifier.padding(bottom = 4.dp).fillMaxWidth().onPreviewKeyEvent { e ->
         val ok = e.key == Key.DirectionCenter || e.key == Key.Enter
         when {
-            ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> { if (!held) { held = true; onHold() }; true }
-            ok && e.type == KeyEventType.KeyUp && held -> { held = false; true }
+            ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> { com.lekathedon.visionlite.ui.HoldGuard.held(); onHold(); true }
             else -> false
         }
     }, onFocus = onFocus) { f ->
