@@ -22,7 +22,9 @@ class PhoneForm private constructor(
     private val fields: List<Field>,
     private val onSubmit: (List<String>) -> Unit
 ) {
-    data class Field(val label: String, val hint: String = "", val initial: String = "", val secret: Boolean = false, val note: String? = null)
+    /** [link] = a button above the field that opens a sign-in page on the phone ([linkText] on it). */
+    data class Field(val label: String, val hint: String = "", val initial: String = "", val secret: Boolean = false, val note: String? = null,
+                     val link: String? = null, val linkText: String = "Open sign-in")
 
     private val token = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     @Volatile private var used = false
@@ -87,7 +89,7 @@ class PhoneForm private constructor(
     private fun js(s: String) = s.replace("</", "<\\/")
 
     private fun jsonFields() = JSONArray().apply {
-        fields.forEach { f -> put(JSONObject().put("label", f.label).put("hint", f.hint).put("value", f.initial).put("secret", f.secret).apply { f.note?.let { put("note", it) } }) }
+        fields.forEach { f -> put(JSONObject().put("label", f.label).put("hint", f.hint).put("value", f.initial).put("secret", f.secret).apply { f.note?.let { put("note", it) }; f.link?.let { put("link", it); put("linkText", f.linkText) } }) }
     }.toString()
 
     // Page from Vision's PhoneFormWebPage (same look and script).
@@ -112,6 +114,7 @@ button{border:0;border-radius:12px;font-size:16px;cursor:pointer}
 #msg{margin-top:18px;text-align:center;color:#9aa0b4}
 #msg.ok{color:#5fd38d;font-size:18px}
 .note{font-size:13px;color:#8f95ab;margin:-2px 0 8px}
+.go{display:block;text-align:center;padding:15px;border-radius:12px;background:#232842;color:#fff;text-decoration:none;font-weight:600;margin:8px 0 12px}
 </style></head><body><main>
 <h1 id="t"></h1><p class="sub">Fill in, then send to your TV.</p>
 <form id="f" autocomplete="off"></form>
@@ -125,6 +128,7 @@ var form=document.getElementById('f'),inputs=[];
 fields.forEach(function(fd,i){
   var l=document.createElement('label');l.textContent=fd.label;l.htmlFor='i'+i;form.appendChild(l);
   if(fd.note){var n=document.createElement('div');n.className='note';n.textContent=fd.note;form.appendChild(n);}
+  if(fd.link){var a=document.createElement('a');a.className='go';a.href=fd.link;a.target='_blank';a.rel='noopener';a.textContent=fd.linkText;form.appendChild(a);}
   var row=document.createElement('div');row.className='row';
   var x=document.createElement('input');x.id='i'+i;x.value=fd.value||'';x.placeholder=fd.hint||'';
   x.type=fd.secret?'password':(/url/i.test(fd.label)?'url':'text');

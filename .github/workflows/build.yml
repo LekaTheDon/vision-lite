@@ -25,6 +25,10 @@ jobs:
           VL_KEY_PASSWORD: ${{ secrets.VL_KEY_PASSWORD }}
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          ANILIST_CLIENT_ID: ${{ secrets.ANILIST_CLIENT_ID }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+          MAL_CLIENT_SECRET: ${{ secrets.MAL_CLIENT_SECRET }}
         run: ./gradlew --no-daemon :app:assembleRelease -PvlName=${{ inputs.version_name }} -PvlCode=${{ inputs.code }}
       - name: Release (Actions artifact storage is full on this account)
         env: { GH_TOKEN: "${{ github.token }}" }

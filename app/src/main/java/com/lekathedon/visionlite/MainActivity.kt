@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()
                         Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)
+                        is Screen.SignIn -> com.lekathedon.visionlite.integrations.SignInScreen(nav, s.id)
                     }
                 }
             }

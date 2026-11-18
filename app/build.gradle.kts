@@ -19,6 +19,9 @@ android {
         // Trakt app key from the build environment (repo secrets), never in the source.
         buildConfigField("String", "TRAKT_ID", "\"${System.getenv("TRAKT_CLIENT_ID") ?: ""}\"")
         buildConfigField("String", "TRAKT_SECRET", "\"${System.getenv("TRAKT_CLIENT_SECRET") ?: ""}\"")
+        // Simkl / AniList / MyAnimeList app IDs (repo secrets too): with them, signing in is just approving on the phone.
+        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET"))
+            buildConfigField("String", k, "\"${System.getenv(k) ?: ""}\"")
     }
 
     signingConfigs {

@@ -176,7 +176,7 @@ private fun ServicePanel(s: Service, nav: Nav, first: FocusRequester, setup: Boo
     Body("Status: ${roleOf(s)}${checkText(s)}${if (note.isNotEmpty()) " · $note" else ""}")
     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         when {
-            s.signIn -> Button(if (set) "Signed in" else "Sign in", { if (!set) nav.push(Screen.Trakt) }, Modifier.focusRequester(first))
+            s.signIn -> Button(if (set) "Signed in" else "Sign in", { nav.push(if (s.id == "trakt") Screen.Trakt else Screen.SignIn(s.id)) }, Modifier.focusRequester(first))
             s.fields.isNotEmpty() -> Button(if (set) "Change key" else "Enter key", { asking = true }, Modifier.focusRequester(first))
             else -> Button(if (setup) "Next" else "Back", if (setup) next else back, Modifier.focusRequester(first))
         }

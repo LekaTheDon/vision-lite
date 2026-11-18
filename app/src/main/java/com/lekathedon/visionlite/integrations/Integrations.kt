@@ -47,17 +47,13 @@ object Integrations {
             get("https://www.premiumize.me/api/account/info?apikey=${enc(v[0])}")?.second?.contains("\"success\"") == true },
 
         Service("trakt", "Trakt", Group.TRACKING, "Continue Watching, Library, scrobbling, resume", "Sign in with the QR", signIn = true),
-        Service("simkl", "Simkl", Group.TRACKING, null, "simkl.com/settings/developer → your app's Client ID",
-            listOf(Field("Simkl Client ID", secret = true))) { v -> ok(get("https://api.simkl.com/search/movie?q=matrix&client_id=${enc(v[0])}")) },
+        Service("simkl", "Simkl", Group.TRACKING, null, "Sign in: scan, approve on simkl.com", signIn = true),
         Service("mdblist_sync", "MDBList", Group.TRACKING, null, "mdblist.com/preferences → API key (one key for both MDBList entries)",
             listOf(Field("MDBList API key", secret = true))) { v -> ok(get("https://api.mdblist.com/user?apikey=${enc(v[0])}")) },
         Service("imdb", "IMDb", Group.TRACKING, null, "Sign-in comes with IMDb sync"),
 
-        Service("anilist", "AniList", Group.ANIME, null, "anilist.co/settings/developer → Client ID",
-            listOf(Field("AniList Client ID"))),
-        Service("mal", "MyAnimeList", Group.ANIME, null, "myanimelist.net/apiconfig → Client ID and secret",
-            listOf(Field("MAL Client ID"), Field("MAL Client secret", secret = true))) { v ->
-            ok(get("https://api.myanimelist.net/v2/anime?q=naruto&limit=1", headers = mapOf("X-MAL-CLIENT-ID" to v[0]))) },
+        Service("anilist", "AniList", Group.ANIME, null, "Sign in: scan, approve on anilist.co, paste once", signIn = true),
+        Service("mal", "MyAnimeList", Group.ANIME, null, "Sign in: scan, approve on myanimelist.net, paste once", signIn = true),
 
         Service("tmdb", "TMDB", Group.DATA, null, "themoviedb.org/settings/api → API key or read token",
             listOf(Field("TMDB API key", secret = true))) { v ->
@@ -92,6 +88,9 @@ object Integrations {
     private val _changed = MutableStateFlow(0)
     val changed: StateFlow<Int> get() = _changed
     private fun bump() { _changed.value++ }
+    fun touch() = bump()
+    /** Sign-ins on the service's website (SignInScreen); Trakt has its own page. */
+    val WEB = setOf("simkl", "anilist", "mal")
 
     /** MDBList's one key serves both its tracking and its ratings entry; TorBox keeps Vision TB's key. */
     private fun keyId(s: Service) = if (s.id == "mdblist_sync") "mdblist" else s.id
@@ -108,6 +107,7 @@ object Integrations {
 
     fun clear(s: Service) {
         if (s.id == "trakt") App.instance.trakt.disconnect()
+        if (s.id in WEB) SignIns.signOut(s.id)
         s.fields.indices.forEach { field(s, it).value = "" }
         if (s.id == "torbox") p.visionTb.value = false
         status(s).value = ""
@@ -116,6 +116,7 @@ object Integrations {
 
     fun isSet(s: Service): Boolean = when {
         s.id == "trakt" -> App.instance.trakt.connected.value != null
+        s.id in WEB -> SignIns.signedIn(s.id)
         s.fields.isEmpty() -> false
         else -> field(s, 0).value.isNotBlank()
     }
