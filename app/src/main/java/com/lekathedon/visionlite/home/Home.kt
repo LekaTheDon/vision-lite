@@ -187,6 +187,7 @@ private fun TopBar(nav: Nav) {
         if (com.lekathedon.visionlite.App.instance.prefs.clock.flow.collectAsStateWithLifecycle().value) Clock()
         Button("Search", { nav.push(Screen.Search) })
         Button("Library", { nav.push(Screen.Library) })
+        Button("Live TV", { nav.push(Screen.LiveTv) })
         Button("Settings", { nav.push(Screen.Settings) })
     }
 }

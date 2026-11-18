@@ -88,6 +88,9 @@ class Prefs(context: Context) {
     /** Recommendations: IMDb minimum ("0" = off) and the More like this / Not for me marks. */
     val recMinImdb = Text("rec_min_imdb", "7")
     val recFeedback = Text("rec_feedback", "[]")
+    /** Live TV: playlists (JSON; Xtream passwords stay on this TV) and favourite channels. */
+    val iptvPlaylists = Text("iptv_playlists", "[]")
+    val iptvFavs = Text("iptv_favs", "")
     val visionTb = Flag("vision_tb", false)
     val torboxKey = Text("torbox_key", "")
     // App

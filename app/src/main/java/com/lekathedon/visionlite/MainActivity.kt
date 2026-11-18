@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Addons -> Addons()
                         Screen.ThisTv -> com.lekathedon.visionlite.device.ThisTv()
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
+                        Screen.LiveTv -> com.lekathedon.visionlite.iptv.LiveTv(nav)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()

@@ -12,6 +12,7 @@ sealed interface Screen {
     data class Player(val url: String, val title: String, val headers: Map<String, String> = emptyMap(), val type: String = "", val id: String = "") : Screen
     data object Search : Screen
     data object Library : Screen
+    data object LiveTv : Screen
     data object Settings : Screen
     data object Addons : Screen
     data object ThisTv : Screen

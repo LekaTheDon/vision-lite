@@ -380,6 +380,7 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, down
         PillItem("Home", open, down, selected = true, modifier = Modifier.focusRequester(home)) {}
         PillItem("Search", open, down) { nav.push(Screen.Search) }
         PillItem("Library", open, down) { nav.push(Screen.Library) }
+        PillItem("Live TV", open, down) { nav.push(Screen.LiveTv) }
         Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
         PillItem(null, open, down) { nav.push(Screen.Settings) }
     }
