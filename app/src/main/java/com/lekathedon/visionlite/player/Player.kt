@@ -85,6 +85,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (afr == "seamless") C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
             )
             .build().apply {
+                Hud.decoder = if (felAllowed) "native FEL renderer (if the file is DV7)" else null
+                addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                    override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, initMs: Long, durMs: Long) { Hud.decoder = name }
+                })
                 trackSelectionParameters = trackPrefs(trackSelectionParameters)
                 setMediaItem(if (addonSubs) withSubs(s) else MediaItem.fromUri(s.url), resumeAt)
                 prepare()

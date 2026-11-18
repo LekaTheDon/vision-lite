@@ -20,6 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import com.lekathedon.visionlite.ui.Icons
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -236,19 +239,19 @@ internal fun Controls(
                 Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White, fontSize = 14.sp)
             }
             Row(Modifier.padding(top = 16.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Pill(if (playing) "Pause" else "Play", Modifier.focusRequester(playButton)) { toggle() }
-                Pill("Restart") { player.seekTo(0); player.play() }
-                if (canNext) Pill("Next episode") { onNext() }
-                Pill("Audio") { panel = Panel.AUDIO }
-                Pill("Subtitles") { panel = Panel.SUBS }
-                Pill("Speed ${fmtSpeed(speed)}") { panel = Panel.SPEED }
-                Pill("Aspect: ${Aspects[aspect].second}") { aspect = (aspect + 1) % Aspects.size; onAspect(Aspects[aspect].first) }
-                if (vs10) Pill("VS10") {
+                IconPill(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton)) { toggle() }
+                IconPill(Icons.Restart, "Restart") { player.seekTo(0); player.play() }
+                if (canNext) IconPill(Icons.Next, "Next episode") { onNext() }
+                IconPill(Icons.Audio, "Audio") { panel = Panel.AUDIO }
+                IconPill(Icons.Subtitles, "Subtitles") { panel = Panel.SUBS }
+                IconPill(Icons.Speed, "Speed ${fmtSpeed(speed)}") { panel = Panel.SPEED }
+                IconPill(Icons.Aspect, Aspects[aspect].second) { aspect = (aspect + 1) % Aspects.size; onAspect(Aspects[aspect].first) }
+                if (vs10) IconPill(Icons.Hdr, "VS10") {
                     note = "VS10…"
                     scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
                 }
-                Pill("Stats") { panel = if (panel == Panel.STATS) null else Panel.STATS }
-                Pill("Sources") { onSources() }
+                IconPill(Icons.Info, "Stats · HDR · FEL") { panel = if (panel == Panel.STATS) null else Panel.STATS }
+                IconPill(Icons.Sources, "Sources") { onSources() }
             }
         }
 
@@ -267,6 +270,21 @@ private fun vs10Text(s: Vs10Engine.Step): String {
     val src = when (s.source) { Vs10Engine.Source.SDR -> "SDR"; Vs10Engine.Source.HDR10 -> "HDR10"; Vs10Engine.Source.MPV -> "mpv" }
     val to = when (s.mode) { Vs10Engine.Mode.OFF -> "off"; Vs10Engine.Mode.HDR10 -> "HDR10"; Vs10Engine.Mode.DV -> "Dolby Vision"; null -> "?" }
     return "VS10: $src → $to"
+}
+
+/** A round icon button; its name shows under it while focused (Vision's control deck). */
+@Composable
+private fun IconPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var f by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp)) {
+        Focusable(onClick, modifier.onFocusChanged { f = it.isFocused }, androidx.compose.foundation.shape.CircleShape) { focused ->
+            Box(Modifier.size(52.dp).background(if (focused) Color.White else Color(0x33FFFFFF)), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(icon, label, Modifier.size(26.dp), tint = if (focused) Color.Black else Color.White)
+            }
+        }
+        Text(if (f) label else "", color = Color.White, fontSize = 12.sp, maxLines = 1, softWrap = false,
+            modifier = Modifier.padding(top = 6.dp).height(16.dp).wrapContentWidth(unbounded = true))
+    }
 }
 
 @Composable
@@ -367,18 +385,22 @@ private fun Stats(player: ExoPlayer, dropped: Long, aheadMs: Long, modifier: Mod
         else -> if (v?.sampleMimeType == "video/dolby-vision") "Dolby Vision" else "SDR"
     }
     val lines = listOfNotNull(
-        v?.let { "Video  ${it.width}×${it.height} · ${codecName(it.sampleMimeType) ?: it.sampleMimeType} · $hdr" + (if (it.frameRate > 0) " · ${"%.3f".format(it.frameRate)} fps" else "") },
+        v?.let { "Video  ${it.width}×${it.height} · ${codecName(it.sampleMimeType) ?: it.sampleMimeType}" + (bitDepth(it)?.let { d -> " · $d-bit" } ?: "") + " · $hdr" + (if (it.frameRate > 0) " · ${"%.3f".format(it.frameRate)} fps" else "") },
         v?.bitrate?.takeIf { it > 0 }?.let { "Video bitrate  ${"%.1f".format(it / 1e6)} Mb/s" },
         a?.let { "Audio  ${trackLabel(it, C.TRACK_TYPE_AUDIO)}" + (if (it.sampleRate > 0) " · ${it.sampleRate / 1000} kHz" else "") },
-        "Decoder  ${player.videoDecoderCounters?.let { "${it.renderedOutputBufferCount} frames shown" } ?: "-"}",
+        "Frames shown  ${player.videoDecoderCounters?.renderedOutputBufferCount ?: 0}",
         "Dropped frames  $dropped",
         "Buffer ahead  ${(aheadMs.coerceAtLeast(0) / 1000)} s",
-    )
+    ) + Hud.rows(v, Hud.decoder)
     Column(modifier.padding(top = 96.dp, end = 48.dp).background(Color(0xD9101114), RoundedCornerShape(10.dp)).padding(18.dp)) {
         Text("Stats", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         lines.forEach { Text(it, color = Color(0xFFDADADA), fontSize = 14.sp) }
     }
+}
+
+private fun bitDepth(f: androidx.media3.common.Format): Int? = f.colorInfo?.lumaBitdepth?.takeIf { it > 0 } ?: f.codecs?.lowercase()?.let { c ->
+    when { c.startsWith("dvh") || c.startsWith("hvc1.2.") || c.startsWith("hev1.2.") -> 10; c.startsWith("hvc1.1.") || c.startsWith("hev1.1.") -> 8; else -> null }
 }
 
 private fun fmtSpeed(s: Float) = if (s == 1f) "1×" else "${s.toString().trimEnd('0').trimEnd('.')}×"
