@@ -50,6 +50,9 @@ data class Resume(val type: String, val imdb: String, val name: String, val seas
 class Trakt(private val prefs: Prefs) {
     private val tokens = MutableStateFlow(runCatching { prefs.sp.getString("trakt_tokens", null)?.let { Net.json.decodeFromString<Tokens>(it) } }.getOrNull())
     val connected: StateFlow<Tokens?> get() = tokens
+
+    /** Signed in and, in Integrations, driving Tracking or switched on as a helper. */
+    private fun on() = tokens.value != null && com.lekathedon.visionlite.integrations.Integrations.active("trakt")
     val configured get() = BuildConfig.TRAKT_ID.isNotBlank()
     private val jsonType = "application/json".toMediaType()
 
@@ -119,7 +122,7 @@ class Trakt(private val prefs: Prefs) {
 
     /** Paused titles first (newest), then the next episode of recently watched shows not already listed. */
     suspend fun continueWatching(): List<Resume> = coroutineScope {
-        if (tokens.value == null) return@coroutineScope emptyList()
+        if (!on()) return@coroutineScope emptyList()
         val paused = async { runCatching { get<List<Playback>>("sync/playback?limit=30") }.getOrDefault(emptyList()) }
         val shows = runCatching { get<List<Watched>>("sync/watched/shows?extended=noseasons") }.getOrDefault(emptyList())
             .sortedByDescending { it.lastWatchedAt }.take(8)
@@ -141,18 +144,18 @@ class Trakt(private val prefs: Prefs) {
         (p + next).sortedByDescending { it.at }.distinctBy { it.imdb }
     }
 
-    suspend fun watchlist(): List<ListItem> = if (tokens.value == null) emptyList()
+    suspend fun watchlist(): List<ListItem> = if (!on()) emptyList()
         else runCatching { get<List<ListItem>>("sync/watchlist?sort_by=added&sort_how=desc") }.getOrDefault(emptyList())
 
     /** Saved % for this title (to resume), or 0. */
-    suspend fun savedProgress(imdb: String, season: Int?, episode: Int?): Float =
+    suspend fun savedProgress(imdb: String, season: Int?, episode: Int?): Float = if (!on()) 0f else
         runCatching { get<List<Playback>>("sync/playback?limit=50") }.getOrDefault(emptyList()).firstOrNull {
             if (season == null) it.movie?.ids?.imdb == imdb else it.show?.ids?.imdb == imdb && it.episode?.season == season && it.episode.number == episode
         }?.progress ?: 0f
 
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {
-        if (tokens.value == null) return
+        if (!on()) return
         val body = buildJsonObject {
             if (season == null) putJsonObject("movie") { putJsonObject("ids") { put("imdb", imdb) } }
             else {

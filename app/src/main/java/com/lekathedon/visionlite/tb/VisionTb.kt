@@ -48,7 +48,8 @@ object VisionTb {
         override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Long>?) = size > 4000
     }
 
-    fun isOn(): Boolean = App.instance.prefs.visionTb.value && App.instance.prefs.torboxKey.value.isNotBlank()
+    fun isOn(): Boolean = App.instance.prefs.visionTb.value && App.instance.prefs.torboxKey.value.isNotBlank() &&
+        com.lekathedon.visionlite.integrations.Integrations.active("torbox")
 
     /** A row's play data: the hash and the file TorBox listed for it. */
     data class Pick(val hash: String, val fileName: String?)

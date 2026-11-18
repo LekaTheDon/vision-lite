@@ -58,6 +58,7 @@ fun Settings(nav: Nav) {
         item { Title("Settings") }
         item { Link("This TV", "Device check: Dolby Vision 7, frame-rate matching, what the TV and soundbar take", Modifier.focusRequester(first)) { nav.push(Screen.ThisTv) } }
         item { Link("Add-ons", "Install, order, remove") { nav.push(Screen.Addons) } }
+        item { Link("Integrations and tracking", "Every key and sign-in; who drives each group, who helps") { nav.push(Screen.Integrations) } }
         item { Link("Trakt", "Connect by QR: Continue Watching, Library, scrobbling") { nav.push(Screen.Trakt) } }
         item { Link("Vision TB", "TorBox-cached links straight from the torrent sites, first in the list") { nav.push(Screen.VisionTb) } }
 

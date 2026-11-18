@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
             val look = remember(oled) { Look(oled) }
             val asked by app.prefs.deviceAsked.flow.collectAsState()
             val saved = rememberSaveableStateHolder()
+            val setupDone by com.lekathedon.visionlite.integrations.Integrations.setupDone.flow.collectAsState()
             BackHandler(enabled = nav.canPop) { nav.pop() }
             CompositionLocalProvider(LocalLook provides look) {
                 Box(Modifier.fillMaxSize().background(look.page)) {
@@ -47,6 +48,8 @@ class MainActivity : ComponentActivity() {
                     when (val s = nav.current) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
                         Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck()
+                            // Then, once: every integration and tracker, one page each.
+                            else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.integrations.Setup(nav) }
                             else saved.SaveableStateProvider("home") {
                                 if (app.prefs.homeLook.flow.collectAsState().value == "classic") Home(nav)
                                 else com.lekathedon.visionlite.home.EchoHome(nav)
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()
+                        Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)
                     }
                 }
             }
