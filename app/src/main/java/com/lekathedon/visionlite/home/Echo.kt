@@ -48,6 +48,12 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -143,55 +149,223 @@ fun EchoHome(nav: Nav) {
     LaunchedEffect(Unit) { vm.refreshContinue(force = com.lekathedon.visionlite.player.PlayerReturn.consume()) }
     val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
     val visible = rows.filter { it.key !in hidden && (it.items.isNotEmpty() || !it.done) }
-    val firstFocus = remember { FocusRequester() }
-    val firstReady = cw.isNotEmpty() || visible.firstOrNull()?.items?.isNotEmpty() == true
-    LaunchedEffect(firstReady) { if (firstReady && focused == null) runCatching { firstFocus.requestFocus() } }
-    val snapTop = remember { snapSpec(0f) }
+    // Vision's start screen: the Legacy billboard (titles of the first row), focus on Watch Now.
+    val heroItems = remember(visible.firstOrNull { it.items.isNotEmpty() }?.items) {
+        visible.firstOrNull { it.items.isNotEmpty() }?.items.orEmpty().take(6)
+    }
+    var heroIndex by remember { mutableStateOf(0) }
+    var heroFocused by remember { mutableStateOf(true) }
+    val heroItem = heroItems.getOrNull(heroIndex.coerceAtMost((heroItems.size - 1).coerceAtLeast(0)))
+    val watchNow = remember { FocusRequester() }
+    LaunchedEffect(heroItems.isNotEmpty()) { if (heroItems.isNotEmpty() && focused == null) { withFrameNanos { }; runCatching { watchNow.requestFocus() } } }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // The billboard sits at the page's top; a focused row lands under the compact details (Echo's place for it).
+    val pageSpec = remember(density) {
+        val lead = with(density) { (RowsTop).toPx() }
+        val heroPx = with(density) { 300.dp.toPx() }
+        object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+            @Suppress("OVERRIDE_DEPRECATION")
+            override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.snap()
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+                if (size > heroPx) offset else offset - lead
+        }
+    }
+    val art = if (heroFocused) heroItem else shown
 
     Box(Modifier.fillMaxSize().background(look.page)) {
-        if (!look.oled) AmbientPageWash(shown?.wide(), Modifier.fillMaxSize())
-        EchoBackdrop(shown)
-        EchoHeroCopy(shown)
-        Column(Modifier.fillMaxSize()) {
-            EchoTopBar(nav)
-            Spacer(Modifier.height(RowsTop - TopBand))
-            CompositionLocalProvider(LocalBringIntoViewSpec provides snapTop) {
-                LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 300.dp)) {
-                    if (cw.isNotEmpty()) item(key = "cw") {
-                        EchoRow("Continue Watching", dims, dims.cwHeight, shown) {
-                            itemsIndexed(cw, key = { _, r -> r.streamId }) { i, r ->
-                                val m = remember(r) { MetaPreview(r.imdb, r.type, r.label, posterOf(r.imdb), backdropOf(r.imdb)) }
-                                ContinueWatchingCard(
-                                    m, r.season?.let { "S$it E${r.episode}" }, r.progress / 100f, dims,
-                                    if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
-                                    onFocus = { focused = m },
-                                    onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) }
-                                )
-                            }
+        if (!look.oled) AmbientPageWash(art?.wide(), Modifier.fillMaxSize())
+        if (heroFocused) EchoBackdrop(heroItem, 540.dp) else { EchoBackdrop(shown, 400.dp); EchoHeroCopy(shown) }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides pageSpec) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 300.dp)) {
+                item(key = "hero") {
+                    Billboard(
+                        heroItems, heroItem, heroIndex, watchNow,
+                        onFocus = { if (it) heroFocused = true },
+                        onStep = { d -> if (heroItems.isNotEmpty()) heroIndex = (heroIndex + d + heroItems.size) % heroItems.size },
+                        onWatch = { m ->
+                            if (m.type == "movie") nav.push(Screen.Streams(m.type, m.id, m.name, m.id)) else nav.push(Screen.Detail(m.type, m.id, m.name))
+                        },
+                        onInfo = { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
+                    )
+                }
+                if (cw.isNotEmpty()) item(key = "cw") {
+                    EchoRow("Continue Watching", dims, dims.cwHeight, shown) {
+                        itemsIndexed(cw, key = { _, r -> r.streamId }) { _, r ->
+                            val m = remember(r) { MetaPreview(r.imdb, r.type, r.label, posterOf(r.imdb), backdropOf(r.imdb)) }
+                            ContinueWatchingCard(
+                                m, r.season?.let { "S$it E${r.episode}" }, r.progress / 100f, dims, Modifier,
+                                onFocus = { focused = m; heroFocused = false },
+                                onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) }
+                            )
                         }
                     }
-                    items(visible, key = { it.key }) { row ->
-                        LaunchedEffect(row.key) { vm.need(row.key) }
-                        EchoRow(row.title, dims, dims.posterHeight, shown) {
-                            if (row.items.isEmpty()) item { Box(Modifier.size(dims.posterWidth, dims.posterHeight).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
-                            itemsIndexed(row.items, key = { _, m -> m.id }) { i, m ->
-                                PosterCard(
-                                    m, dims,
-                                    if (cw.isEmpty() && row.key == visible.first().key && i == 0) Modifier.focusRequester(firstFocus) else Modifier,
-                                    onFocus = {
-                                        focused = m
-                                        if (i >= row.items.size - 6) vm.more(row.key)
-                                    },
-                                    onClick = { nav.push(Screen.Detail(m.type, m.id, m.name)) }
-                                )
-                            }
+                }
+                items(visible, key = { it.key }) { row ->
+                    LaunchedEffect(row.key) { vm.need(row.key) }
+                    EchoRow(row.title, dims, dims.posterHeight, shown) {
+                        if (row.items.isEmpty()) item { Box(Modifier.size(dims.posterWidth, dims.posterHeight).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
+                        itemsIndexed(row.items, key = { _, m -> m.id }) { i, m ->
+                            PosterCard(
+                                m, dims, Modifier,
+                                onFocus = {
+                                    focused = m
+                                    heroFocused = false
+                                    if (i >= row.items.size - 6) vm.more(row.key)
+                                },
+                                onClick = { nav.push(Screen.Detail(m.type, m.id, m.name)) }
+                            )
                         }
                     }
                 }
             }
         }
+        // The page scrolls under the top band: pill in the middle, clock on the right (Vision's Echo Home).
+        Box(Modifier.fillMaxWidth().height(TopBand).background(
+            Brush.verticalGradient(0f to Color(0x99000000), 1f to Color.Transparent)
+        ))
+        TopPill(nav)
+        if (App.instance.prefs.clock.flow.collectAsStateWithLifecycle().value) ClockPill(Modifier.align(Alignment.TopEnd))
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
+}
+
+// ---- Legacy billboard (NetflixLegacyBillboard): title, details, plot, Watch Now / More Info, page dots ----
+
+@Composable
+private fun Billboard(
+    items: List<MetaPreview>, item: MetaPreview?, index: Int, watchNow: FocusRequester,
+    onFocus: (Boolean) -> Unit, onStep: (Int) -> Unit, onWatch: (MetaPreview) -> Unit, onInfo: (MetaPreview) -> Unit
+) {
+    Box(Modifier.fillMaxWidth().height(470.dp).onFocusChanged { onFocus(it.hasFocus) }) {
+        if (item == null) return@Box
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 22.dp).width(420.dp)) {
+            var failed by remember(item.id) { mutableStateOf(false) }
+            val logo = item.logoUrl()
+            if (!logo.isNullOrBlank() && !failed) {
+                val context = LocalContext.current
+                val req = remember(logo) { ImageRequest.Builder(context).data(logo).build() }
+                coil3.compose.AsyncImage(req, item.name, Modifier.widthIn(max = 300.dp).heightIn(max = 90.dp),
+                    contentScale = ContentScale.Fit, alignment = Alignment.BottomStart, onError = { failed = true })
+            } else {
+                Text(item.name.uppercase(), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 10f)))
+            }
+            Box(Modifier.padding(top = 10.dp)) { DetailsLine(item, color = Color(0xFFE6E6E6)) }
+            item.description?.let {
+                Text(it, color = Color(0xCCFFFFFF), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp))
+            }
+            Row(
+                Modifier.padding(top = 14.dp).onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) false
+                    else when (e.key) {
+                        // Left on Watch Now / Right on More Info step the billboard's titles.
+                        Key.DirectionLeft -> if (leftEdge) { onStep(-1); true } else false
+                        Key.DirectionRight -> if (rightEdge) { onStep(1); true } else false
+                        else -> false
+                    }
+                },
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HeroButton("▶  Watch Now", Modifier.focusRequester(watchNow).onFocusChanged { leftEdge = it.isFocused }) { onWatch(item) }
+                HeroButton("More Info", Modifier.onFocusChanged { rightEdge = it.isFocused }) { onInfo(item) }
+            }
+        }
+        if (items.size > 1) Row(
+            Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 34.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.indices.forEach { i ->
+                Box(Modifier.size(if (i == index) 14.dp else 5.dp, 5.dp).clip(RoundedCornerShape(50))
+                    .background(if (i == index) Color(0xCCFFFFFF) else Color(0x55FFFFFF)))
+            }
+        }
+    }
+}
+
+private var leftEdge = false
+private var rightEdge = false
+
+@Composable
+private fun HeroButton(text: String, modifier: Modifier, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    val f by source.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(50)
+    Text(
+        text, color = if (f) Color.Black else Color(0xCCFFFFFF), fontSize = 13.sp, fontWeight = FontWeight.Medium,
+        modifier = modifier.clip(shape).background(if (f) Color.White else Color(0x661C1C1E))
+            .border(1.dp, if (f) Color.White else Color(0x33FFFFFF), shape)
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 7.dp)
+    )
+}
+
+// ---- Top band: PillNavigationBar (glass pill, top centre) and LegacyClockPill (top right) ----
+
+@Composable
+private fun BoxScope.TopPill(nav: Nav) {
+    Row(
+        Modifier.align(Alignment.TopCenter).padding(top = 12.dp).height(44.dp)
+            .clip(RoundedCornerShape(50)).background(Color(0xE61C1C1E))
+            .border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(50)).padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PillItem(null, Icon.Search) { nav.push(Screen.Search) }
+        PillItem("Home", null, selected = true) {}
+        PillItem("Library", null) { nav.push(Screen.Library) }
+        PillItem(null, Icon.Gear) { nav.push(Screen.Settings) }
+    }
+}
+
+private enum class Icon { Search, Gear }
+
+@Composable
+private fun PillItem(label: String?, icon: Icon?, selected: Boolean = false, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    val f by source.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(50)
+    val tint = if (f) Color.Black else if (selected) Color.White else Color.White.copy(alpha = 0.72f)
+    Box(
+        Modifier.fillMaxHeight().clip(shape)
+            .background(when { f -> Color.White; selected -> Color(0x33FFFFFF); else -> Color.Transparent })
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (label != null) Text(label, color = tint, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)
+        else androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+            val w = size.width
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = w * 0.1f)
+            if (icon == Icon.Search) {
+                drawCircle(tint, radius = w * 0.3f, center = androidx.compose.ui.geometry.Offset(w * 0.42f, w * 0.42f), style = stroke)
+                drawLine(tint, androidx.compose.ui.geometry.Offset(w * 0.64f, w * 0.64f), androidx.compose.ui.geometry.Offset(w * 0.9f, w * 0.9f), strokeWidth = w * 0.1f)
+            } else {
+                val c = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
+                for (k in 0 until 8) {
+                    val a = Math.toRadians(k * 45.0)
+                    drawLine(tint, c, androidx.compose.ui.geometry.Offset(c.x + (w * 0.46f * Math.cos(a)).toFloat(), c.y + (w * 0.46f * Math.sin(a)).toFloat()), strokeWidth = w * 0.16f)
+                }
+                drawCircle(tint, radius = w * 0.32f, center = c)
+                drawCircle(if (f) Color.White else Color(0xFF1C1C1E), radius = w * 0.13f, center = c)
+            }
+        }
+    }
+}
+
+/** Legacy's clock island: the time on a dark capsule, 16 dp from the top, 32 dp from the right. */
+@Composable
+private fun ClockPill(modifier: Modifier) {
+    val context = LocalContext.current
+    val fmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
+    var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
+    LaunchedEffect(Unit) {
+        while (true) { delay(60_000 - System.currentTimeMillis() % 60_000); now = fmt.format(java.util.Date()) }
+    }
+    Box(
+        modifier.padding(top = 16.dp, end = 32.dp).height(30.dp).clip(RoundedCornerShape(50))
+            .background(Color(0xFF121316).copy(alpha = 0.86f)).padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) { Text(now, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
 }
 
 /** A row: title, cards snapped to the row's start, and the focused card's details line under it (Echo). */
@@ -362,17 +536,17 @@ private fun RatingBadge() {
 
 /** The focused title's backdrop across the top, melting into the page at its left and bottom. */
 @Composable
-private fun EchoBackdrop(m: MetaPreview?) {
+private fun EchoBackdrop(m: MetaPreview?, height: Dp) {
     m ?: return
     Box(
-        Modifier.fillMaxWidth().height(400.dp)
+        Modifier.fillMaxWidth().height(height)
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
                 drawContent()
                 drawRect(Brush.horizontalGradient(0f to Color(0x33000000), 0.5f to Color.Black), blendMode = BlendMode.DstIn)
                 drawRect(Brush.verticalGradient(0.45f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
             }
-    ) { Img(m.wide(), 960.dp, 400.dp, Modifier.fillMaxSize()) }
+    ) { Img(m.wide(), 960.dp, height, Modifier.fillMaxSize()) }
 }
 
 @Composable
@@ -395,30 +569,6 @@ private fun EchoHeroCopy(m: MetaPreview?) {
             Text(it, color = Color(0xCCFFFFFF), fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 8.dp))
         }
-    }
-}
-
-/** Clock left, the menu pill in the middle (as Vision's Echo Home). */
-@Composable
-private fun EchoTopBar(nav: Nav) {
-    Box(Modifier.fillMaxWidth().height(TopBand).padding(start = Start, end = Start, top = 10.dp)) {
-        if (App.instance.prefs.clock.flow.collectAsStateWithLifecycle().value) Box(Modifier.align(Alignment.CenterStart)) { Clock() }
-        Row(
-            Modifier.align(Alignment.Center).clip(RoundedCornerShape(50)).background(Color(0x66000000)).padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Pill("Search") { nav.push(Screen.Search) }
-            Pill("Library") { nav.push(Screen.Library) }
-            Pill("Settings") { nav.push(Screen.Settings) }
-        }
-    }
-}
-
-@Composable
-private fun Pill(text: String, onClick: () -> Unit) {
-    Focusable(onClick, shape = RoundedCornerShape(50)) { f ->
-        Text(text, color = if (f) Color.Black else Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.background(if (f) Color.White else Color.Transparent).padding(horizontal = 14.dp, vertical = 6.dp))
     }
 }
 
