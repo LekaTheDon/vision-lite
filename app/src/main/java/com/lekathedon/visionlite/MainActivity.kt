@@ -38,19 +38,23 @@ class MainActivity : ComponentActivity() {
             val nav = remember { Nav() }
             val oled by app.prefs.oledBlack.flow.collectAsState()
             val look = remember(oled) { Look(oled) }
+            val asked by app.prefs.deviceAsked.flow.collectAsState()
             val saved = rememberSaveableStateHolder()
             BackHandler(enabled = nav.canPop) { nav.pop() }
             CompositionLocalProvider(LocalLook provides look) {
                 Box(Modifier.fillMaxSize().background(look.page)) {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {
-                        Screen.Home -> saved.SaveableStateProvider("home") { Home(nav) }
+                        // First start: the device check alone on screen (nothing behind it to steal focus).
+                        Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck()
+                            else saved.SaveableStateProvider("home") { Home(nav) }
                         is Screen.Detail -> Detail(nav, s)
                         is Screen.Streams -> Streams(nav, s)
                         is Screen.Player -> Player(s)
                         Screen.Search -> Search(nav)
                         Screen.Settings -> Settings(nav)
                         Screen.Addons -> Addons()
+                        Screen.ThisTv -> com.lekathedon.visionlite.device.ThisTv()
                         Screen.Library -> Text("Library comes with Trakt (phase 3).", color = Palette.Text, fontSize = 20.sp, modifier = Modifier.padding(48.dp))
                     }
                 }

@@ -51,6 +51,7 @@ fun Settings(nav: Nav) {
         Title("Settings")
         Toggle("OLED black", "Pure black pages instead of the colour tint", prefs.oledBlack, Modifier.focusRequester(first))
         Toggle("Autoplay", "Play picks the best link (resolution, then size) by itself", prefs.autoplay)
+        Focusable({ nav.push(Screen.ThisTv) }, Modifier.padding(top = 10.dp).fillMaxWidth(0.6f)) { f -> RowText("This TV", "Device check: Dolby Vision 7, frame-rate matching, what the TV and soundbar take", f) }
         Focusable({ nav.push(Screen.Addons) }, Modifier.padding(top = 10.dp).fillMaxWidth(0.6f)) { f -> RowText("Add-ons", "Install, order, remove", f) }
     }
 }

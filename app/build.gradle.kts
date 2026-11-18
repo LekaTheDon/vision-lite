@@ -41,7 +41,7 @@ android {
     splits {
         abi { isEnable = true; reset(); include("arm64-v8a", "armeabi-v7a"); isUniversalApk = false }
     }
-    // Native FEL (phase 2): externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

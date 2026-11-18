@@ -13,6 +13,7 @@ sealed interface Screen {
     data object Library : Screen
     data object Settings : Screen
     data object Addons : Screen
+    data object ThisTv : Screen
 }
 
 @Stable
