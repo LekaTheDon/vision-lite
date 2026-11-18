@@ -46,6 +46,7 @@ object Integrations {
             listOf(Field("Premiumize API key", secret = true))) { v ->
             get("https://www.premiumize.me/api/account/info?apikey=${enc(v[0])}")?.second?.contains("\"success\"") == true },
 
+        Service("nuvio", "Nuvio account", Group.TRACKING, "Coming up follows your Nuvio library and what you watched in Vision/Nuvio", "Sign in: scan, approve on nuvio.tv", signIn = true),
         Service("trakt", "Trakt", Group.TRACKING, "Continue Watching, Library, scrobbling, resume", "Sign in with the QR", signIn = true),
         Service("simkl", "Simkl", Group.TRACKING, null, "Sign in: scan, approve on simkl.com", signIn = true),
         Service("imdb", "IMDb", Group.TRACKING, null, "Sign-in comes with IMDb sync"),
@@ -88,7 +89,7 @@ object Integrations {
     private fun bump() { _changed.value++ }
     fun touch() = bump()
     /** Sign-ins on the service's website (SignInScreen); Trakt has its own page. */
-    val WEB = setOf("simkl", "anilist", "mal")
+    val WEB = setOf("simkl", "anilist", "mal", "nuvio")
 
     /** TorBox keeps Vision TB's key. */
     private fun keyId(s: Service) = s.id

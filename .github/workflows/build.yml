@@ -29,6 +29,7 @@ jobs:
           ANILIST_CLIENT_ID: ${{ secrets.ANILIST_CLIENT_ID }}
           MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
           MAL_CLIENT_SECRET: ${{ secrets.MAL_CLIENT_SECRET }}
+          NUVIO_KEY: ${{ secrets.NUVIO_KEY }}
         run: ./gradlew --no-daemon :app:assembleRelease -PvlName=${{ inputs.version_name }} -PvlCode=${{ inputs.code }}
       - name: Release (Actions artifact storage is full on this account)
         env: { GH_TOKEN: "${{ github.token }}" }

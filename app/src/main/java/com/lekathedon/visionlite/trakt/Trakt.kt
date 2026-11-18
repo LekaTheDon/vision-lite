@@ -186,6 +186,21 @@ class Trakt(private val prefs: Prefs) {
         s.await() to m.await()
     }
 
+    // --- Coming up: every show anywhere in your Trakt library ---
+
+    @Serializable data class TListIds(val trakt: Long? = null, val slug: String? = null)
+    @Serializable data class TList(val name: String = "", val ids: TListIds = TListIds())
+    @Serializable data class ShowRow(val show: TShow? = null)
+
+    /** Shows in your collection, your ratings and every one of your own lists (name by IMDb id). Empty when Trakt is off. */
+    suspend fun libraryShows(): List<TShow> = if (!on()) emptyList() else coroutineScope {
+        val col = async { runCatching { get<List<ShowRow>>("sync/collection/shows?extended=noseasons") }.getOrDefault(emptyList()) }
+        val rat = async { runCatching { get<List<ShowRow>>("sync/ratings/shows") }.getOrDefault(emptyList()) }
+        val lists = runCatching { get<List<TList>>("users/me/lists") }.getOrDefault(emptyList())
+        val items = lists.mapNotNull { it.ids.trakt }.map { id -> async { runCatching { get<List<ShowRow>>("users/me/lists/$id/items/shows") }.getOrDefault(emptyList()) } }
+        (col.await() + rat.await() + items.flatMap { it.await() }).mapNotNull { it.show }
+    }
+
     // --- details page ---
 
     @Serializable data class PEp(val number: Int = 0, val completed: Boolean = false)

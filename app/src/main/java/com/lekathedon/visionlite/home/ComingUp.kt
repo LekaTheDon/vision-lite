@@ -66,6 +66,9 @@ object ComingUp {
     /** Home shows: the saved row at once, and a fresh check when the last one is half a day old. */
     fun onHome() {
         if (!loadedDisk) { loadedDisk = true; _items.value = read("items.json", itemSer).orEmpty() }
+        // Once after the update that reads your whole library: a full check now, not in 12 h.
+        val sp = App.instance.prefs.sp
+        if (!sp.getBoolean("comingup_v3", false)) { sp.edit().putBoolean("comingup_v3", true).apply(); refresh(true); return }
         val last = App.instance.prefs.sp.getLong("comingup_at", 0)
         if (System.currentTimeMillis() - last > EVERY_MS) refresh(false)
     }
@@ -95,6 +98,14 @@ object ComingUp {
         calendar.forEach { c -> c.show.ids.imdb?.let { soon += it; names.putIfAbsent(it, c.show.title); c.show.ids.tvdb?.let { t -> tvdb.putIfAbsent(it, t) } } }
         runCatching { trakt.watchlist() }.getOrDefault(emptyList()).forEach { l -> l.show?.let { s -> s.ids.imdb?.let { names.putIfAbsent(it, s.title) } } }
         Saves.all().filter { it.type == "series" && it.id.startsWith("tt") }.forEach { names.putIfAbsent(it.id.substringBefore(':'), it.name) }
+        // The rest of your Trakt library (collection, ratings, your own lists) and Simkl (not dropped), as Vision.
+        runCatching { trakt.libraryShows() }.getOrDefault(emptyList()).forEach { sh ->
+            sh.ids.imdb?.let { names.putIfAbsent(it, sh.title); sh.ids.tvdb?.let { t -> tvdb.putIfAbsent(it, t) } }
+        }
+        runCatching { com.lekathedon.visionlite.integrations.SignIns.simklShows() }.getOrDefault(emptyList()).forEach { (id, t) -> names.putIfAbsent(id, t) }
+        // Nuvio account: its library and every show watched in Vision / Nuvio (watch progress saved there, not Trakt).
+        runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioShows() }.getOrDefault(emptyList()).forEach { (id, t) -> names.putIfAbsent(id, t) }
+        Log.i(TAG, "following ${names.size} shows")
         if (names.isEmpty()) { _items.value = emptyList(); return }
 
         val ids = (read("tvmaze_ids.json", idSer) ?: emptyMap()).toMutableMap()

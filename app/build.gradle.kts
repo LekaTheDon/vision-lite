@@ -20,7 +20,7 @@ android {
         buildConfigField("String", "TRAKT_ID", "\"${System.getenv("TRAKT_CLIENT_ID") ?: ""}\"")
         buildConfigField("String", "TRAKT_SECRET", "\"${System.getenv("TRAKT_CLIENT_SECRET") ?: ""}\"")
         // Simkl / AniList / MyAnimeList app IDs (repo secrets too): with them, signing in is just approving on the phone.
-        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET"))
+        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET", "NUVIO_KEY"))
             buildConfigField("String", k, "\"${System.getenv(k) ?: ""}\"")
     }
 

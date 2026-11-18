@@ -27,6 +27,7 @@ import com.lekathedon.visionlite.ui.Button
 import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
+import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.ui.Qr
 import kotlinx.coroutines.launch
 
@@ -40,14 +41,24 @@ fun SignInScreen(nav: Nav, id: String) {
     var round by remember { mutableStateOf(0) }
     var code by remember { mutableStateOf<SignIns.Code?>(null) }
     var pasting by remember { mutableStateOf(false) }
+    val nuvio = id == "nuvio"
+    val qr = id == "simkl" || nuvio
+    var profiles by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+    var prof by remember { mutableStateOf(SignIns.nuvioProfile()) }
+    LaunchedEffect(nuvio) { if (nuvio && SignIns.signedIn("nuvio")) profiles = SignIns.nuvioProfiles() }
     val first = remember { FocusRequester() }
     LaunchedEffect(code != null, pasting, msg) { runCatching { first.requestFocus() } }
     LaunchedEffect(round) {
-        if (round == 0 || id != "simkl") return@LaunchedEffect
-        code = null; msg = "Asking Simkl for a code…"
-        val c = runCatching { SignIns.simklStart() }.getOrElse { msg = "Simkl not reachable (${it.message})"; return@LaunchedEffect }
+        if (round == 0 || !qr) return@LaunchedEffect
+        code = null; msg = "Asking ${s.name} for a code…"
+        val c = runCatching { if (nuvio) SignIns.nuvioStart() else SignIns.simklStart() }.getOrElse { msg = "${s.name} not reachable (${it.message})"; return@LaunchedEffect }
         code = c; msg = ""
-        if (SignIns.simklWait(c)) { Integrations.touch(); nav.pop() } else { code = null; msg = "The code expired or was refused. Try again." }
+        if (if (nuvio) SignIns.nuvioWait(c) else SignIns.simklWait(c)) {
+            Integrations.touch()
+            if (nuvio) App.instance.prefs.sp.edit().putBoolean("comingup_v3", false).apply()
+            if (nuvio) { profiles = SignIns.nuvioProfiles(); profiles.firstOrNull()?.let { if (SignIns.nuvioProfileName().isBlank()) SignIns.setNuvioProfile(it.first, it.second) } }
+            else nav.pop()
+        } else { code = null; msg = "The code expired or was refused. Try again." }
     }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp)) {
         Text(s.name, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 14.dp))
@@ -58,23 +69,31 @@ fun SignInScreen(nav: Nav, id: String) {
             }
             SignIns.signedIn(id) -> {
                 Text("Signed in${SignIns.user(id).takeIf { it.isNotBlank() }?.let { " as $it" } ?: ""}.", color = Palette.Text, fontSize = 16.sp)
+                if (nuvio && profiles.isNotEmpty()) {
+                    Text("Coming up follows this profile:", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
+                    Row { profiles.forEach { (n, name) ->
+                        Button(if (n == prof) "✓ $name" else name, {
+                            prof = n; SignIns.setNuvioProfile(n, name); App.instance.prefs.sp.edit().putBoolean("comingup_v3", false).apply()
+                        }, Modifier.padding(top = 8.dp, end = 10.dp))
+                    } }
+                }
                 Row {
                     Button("Done", { nav.pop() }, Modifier.padding(top = 16.dp, end = 10.dp).focusRequester(first))
                     Button("Sign out", { Integrations.clear(s) }, Modifier.padding(top = 16.dp))
                 }
             }
-            id == "simkl" && code != null -> Row {
+            qr && code != null -> Row {
                 Qr(code!!.url, 220.dp)
                 Column(Modifier.padding(start = 28.dp)) {
                     Text("Scan with your phone and approve. Or open", color = Palette.TextDim, fontSize = 15.sp)
                     Text(code!!.url, color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                     Text("and enter", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 10.dp))
                     Text(code!!.userCode, color = Palette.Text, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                    Text("Waiting for Simkl…", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+                    Text("Waiting for ${s.name}…", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
                     Button("New code", { round++ }, Modifier.padding(top = 14.dp).focusRequester(first))
                 }
             }
-            id == "simkl" -> Button(if (round == 0) "Sign in with Simkl" else "Try again", { round++ }, Modifier.focusRequester(first))
+            qr -> Button(if (round == 0) "Sign in with ${s.name}" else "Try again", { round++ }, Modifier.focusRequester(first))
             pasting -> {
                 val anilist = id == "anilist"
                 PhoneBox(s.name, listOf(PhoneForm.Field(
