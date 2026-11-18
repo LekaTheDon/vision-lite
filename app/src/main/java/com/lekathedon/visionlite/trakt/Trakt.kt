@@ -31,6 +31,8 @@ import java.io.IOException
 @Serializable data class Watched(val show: TShow, @SerialName("last_watched_at") val lastWatchedAt: String = "", val plays: Int = 0)
 @Serializable data class WatchedMovie(val movie: TMovie, @SerialName("last_watched_at") val lastWatchedAt: String = "", val plays: Int = 0)
 @Serializable data class Rated(val type: String = "", val rating: Int = 0, @SerialName("rated_at") val ratedAt: String = "", val movie: TMovie? = null, val show: TShow? = null)
+@Serializable data class CalShow(@SerialName("first_aired") val firstAired: String = "", val episode: TEpisode = TEpisode(), val show: TShow = TShow())
+@Serializable data class CalMovie(val released: String = "", val movie: TMovie = TMovie())
 @Serializable data class Related(val title: String = "", val year: Int? = null, val ids: Ids = Ids())
 
 /** What the recommendation engine learns from: everything watched, rated and paused. */
@@ -172,6 +174,14 @@ class Trakt(private val prefs: Prefs) {
     /** Trakt's "people who watched this also watched" for an IMDb id. Null = Trakt off or not reachable. */
     suspend fun related(imdb: String, tv: Boolean, limit: Int = 20): List<Related>? = if (!on()) null else
         runCatching { get<List<Related>>("${if (tv) "shows" else "movies"}/$imdb/related?limit=$limit") }.getOrNull()
+
+    /** Calendar: episodes of shows you watch and films you follow, from today for [days] days. Empty when Trakt is off. */
+    suspend fun calendar(days: Int = 14): Pair<List<CalShow>, List<CalMovie>> = if (!on()) emptyList<CalShow>() to emptyList() else coroutineScope {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val s = async { runCatching { get<List<CalShow>>("calendars/my/shows/$today/$days") }.getOrDefault(emptyList()) }
+        val m = async { runCatching { get<List<CalMovie>>("calendars/my/movies/$today/$days") }.getOrDefault(emptyList()) }
+        s.await() to m.await()
+    }
 
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {

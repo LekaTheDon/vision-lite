@@ -72,6 +72,7 @@ object Iptv {
     fun add(pl: Playlist) = savePlaylists(playlists().filter { it.id != pl.id } + pl)
     fun remove(id: String) {
         savePlaylists(playlists().filter { it.id != id })
+        Vod.removePlaylist(id)
         db.writableDatabase.apply { delete("ch", "pl=?", arrayOf(id)); delete("meta", "k=?", arrayOf("loaded:$id")) }
         _version.value++
     }
@@ -116,6 +117,10 @@ object Iptv {
         }
     }
 
+    internal fun openStream(url: String): InputStream = open(url)
+    internal fun xtreamBase(pl: Playlist) = pl.server.trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
+    internal fun encode(s: String) = enc(s)
+
     private fun open(url: String, ua: String? = null): InputStream {
         val r = http.newCall(Request.Builder().url(url).header("User-Agent", ua ?: "VisionLite").build()).execute()
         if (!r.isSuccessful) { r.close(); throw java.io.IOException("HTTP ${r.code}") }
@@ -129,7 +134,10 @@ object Iptv {
 
     private fun m3u(pl: Playlist): Pair<List<Channel>, List<String>> {
         val parsed = open(pl.url).bufferedReader().use { M3uParser.parse(it) }
-        val list = parsed.entries.mapIndexed { i, e ->
+        // Films and episodes in the list go to VOD, not to the channels.
+        val (vod, live) = parsed.entries.partition { Vod.looksVod(it.url) }
+        Vod.fromM3u(pl.id, vod)
+        val list = live.mapIndexed { i, e ->
             Channel(pl.id, e.chno ?: (i + 1), e.name, e.group?.takeIf { it.isNotBlank() } ?: "Other", e.logo, e.tvgId ?: e.tvgName, e.url, e.headers, e.catchup)
         }
         return list to parsed.epgUrls

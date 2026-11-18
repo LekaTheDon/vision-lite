@@ -16,9 +16,10 @@ class AddonClient(private val store: AddonStore) {
 
     fun clearCatalogs() = synchronized(catalogCache) { catalogCache.clear() }
 
-    suspend fun catalog(addon: Addon, def: CatalogDef, skip: Int = 0, search: String? = null): List<MetaPreview> {
+    suspend fun catalog(addon: Addon, def: CatalogDef, skip: Int = 0, search: String? = null, genre: String? = null): List<MetaPreview> {
         val extras = buildList {
             if (search != null) add("search=${AddonStore.enc(search)}")
+            if (genre != null) add("genre=${AddonStore.enc(genre)}")
             if (skip > 0) add("skip=$skip")
         }
         val path = "catalog/${def.type}/${AddonStore.enc(def.id)}" + if (extras.isEmpty()) "" else "/" + extras.joinToString("&")

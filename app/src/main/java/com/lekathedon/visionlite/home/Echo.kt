@@ -389,7 +389,7 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, down
         PillItem(Sections.label(section), open, down, modifier = Modifier.focusRequester(sectionFocus)) { choosing = !choosing }
         if (choosing) Sections.all.forEach { (key, label) ->
             PillItem(label, open, down, selected = key == section) {
-                prefs.appSection.value = key; choosing = false; runCatching { sectionFocus.requestFocus() }
+                prefs.appSection.value = key; choosing = false; runCatching { sectionFocus.requestFocus() }; Sections.opensAt(key)?.let(nav::push)
             }
         } else Sections.pages(section).forEach { (label, screen) -> PillItem(label, open, down) { nav.push(screen) } }
         Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
@@ -728,10 +728,15 @@ private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal
 
 /** Vision's sections and their pages, as far as Lite has built them (the rest join here as they arrive). */
 private object Sections {
-    val all = listOf("NUVIO" to "Nuvio", "IPTV" to "IPTV")
+    val all = listOf("NUVIO" to "Nuvio", "IPTV" to "IPTV", "YOUTUBE" to "YouTube", "MUSIC" to "Music")
     fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Nuvio"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
-        "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports)
-        else -> listOf("Search" to Screen.Search, "Library" to Screen.Library)
+        "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
+        "YOUTUBE" -> listOf("YouTube" to Screen.YouTube)
+        "MUSIC" -> listOf("Music" to Screen.Music)
+        else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search, "Genres" to Screen.Genres, "Decades" to Screen.Decades,
+            "Scout" to Screen.Scout, "Library" to Screen.Library, "Calendar" to Screen.Calendar)
     }
+    /** YouTube and Music are one page each: picking the section opens it (as Vision's do). */
+    fun opensAt(key: String): Screen? = when (key) { "YOUTUBE" -> Screen.YouTube; "MUSIC" -> Screen.Music; else -> null }
 }

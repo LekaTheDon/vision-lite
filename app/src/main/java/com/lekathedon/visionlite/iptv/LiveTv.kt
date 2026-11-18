@@ -147,14 +147,28 @@ private fun Schedule(nav: Nav, c: Channel, minute: Long, version: Int) {
             val live = pr.isLive(now)
             val past = pr.stopMs <= now
             val archive = if (past) Iptv.catchupUrl(c, pr, now) else null
+            val recs by Recorder.list.collectAsState()
+            val set = !past && !live && recs.any { it.url == c.url && it.title == pr.title && it.start == pr.startMs - 60_000L && it.state == "scheduled" }
+            var held by remember { mutableStateOf(false) }
             Focusable({
                 when {
                     live -> { Iptv.played(c); nav.push(Screen.Player(c.url, c.name, c.headers, type = "live")) }
                     archive != null -> nav.push(Screen.Player(archive, "${c.name} · ${pr.title}", c.headers, type = "catchup"))
+                    !past -> if (set) Recorder.unschedule(c, pr) else Recorder.schedule(c, pr)
                 }
-            }, Modifier.fillMaxWidth()) { f ->
+            }, Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
+                val ok = e.key == Key.DirectionCenter || e.key == Key.Enter
+                when {
+                    !live -> false
+                    ok && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 0 -> {
+                        if (!held) { held = true; if (recs.none { it.url == c.url && it.title == pr.title && it.state == "recording" }) Recorder.recordNow(c, pr.title, pr.stopMs + 120_000L) }; true }
+                    ok && e.type == KeyEventType.KeyUp && held -> { held = false; true }
+                    else -> false
+                }
+            }) { f ->
                 Column(Modifier.fillMaxWidth().background(if (f) Color.White else if (live) Color(0x22D9DC8E) else Color.Transparent).padding(8.dp)) {
-                    val tag = when { live -> "NOW"; archive != null -> "▶ CATCH-UP"; past -> "AIRED"; else -> "" }
+                    val recording = recs.any { it.url == c.url && it.title == pr.title && it.state == "recording" }
+                    val tag = when { live -> "NOW" + if (recording) "  ● REC" else ""; archive != null -> "▶ CATCH-UP"; past -> "AIRED"; set -> "● REC SET"; else -> "" }
                     Text("${time(pr.startMs)}–${time(pr.stopMs)}  $tag", color = if (f) Color.DarkGray else if (live || archive != null) Color(0xFFD9DC8E) else Palette.TextDim,
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Text(pr.title, color = if (f) Color.Black else if (past && archive == null) Palette.TextDim else Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,

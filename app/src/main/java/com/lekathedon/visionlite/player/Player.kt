@@ -84,7 +84,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val player = remember(s.url, felAllowed, addonSubs) {
         val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
         ExoPlayer.Builder(context, Renderers(context, felAllowed))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context, http)))
             .setVideoChangeFrameRateStrategy(
                 if (afr == "seamless") C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
             )

@@ -94,6 +94,8 @@ class Prefs(context: Context) {
     val iptvPlaylists = Text("iptv_playlists", "[]")
     val iptvFavs = Text("iptv_favs", "")
     val iptvRecent = Text("iptv_recent", "")
+    val recordings = Text("recordings", "")
+    val ytTokens = Text("yt_tokens", "")
     /** Sports: Vision's settings and follows (JSON, "" = defaults). */
     val sportsSettings = Text("sports_settings", "")
     val sportsFollows = Text("sports_follows", "")

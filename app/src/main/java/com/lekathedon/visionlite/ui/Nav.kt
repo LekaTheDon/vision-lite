@@ -14,6 +14,16 @@ sealed interface Screen {
     data object Library : Screen
     data object LiveTv : Screen
     data object Sports : Screen
+    data object Vod : Screen
+    data object Recordings : Screen
+    data object Discover : Screen
+    data object Genres : Screen
+    data object Decades : Screen
+    data object Scout : Screen
+    data object Calendar : Screen
+    data object YouTube : Screen
+    data class YtPlay(val id: String, val title: String) : Screen
+    data object Music : Screen
     data object Settings : Screen
     data object Addons : Screen
     data object ThisTv : Screen
