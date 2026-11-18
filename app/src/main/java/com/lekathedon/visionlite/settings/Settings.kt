@@ -64,7 +64,9 @@ fun Settings(nav: Nav) {
 
         item { Section("Playback") }
         item { Toggle("Autoplay", "Play picks the best link (resolution, then size) by itself", p.autoplay) }
-        item { Toggle("Next episode", "When an episode ends, open the next one's links", p.nextEpisode) }
+        item { Toggle("Next episode", "When an episode ends (or the popup's 10 s run out), open the next one's links", p.nextEpisode) }
+        item { Toggle("Next episode popup", "A card at the outro (or the last 40 s): OK plays the next one", p.nextPopup) }
+        item { Choice("Skip intro and outro", "IntroDB, AniSkip for anime (Vision's sources)", p.skipIntro, listOf("button" to "Button (OK skips)", "auto" to "Automatic", "off" to "Off")) }
         item { Toggle("Resume", "Start where you stopped (Trakt progress)", p.resume) }
         item { Choice("Step back after pause", "Replays a few seconds when you press play again", p.rewindOnResume,
             listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s")) }

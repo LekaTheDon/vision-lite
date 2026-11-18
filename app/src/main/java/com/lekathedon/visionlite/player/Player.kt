@@ -146,10 +146,15 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             update = { it.player = player }
         )
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
+        val skipMode = prefs.skipIntro.value
+        val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {
+            if (skipMode != "off" || (prefs.nextPopup.value && s.type == "series")) value = Skips.find(s.type, s.id)
+        }
         Controls(player, s.title, canNext = s.type == "series",
             onNext = { scope.launch { nextEpisode(nav, s) } },
             onSources = { nav.pop() },
-            onAspect = { mode -> view?.resizeMode = mode })
+            onAspect = { mode -> view?.resizeMode = mode },
+            segments = segments, skipMode = skipMode, nextPopup = prefs.nextPopup.value, autoNext = prefs.nextEpisode.value)
     }
 }
 

@@ -38,6 +38,10 @@ class Prefs(context: Context) {
 
     // Playback
     val nextEpisode = Flag("next_episode", false)
+    /** Skip intro / recap / outro / credits: "button" (OK skips), "auto", "off" (nothing asked). */
+    val skipIntro = Text("skip_intro", "button")
+    /** Next-episode card near the end (at the outro when known); with [nextEpisode] it counts down 10 s. */
+    val nextPopup = Flag("next_popup", true)
     val resume = Flag("resume", true)
     /** Seconds to step back when playing again after a pause ("0" = off). */
     val rewindOnResume = Text("rewind_on_resume", "0")

@@ -82,6 +82,7 @@ private val Speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 internal fun Controls(
     player: ExoPlayer, title: String, canNext: Boolean,
     onNext: () -> Unit, onSources: () -> Unit, onAspect: (Int) -> Unit,
+    segments: List<Segment> = emptyList(), skipMode: String = "button", nextPopup: Boolean = true, autoNext: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -128,6 +129,27 @@ internal fun Controls(
     LaunchedEffect(note) { if (note.isNotEmpty()) { delay(3_500); note = "" } }
     LaunchedEffect(visible) { runCatching { if (visible) playButton.requestFocus() else root.requestFocus() } }
 
+    // Skip intro / recap / outro / credits (Vision's IntroDB + AniSkip) and the next-episode popup.
+    val dismissed = remember { mutableStateOf(setOf<String>()) }
+    var nextDismissed by remember { mutableStateOf(false) }
+    val at = seekTo ?: pos
+    val outro = segments.firstOrNull { it.kind == "outro" }
+    val nextUp = canNext && nextPopup && !nextDismissed && dur > 300_000 &&
+        (outro?.let { at >= it.startMs } ?: (dur - at in 1..40_000))
+    val seg = if (skipMode == "off") null else segments.firstOrNull {
+        at >= it.startMs && at < it.endMs - 1_000 && it.kind !in dismissed.value && !(nextUp && it.kind == "outro")
+    }
+    LaunchedEffect(seg) {
+        if (seg != null && skipMode == "auto") { player.seekTo(seg.endMs); dismissed.value += seg.kind; note = seg.label.replace("Skip", "Skipped") }
+    }
+    var countdown by remember { mutableIntStateOf(10) }
+    LaunchedEffect(nextUp, autoNext) {
+        if (!nextUp || !autoNext) return@LaunchedEffect
+        countdown = 10
+        while (countdown > 0) { delay(1_000); countdown-- }
+        onNext()
+    }
+
     fun toggle() { if (player.playWhenReady) player.pause() else player.play() }
     fun step(forward: Boolean) {
         seekRepeats++
@@ -148,10 +170,19 @@ internal fun Controls(
                 Key.MediaRewind -> { visible = true; step(false); return@onPreviewKeyEvent true }
             }
             if (e.key == Key.Back) {
-                when { panel != null -> panel = null; visible -> visible = false; else -> return@onPreviewKeyEvent false }
+                when {
+                    panel != null -> panel = null
+                    visible -> visible = false
+                    nextUp -> nextDismissed = true
+                    seg != null && skipMode == "button" -> dismissed.value += seg.kind
+                    else -> return@onPreviewKeyEvent false
+                }
                 return@onPreviewKeyEvent true
             }
             if (visible) return@onPreviewKeyEvent false
+            val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+            if (ok && nextUp) { onNext(); return@onPreviewKeyEvent true }
+            if (ok && seg != null && skipMode == "button") { player.seekTo(seg.endMs); pos = seg.endMs; dismissed.value += seg.kind; return@onPreviewKeyEvent true }
             when (e.key) {
                 Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { toggle(); visible = true }
                 Key.DirectionLeft, Key.DirectionRight -> { visible = true; step(e.key == Key.DirectionRight); scope.launch { delay(50); runCatching { bar.requestFocus() } } }
@@ -163,6 +194,14 @@ internal fun Controls(
     ) {
         if (note.isNotEmpty()) Text(note, color = Color.White, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
             .background(Color(0xCC000000), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
+        // Bottom right, over the video: OK takes it, Back waves it off.
+        if (nextUp) Column(Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
+            .background(Color(0xF0101114), RoundedCornerShape(12.dp)).padding(horizontal = 22.dp, vertical = 16.dp)) {
+            Text("Next episode", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(if (autoNext) "Starts in $countdown s · OK now · Back to stay" else "OK to play · Back to stay", color = Color(0xFFBDBDBD), fontSize = 14.sp)
+        } else if (seg != null && skipMode == "button") Text("${seg.label}   OK", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
+                .background(Color.White, RoundedCornerShape(22.dp)).padding(horizontal = 22.dp, vertical = 11.dp))
         if (!visible) return@Box
 
         // Top: title and when it ends.
