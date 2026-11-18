@@ -96,9 +96,9 @@ fun LiveTv(nav: Nav) {
         Row(Modifier.fillMaxSize().padding(top = 14.dp)) {
             // Groups
             LazyColumn(Modifier.width(230.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                val all = listOf("★" to Iptv.favourites().size, "" to groups.sumOf { it.second }) + groups
+                val all = listOf("★" to Iptv.favourites().size, Iptv.RECENT to Iptv.recents().size, "" to groups.sumOf { it.second }) + groups
                 items(all, key = { it.first }) { (g, n) ->
-                    val name = when (g) { "★" -> "★ Favourites"; "" -> "All channels"; else -> g }
+                    val name = when (g) { "★" -> "★ Favourites"; Iptv.RECENT -> "⟲ Recent"; "" -> "All channels"; else -> g }
                     val selected = (group ?: "") == g
                     Focusable({ group = g.ifEmpty { null } }, Modifier.padding(bottom = 4.dp).fillMaxWidth()) { f ->
                         Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (selected) Color(0x33FFFFFF) else Color.Transparent).padding(10.dp)) {
@@ -118,27 +118,51 @@ fun LiveTv(nav: Nav) {
                 items(channels, key = { it.key }) { c ->
                     ChannelRow(c, minute, if (c == channels.first()) Modifier.focusRequester(first) else Modifier,
                         onFocus = { focused = c },
-                        onPlay = { nav.push(Screen.Player(c.url, c.name, c.headers, type = "live")) },
+                        onPlay = { Iptv.zapList = channels; Iptv.played(c); nav.push(Screen.Player(c.url, c.name, c.headers, type = "live")) },
                         onHold = { Iptv.toggleFavourite(c) })
                 }
             }
-            // Now / next of the focused channel
-            Column(Modifier.width(360.dp).fillMaxHeight().background(Color(0x14FFFFFF)).padding(18.dp)) {
+            // The focused channel's guide: now, what's next, and (with catch-up) what already aired, playable.
+            Column(Modifier.width(380.dp).fillMaxHeight().background(Color(0x14FFFFFF)).padding(18.dp)) {
                 val c = focused
-                if (c != null) {
-                    val nn by produceState(emptyList<EpgProgram>(), c, minute, version) { value = withContext(Dispatchers.IO) { Iptv.nowNext(c) } }
-                    Img(c.logo, 120.dp, 68.dp, Modifier.size(120.dp, 68.dp), ContentScale.Fit)
-                    Text(c.name, color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                    Text(c.group + if (Iptv.isFavourite(c)) " · ★" else "", color = Palette.TextDim, fontSize = 13.sp)
-                    if (nn.isEmpty()) Text("No guide for this channel", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 16.dp))
-                    nn.forEachIndexed { i, pr ->
-                        Text(if (i == 0 && pr.isLive(System.currentTimeMillis())) "NOW  ${time(pr.startMs)}–${time(pr.stopMs)}" else "NEXT  ${time(pr.startMs)}–${time(pr.stopMs)}",
-                            color = Color(0xFFD9DC8E), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp))
-                        Text(pr.title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        if (i == 0) pr.description?.let { Text(it, color = Palette.TextDim, fontSize = 13.sp, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
+                if (c != null) Schedule(nav, c, minute, version)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Schedule(nav: Nav, c: Channel, minute: Long, version: Int) {
+    val all by produceState(emptyList<EpgProgram>(), c, minute / 10, version) { value = withContext(Dispatchers.IO) { Iptv.schedule(c) } }
+    val now = System.currentTimeMillis()
+    val nowIndex = all.indexOfFirst { it.stopMs > now }.coerceAtLeast(0)
+    val list = rememberLazyListState()
+    LaunchedEffect(c, all.size) { if (all.isNotEmpty()) list.scrollToItem((nowIndex - 1).coerceAtLeast(0)) }
+    Img(c.logo, 120.dp, 68.dp, Modifier.size(120.dp, 68.dp), ContentScale.Fit)
+    Text(c.name, color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+    Text(c.group + (if (Iptv.isFavourite(c)) " · ★" else "") + (c.catchup?.let { " · catch-up ${it.days} d" } ?: ""), color = Palette.TextDim, fontSize = 13.sp)
+    if (all.isEmpty()) { Text("No guide for this channel", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 16.dp)); return }
+    LazyColumn(Modifier.padding(top = 10.dp).fillMaxSize(), state = list, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items(all) { pr ->
+            val live = pr.isLive(now)
+            val past = pr.stopMs <= now
+            val archive = if (past) Iptv.catchupUrl(c, pr, now) else null
+            Focusable({
+                when {
+                    live -> { Iptv.played(c); nav.push(Screen.Player(c.url, c.name, c.headers, type = "live")) }
+                    archive != null -> nav.push(Screen.Player(archive, "${c.name} · ${pr.title}", c.headers, type = "catchup"))
+                }
+            }, Modifier.fillMaxWidth()) { f ->
+                Column(Modifier.fillMaxWidth().background(if (f) Color.White else if (live) Color(0x22D9DC8E) else Color.Transparent).padding(8.dp)) {
+                    val tag = when { live -> "NOW"; archive != null -> "▶ CATCH-UP"; past -> "AIRED"; else -> "" }
+                    Text("${time(pr.startMs)}–${time(pr.stopMs)}  $tag", color = if (f) Color.DarkGray else if (live || archive != null) Color(0xFFD9DC8E) else Palette.TextDim,
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(pr.title, color = if (f) Color.Black else if (past && archive == null) Palette.TextDim else Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (live) Box(Modifier.padding(top = 3.dp).fillMaxWidth().height(3.dp).background(Color(0x33808080))) {
+                        Box(Modifier.fillMaxHeight().fillMaxWidth(pr.progress(now)).background(if (f) Color.Black else Color(0xFFD9DC8E)))
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text("OK plays · hold OK: favourite", color = Palette.TextDim, fontSize = 12.sp)
+                    if (f || live) pr.description?.let { Text(it, color = if (f) Color.DarkGray else Palette.TextDim, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
                 }
             }
         }

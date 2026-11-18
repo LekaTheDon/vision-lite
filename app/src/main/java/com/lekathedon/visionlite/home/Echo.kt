@@ -173,6 +173,7 @@ fun EchoHome(nav: Nav) {
     val clockFocus = remember { FocusRequester() }
     val pillHome = remember { FocusRequester() }
     var clockFocused by remember { mutableStateOf(false) }
+    var clockPanel by remember { mutableStateOf(false) }
     var pillFocused by remember { mutableStateOf(false) }
     LaunchedEffect(heroEntries.isNotEmpty()) { if (heroEntries.isNotEmpty() && focused == null) { withFrameNanos { }; runCatching { viewTitle.requestFocus() } } }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -258,8 +259,9 @@ fun EchoHome(nav: Nav) {
         TopPill(nav, pillFocused, pillHome, if (clockOn) clockFocus else viewTitle) { pillFocused = it }
         if (clockOn) ClockPill(
             Modifier.align(Alignment.TopEnd), clockFocus, pillHome, viewTitle,
-            onFocus = { clockFocused = it }, onClick = { nav.push(Screen.Library) }
+            onFocus = { clockFocused = it }, onClick = { clockPanel = true }
         )
+        if (clockPanel) com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } }
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
@@ -381,6 +383,7 @@ private fun BoxScope.TopPill(nav: Nav, open: Boolean, home: FocusRequester, down
         PillItem("Search", open, down) { nav.push(Screen.Search) }
         PillItem("Library", open, down) { nav.push(Screen.Library) }
         PillItem("Live TV", open, down) { nav.push(Screen.LiveTv) }
+        PillItem("Sports", open, down) { nav.push(Screen.Sports) }
         Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
         PillItem(null, open, down) { nav.push(Screen.Settings) }
     }
@@ -414,7 +417,7 @@ private fun PillItem(label: String?, open: Boolean, down: FocusRequester, select
     }
 }
 
-/** Legacy's clock island: the time on a dark capsule, top right; focused, a white ring. OK opens Library. */
+/** Legacy's clock island: the time on a dark capsule, top right; focused, a white ring. OK opens its panel (Live now). */
 @Composable
 private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, down: FocusRequester, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
     val context = LocalContext.current

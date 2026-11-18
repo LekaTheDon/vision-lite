@@ -91,6 +91,10 @@ class Prefs(context: Context) {
     /** Live TV: playlists (JSON; Xtream passwords stay on this TV) and favourite channels. */
     val iptvPlaylists = Text("iptv_playlists", "[]")
     val iptvFavs = Text("iptv_favs", "")
+    val iptvRecent = Text("iptv_recent", "")
+    /** Sports: Vision's settings and follows (JSON, "" = defaults). */
+    val sportsSettings = Text("sports_settings", "")
+    val sportsFollows = Text("sports_follows", "")
     val visionTb = Flag("vision_tb", false)
     val torboxKey = Text("torbox_key", "")
     // App

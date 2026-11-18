@@ -188,6 +188,7 @@ private fun TopBar(nav: Nav) {
         Button("Search", { nav.push(Screen.Search) })
         Button("Library", { nav.push(Screen.Library) })
         Button("Live TV", { nav.push(Screen.LiveTv) })
+        Button("Sports", { nav.push(Screen.Sports) })
         Button("Settings", { nav.push(Screen.Settings) })
     }
 }

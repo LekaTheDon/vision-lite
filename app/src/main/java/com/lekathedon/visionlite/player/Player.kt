@@ -6,6 +6,10 @@ import android.os.Handler
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -158,7 +162,14 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             onNext = { scope.launch { nextEpisode(nav, s) } },
             onSources = { nav.pop() },
             onAspect = { mode -> view?.resizeMode = mode },
-            segments = segments, skipMode = skipMode, nextPopup = prefs.nextPopup.value, autoNext = prefs.nextEpisode.value)
+            segments = segments, skipMode = skipMode, nextPopup = prefs.nextPopup.value, autoNext = prefs.nextEpisode.value,
+            onZap = if (s.type != "live") null else { d ->
+                com.lekathedon.visionlite.iptv.Iptv.zap(s.url, d)?.let { c ->
+                    com.lekathedon.visionlite.iptv.Iptv.played(c)
+                    nav.replace(Screen.Player(c.url, c.name, c.headers, type = "live"))
+                }
+            })
+        if (s.type == "live") ChannelBanner(s)
     }
 }
 
@@ -294,6 +305,31 @@ private fun TraktSync(player: ExoPlayer, s: Screen.Player) {
             val p = pct()
             PlayerReturn.mark()
             if (p > 0f) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { trakt.scrobble("stop", imdb, season, episode, p) }
+        }
+    }
+}
+
+/** Live TV: the channel and what's on, top left, for a few seconds after tuning (and after each channel change). */
+@Composable
+private fun ChannelBanner(s: Screen.Player) {
+    var show by remember(s.url) { mutableStateOf(true) }
+    val info by androidx.compose.runtime.produceState<Pair<com.lekathedon.visionlite.iptv.Channel?, com.lekathedon.visionlite.iptv.EpgProgram?>>(null to null, s.url) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val c = com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url)
+            c to c?.let { com.lekathedon.visionlite.iptv.Iptv.nowNext(it).firstOrNull { p -> p.isLive(System.currentTimeMillis()) } }
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(s.url) { kotlinx.coroutines.delay(5_000); show = false }
+    if (!show) return
+    val (c, now) = info
+    androidx.compose.foundation.layout.Row(
+        Modifier.padding(start = 40.dp, top = 32.dp).background(Color(0xCC000000), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(14.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        c?.logo?.let { com.lekathedon.visionlite.ui.Img(it, 80.dp, 45.dp, Modifier.size(80.dp, 45.dp), androidx.compose.ui.layout.ContentScale.Fit) }
+        androidx.compose.foundation.layout.Column(Modifier.padding(start = 12.dp)) {
+            androidx.compose.material3.Text((c?.n?.let { "$it  " } ?: "") + s.title, color = Color.White, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            now?.let { androidx.compose.material3.Text(it.title, color = Color(0xFFD9DC8E), fontSize = 14.sp) }
         }
     }
 }

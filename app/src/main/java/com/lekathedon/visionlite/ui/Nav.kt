@@ -13,6 +13,7 @@ sealed interface Screen {
     data object Search : Screen
     data object Library : Screen
     data object LiveTv : Screen
+    data object Sports : Screen
     data object Settings : Screen
     data object Addons : Screen
     data object ThisTv : Screen

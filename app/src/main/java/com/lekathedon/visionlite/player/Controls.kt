@@ -86,6 +86,8 @@ internal fun Controls(
     player: ExoPlayer, title: String, canNext: Boolean,
     onNext: () -> Unit, onSources: () -> Unit, onAspect: (Int) -> Unit,
     segments: List<Segment> = emptyList(), skipMode: String = "button", nextPopup: Boolean = true, autoNext: Boolean = false,
+    /** Live TV: Up / Down (and CH+ / CH−) switch channel while the buttons are hidden. */
+    onZap: ((Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -171,6 +173,8 @@ internal fun Controls(
                 Key.MediaPause -> { player.pause(); return@onPreviewKeyEvent true }
                 Key.MediaFastForward -> { visible = true; step(true); return@onPreviewKeyEvent true }
                 Key.MediaRewind -> { visible = true; step(false); return@onPreviewKeyEvent true }
+                Key.ChannelUp -> if (onZap != null) { onZap(-1); return@onPreviewKeyEvent true }
+                Key.ChannelDown -> if (onZap != null) { onZap(1); return@onPreviewKeyEvent true }
             }
             if (e.key == Key.Back) {
                 when {
@@ -189,7 +193,7 @@ internal fun Controls(
             when (e.key) {
                 Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { toggle(); visible = true }
                 Key.DirectionLeft, Key.DirectionRight -> { visible = true; step(e.key == Key.DirectionRight); scope.launch { delay(50); runCatching { bar.requestFocus() } } }
-                Key.DirectionUp, Key.DirectionDown -> visible = true
+                Key.DirectionUp, Key.DirectionDown -> { if (onZap != null) onZap(if (e.key == Key.DirectionUp) -1 else 1) else visible = true }
                 else -> return@onPreviewKeyEvent false
             }
             true

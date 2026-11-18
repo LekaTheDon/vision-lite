@@ -40,7 +40,7 @@ data class EpgProgram(
 }
 
 data class Channel(val pl: String, val n: Int, val name: String, val group: String, val logo: String?, val tvg: String?,
-                   val url: String, val headers: Map<String, String>) {
+                   val url: String, val headers: Map<String, String>, val catchup: CatchupInfo? = null) {
     val key get() = "$pl|$url"
 }
 
@@ -130,7 +130,7 @@ object Iptv {
     private fun m3u(pl: Playlist): Pair<List<Channel>, List<String>> {
         val parsed = open(pl.url).bufferedReader().use { M3uParser.parse(it) }
         val list = parsed.entries.mapIndexed { i, e ->
-            Channel(pl.id, e.chno ?: (i + 1), e.name, e.group?.takeIf { it.isNotBlank() } ?: "Other", e.logo, e.tvgId ?: e.tvgName, e.url, e.headers)
+            Channel(pl.id, e.chno ?: (i + 1), e.name, e.group?.takeIf { it.isNotBlank() } ?: "Other", e.logo, e.tvgId ?: e.tvgName, e.url, e.headers, e.catchup)
         }
         return list to parsed.epgUrls
     }
@@ -148,7 +148,8 @@ object Iptv {
             val id = s.optString("stream_id").ifBlank { return@mapNotNull null }
             Channel(pl.id, s.optInt("num", i + 1), s.optString("name"), names[s.optString("category_id")] ?: "Other",
                 s.optString("stream_icon").takeIf { it.startsWith("http") }, s.optString("epg_channel_id").takeIf { it.isNotBlank() && it != "null" },
-                "$base/live/${enc(pl.user)}/${enc(pl.pass)}/$id.ts", emptyMap())
+                "$base/live/${enc(pl.user)}/${enc(pl.pass)}/$id.ts", emptyMap(),
+                if (s.optString("tv_archive") == "1") CatchupInfo("xc", null, s.optString("tv_archive_duration").toIntOrNull()?.takeIf { it > 0 } ?: 1) else null)
         }
         return list to listOf("$base/xmltv.php?$auth")
     }
@@ -160,19 +161,20 @@ object Iptv {
         w.beginTransaction()
         try {
             w.delete("ch", "pl=?", arrayOf(pl))
-            val st = w.compileStatement("INSERT OR REPLACE INTO ch(pl,n,ord,name,grp,logo,tvg,url,hdr) VALUES(?,?,?,?,?,?,?,?,?)")
+            val st = w.compileStatement("INSERT OR REPLACE INTO ch(pl,n,ord,name,grp,logo,tvg,url,hdr,cu_type,cu_src,cu_days,cu_corr) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
             list.forEachIndexed { i, c ->
                 st.clearBindings()
                 st.bindString(1, pl); st.bindLong(2, i.toLong()); st.bindLong(3, c.n.toLong()); st.bindString(4, c.name); st.bindString(5, c.group)
                 c.logo?.let { st.bindString(6, it) }; c.tvg?.let { st.bindString(7, it) }; st.bindString(8, c.url)
                 if (c.headers.isNotEmpty()) st.bindString(9, JSONObject(c.headers).toString())
+                c.catchup?.let { cu -> st.bindString(10, cu.type); cu.source?.let { st.bindString(11, it) }; st.bindLong(12, cu.days.toLong()); st.bindDouble(13, cu.correctionHours) }
                 st.executeInsert()
             }
             w.setTransactionSuccessful()
         } finally { w.endTransaction() }
     }
 
-    /** Streams the guide straight into the database, only the channels this playlist has, now −2 h to +24 h. */
+    /** Streams the guide straight into the database, only the channels this playlist has, now −24 h (catch-up) to +24 h. */
     private fun loadGuide(pl: String, url: String) {
         val r = db.readableDatabase
         val ids = HashSet<String>(); val byName = HashMap<String, MutableList<String>>()
@@ -188,14 +190,14 @@ object Iptv {
         w.beginTransaction()
         try {
             w.delete("prog", "pl=?", arrayOf(pl))
-            val st = w.compileStatement("INSERT INTO prog(pl,tvg,start,stop,title,descr) VALUES(?,?,?,?,?,?)")
+            val st = w.compileStatement("INSERT INTO prog(pl,tvg,start,stop,title,descr,cat) VALUES(?,?,?,?,?,?,?)")
             var count = 0
             open(url).use { input ->
-                XmltvParser.parse(input, now - 2 * 3600_000, now + 24 * 3600_000, keepUnlisted = { it in ids },
+                XmltvParser.parse(input, now - 24 * 3600_000, now + 24 * 3600_000, keepUnlisted = { it in ids },
                     onPrograms = { id, progs ->
                         progs.forEach { pr ->
                             st.clearBindings(); st.bindString(1, pl); st.bindString(2, id); st.bindLong(3, pr.startMs); st.bindLong(4, pr.stopMs)
-                            st.bindString(5, pr.title); pr.description?.let { st.bindString(6, it) }; st.executeInsert(); count++
+                            st.bindString(5, pr.title); pr.description?.let { st.bindString(6, it) }; pr.category?.let { st.bindString(7, it) }; st.executeInsert(); count++
                         }
                     }) { channels ->
                     channels.values.forEach { ch -> if (ch.id !in ids) ch.displayNames.firstOrNull { norm(it) in byName }?.let { named[ch.id] = norm(it) } }
@@ -206,6 +208,7 @@ object Iptv {
             named.forEach { (id, name) ->
                 byName[name]?.forEach { n -> w.execSQL("UPDATE ch SET tvg=? WHERE pl=? AND n=? AND tvg IS NULL", arrayOf(id, pl, n)) }
             }
+            w.insertWithOnConflict("meta", null, ContentValues().apply { put("k", "guide_rev"); put("v", System.currentTimeMillis().toString()) }, SQLiteDatabase.CONFLICT_REPLACE)
             w.setTransactionSuccessful()
             Log.i(TAG, "guide: $count shows")
         } finally { w.endTransaction() }
@@ -225,14 +228,13 @@ object Iptv {
     fun channels(group: String?): List<Channel> {
         val favs = if (group == "★") favourites() else null
         val (where, args) = when {
-            group == null || favs != null -> "" to null
+            group == null || favs != null || group == RECENT -> "" to null
             else -> "WHERE grp=?" to arrayOf(group)
         }
-        val all = db.readableDatabase.rawQuery("SELECT pl,ord,name,grp,logo,tvg,url,hdr FROM ch $where ORDER BY rowid", args).use { c ->
-            buildList {
-                while (c.moveToNext()) add(Channel(c.getString(0), c.getInt(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6),
-                    c.getString(7)?.let { h -> runCatching { JSONObject(h).let { o -> o.keys().asSequence().associateWith { o.getString(it) } } }.getOrNull() } ?: emptyMap()))
-            }
+        val recent = if (group == RECENT) recents() else null
+        if (recent != null) return channelsByKey(recent)
+        val all = db.readableDatabase.rawQuery("SELECT $COLS FROM ch $where ORDER BY rowid", args).use { c ->
+            buildList { while (c.moveToNext()) add(readChannel(c)) }
         }
         return if (favs != null) all.filter { it.key in favs } else all
     }
@@ -246,6 +248,77 @@ object Iptv {
         }
     }
 
+    private const val COLS = "pl,ord,name,grp,logo,tvg,url,hdr,cu_type,cu_src,cu_days,cu_corr"
+    private fun readChannel(c: android.database.Cursor) = Channel(c.getString(0), c.getInt(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6),
+        c.getString(7)?.let { h -> runCatching { JSONObject(h).let { o -> o.keys().asSequence().associateWith { o.getString(it) } } }.getOrNull() } ?: emptyMap(),
+        c.getString(8)?.let { CatchupInfo(it, c.getString(9), c.getInt(10), c.getDouble(11)) })
+
+    /** Channels by key ("playlist|url"), in the order given. */
+    fun channelsByKey(keys: List<String>): List<Channel> {
+        if (keys.isEmpty()) return emptyList()
+        val found = HashMap<String, Channel>()
+        keys.chunked(400).forEach { part ->
+            db.readableDatabase.rawQuery("SELECT $COLS FROM ch WHERE pl||'|'||url IN (${part.joinToString(",") { "?" }})", part.toTypedArray()).use { c ->
+                while (c.moveToNext()) readChannel(c).let { found[it.key] = it }
+            }
+        }
+        return keys.mapNotNull { found[it] }
+    }
+
+    // ---- watching: recents, channel up / down, catch-up ----
+
+    const val RECENT = "⟲"
+    fun recents(): List<String> = p.iptvRecent.value.split('\n').filter { it.isNotBlank() }
+    /** The list Up / Down steps through in the player (the group it was started from). */
+    @Volatile var zapList: List<Channel> = emptyList()
+
+    fun played(c: Channel) {
+        p.iptvRecent.value = (listOf(c.key) + recents().filter { it != c.key }).take(30).joinToString("\n")
+    }
+
+    /** The channel [step] away from the one at [url] in [zapList] (wraps round). */
+    fun zap(url: String, step: Int): Channel? {
+        val l = zapList.ifEmpty { return null }
+        val i = l.indexOfFirst { it.url == url }.coerceAtLeast(0)
+        return l[Math.floorMod(i + step, l.size)]
+    }
+
+    fun byUrl(url: String): Channel? = zapList.firstOrNull { it.url == url }
+        ?: db.readableDatabase.rawQuery("SELECT $COLS FROM ch WHERE url=? LIMIT 1", arrayOf(url)).use { if (it.moveToFirst()) readChannel(it) else null }
+
+    /** A channel's guide, yesterday to tomorrow (what's kept). */
+    fun schedule(c: Channel): List<EpgProgram> {
+        val tvg = c.tvg ?: return emptyList()
+        return db.readableDatabase.rawQuery("SELECT start,stop,title,descr,cat FROM prog WHERE pl=? AND tvg=? ORDER BY start", arrayOf(c.pl, tvg)).use { q ->
+            buildList { while (q.moveToNext()) add(EpgProgram(q.getLong(0), q.getLong(1), q.getString(2), q.getString(3), q.getString(4))) }
+        }
+    }
+
+    /** The link that plays [pr] from the archive, when the channel keeps one that far back. */
+    fun catchupUrl(c: Channel, pr: EpgProgram, now: Long = System.currentTimeMillis()): String? {
+        val cu = c.catchup ?: return null
+        if (pr.stopMs > now || !CatchupUrlBuilder.isAvailable(cu, pr.startMs, now)) return null
+        return CatchupUrlBuilder.build(c.url, cu, pr.startMs, pr.stopMs, now)
+    }
+
+    // ---- for Sports: every channel, and the guide in the shape Vision's matcher reads ----
+
+    @Volatile private var liveCache: Pair<Int, List<com.lekathedon.visionlite.sports.LiveChannel>>? = null
+    fun liveChannels(): List<com.lekathedon.visionlite.sports.LiveChannel> {
+        val v = _version.value
+        liveCache?.takeIf { it.first == v }?.let { return it.second }
+        val names = playlists().associate { it.id to it.name }
+        val list = channels(null).map { c ->
+            com.lekathedon.visionlite.sports.LiveChannel(c.key, c.pl, names[c.pl].orEmpty(), c.name, c.tvg, c.tvg, c.logo,
+                c.pl + "|" + c.group, c.group, c.n, c.url, c.headers, c.catchup)
+        }
+        liveCache = v to list
+        return list
+    }
+
+    internal fun guideRevision(): String? = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k='guide_rev'", null).use { if (it.moveToFirst()) it.getString(0) else null }
+    internal fun guideDb(): SQLiteDatabase = db.readableDatabase
+
     fun hasChannels() = db.readableDatabase.rawQuery("SELECT 1 FROM ch LIMIT 1", null).use { it.moveToFirst() }
 
     private fun loadedAt(id: String) = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k=?", arrayOf("loaded:$id")).use {
@@ -257,15 +330,22 @@ object Iptv {
     }
 
     private val db by lazy {
-        object : SQLiteOpenHelper(App.instance, "iptv.db", null, 1) {
+        object : SQLiteOpenHelper(App.instance, "iptv.db", null, 2) {
             override fun onCreate(d: SQLiteDatabase) {
-                d.execSQL("CREATE TABLE ch(pl TEXT, n INTEGER, ord INTEGER, name TEXT, grp TEXT, logo TEXT, tvg TEXT, url TEXT, hdr TEXT, PRIMARY KEY(pl,n))")
+                d.execSQL("CREATE TABLE ch(pl TEXT, n INTEGER, ord INTEGER, name TEXT, grp TEXT, logo TEXT, tvg TEXT, url TEXT, hdr TEXT, " +
+                    "cu_type TEXT, cu_src TEXT, cu_days INTEGER, cu_corr REAL, PRIMARY KEY(pl,n))")
                 d.execSQL("CREATE INDEX ch_grp ON ch(grp)")
-                d.execSQL("CREATE TABLE prog(pl TEXT, tvg TEXT, start INTEGER, stop INTEGER, title TEXT, descr TEXT)")
+                d.execSQL("CREATE INDEX ch_tvg ON ch(pl, tvg)")
+                d.execSQL("CREATE TABLE prog(pl TEXT, tvg TEXT, start INTEGER, stop INTEGER, title TEXT, descr TEXT, cat TEXT)")
                 d.execSQL("CREATE INDEX prog_ch ON prog(pl, tvg, stop)")
+                d.execSQL("CREATE INDEX prog_start ON prog(start)")
                 d.execSQL("CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT)")
             }
-            override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {}
+            // 0.12 → 0.13: catch-up and guide categories; the playlists reload on the next open.
+            override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {
+                listOf("ch", "prog", "meta").forEach { d.execSQL("DROP TABLE IF EXISTS $it") }
+                onCreate(d)
+            }
         }.also { it.setWriteAheadLoggingEnabled(true) }
     }
 }
