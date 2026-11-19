@@ -281,6 +281,7 @@ fun Scout(nav: Nav) {
                 Rail("For you", forYou.map(::meta), nav, subOf = { it.description }, firstFocus = first,
                     onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name) })
             }
+            item(key = "moods") { MoodsRow(nav, pool, changed) }
             item(key = "ai") { AiRail(nav) }
             items(because, key = { it.seed }) { b ->
                 Rail("Because you watched ${b.seed}", b.picks.map(::meta), nav, subOf = { it.description },
@@ -288,6 +289,29 @@ fun Scout(nav: Nav) {
             }
         }
     }
+}
+
+/** Scout's moods: one chip each; the chosen mood shows the engine's finds for it, then more from TMDB. */
+@Composable
+private fun MoodsRow(nav: Nav, pool: com.lekathedon.visionlite.recs.Pool?, changed: Int) {
+    var mood by remember { mutableStateOf<com.lekathedon.visionlite.recs.Mood?>(null) }
+    val moods = remember(pool, changed) { com.lekathedon.visionlite.recs.Moods.available() }
+    if (moods.isEmpty()) return
+    com.lekathedon.visionlite.home.EchoRowTitle("Moods")
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+        items(moods) { m -> Button(if (m == mood) "● ${m.label}" else m.label, { mood = if (mood == m) null else m }) }
+    }
+    val m = mood ?: return
+    val engine = remember(m, pool, changed) { com.lekathedon.visionlite.recs.Moods.fromEngine(m) }
+    val more by produceState(emptyList<MetaPreview>(), m, engine) {
+        value = runCatching { com.lekathedon.visionlite.recs.Moods.discover(m, engine.map { it.name }.toSet()) }.getOrDefault(emptyList())
+    }
+    Text(m.why, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+    Rail("${m.label} · for you", engine.map { p -> MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), releaseInfo = p.year?.toString(),
+        imdbRating = p.rating?.toString(), genres = p.genres, description = p.why) }, nav, subOf = { it.description },
+        onHold = { x -> com.lekathedon.visionlite.recs.Recs.notForMe(x.id, x.type == "series", x.name) })
+    Rail("${m.label} · more to discover", more, nav)
+    if (engine.isEmpty() && more.isEmpty()) Text("Nothing for this mood yet. Refresh picks, or add a TMDB key for more.", color = Palette.TextDim, fontSize = 14.sp)
 }
 
 // ---------------------------------------------------------------- Calendar

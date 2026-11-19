@@ -144,8 +144,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value)
         }
     }
+    // libass (styled ASS/SSA subtitles drawn with the file's own fonts and positions) for ExoPlayer, Vision's overlay mode.
+    val assRef = remember { arrayOfNulls<io.github.peerless2012.ass.media.AssHandler>(1) }
     val player: MediaPlayer = remember(s.url, gen, felAllowed, addonSubs) {
         if (current == Engine.MPV) {
+            assRef[0] = null
             com.lekathedon.visionlite.player.mpv.MpvPlayer(mpvView!!, s.url, s.headers, session.resumeAt).apply {
                 Hud.decoder = null
                 onLoaded = {
@@ -160,12 +163,29 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
         } else {
             val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
-            ExoPlayer.Builder(context, Renderers(context, felAllowed))
-                .setMediaSourceFactory(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context, http)))
+            val data = androidx.media3.datasource.DefaultDataSource.Factory(context, http)
+            val ass = if (prefs.libass.value && s.type != "live") io.github.peerless2012.ass.media.AssHandler(
+                io.github.peerless2012.ass.media.type.AssRenderType.OVERLAY_OPEN_GL,
+                io.github.peerless2012.ass.media.AssHandlerConfig(maxRenderPixels = 1920 * 1080)) else null
+            assRef[0] = ass
+            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed).let { r ->
+                if (ass != null) io.github.peerless2012.ass.media.factory.AssRenderersFactory(ass, r) else r }
+            val sources = if (ass == null) DefaultMediaSourceFactory(data) else {
+                val parsers = io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory(ass)
+                DefaultMediaSourceFactory(data, androidx.media3.extractor.DefaultExtractorsFactory().let { f ->
+                    androidx.media3.extractor.ExtractorsFactory {
+                        f.createExtractors().also { list -> list.forEachIndexed { i, e ->
+                            if (e is androidx.media3.extractor.mkv.MatroskaExtractor) list[i] = io.github.peerless2012.ass.media.extractor.AssMatroskaExtractor(parsers, ass) } }
+                    }
+                }).also { it.setSubtitleParserFactory(parsers) }
+            }
+            ExoPlayer.Builder(context, renderers)
+                .setMediaSourceFactory(sources)
                 .setVideoChangeFrameRateStrategy(
                     if (afr == "seamless") C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
                 )
                 .build().apply {
+                    ass?.init(this)
                     Hud.decoder = if (felAllowed) "native FEL renderer (if the file is DV7)" else null
                     addAnalyticsListener(exoStats)
                     addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
@@ -180,6 +200,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     }
     androidx.compose.runtime.LaunchedEffect(switchNote) { if (switchNote != null) { kotlinx.coroutines.delay(2_200); switchNote = null } }
     DisposableEffect(player) {
+        val myAss = assRef[0]
         var subsChecked = false
         var pausedByUser = false
         val listener = object : MediaPlayer.Listener {
@@ -260,6 +281,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         onDispose {
             session.resumeAt = player.currentPosition
             com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release()
+            runCatching { myAss?.release() }; if (assRef[0] === myAss) assRef[0] = null
         }
     }
     DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
@@ -285,7 +307,16 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                         view = this
                     }
                 },
-                update = { it.player = player }
+                update = { pv ->
+                    pv.player = player
+                    // libass draws in its own view inside the subtitle view, once per player.
+                    val ass = assRef[0]
+                    if (ass != null && pv.getTag(R_ASS) !== ass) {
+                        pv.subtitleView?.let { sv -> (sv.getTag(R_ASS) as? android.view.View)?.let(sv::removeView)
+                            val v = io.github.peerless2012.ass.media.widget.AssSubtitleView(sv.context, ass); sv.addView(v); sv.setTag(R_ASS, v) }
+                        pv.setTag(R_ASS, ass)
+                    }
+                }
             )
         }
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
@@ -325,6 +356,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         }
     }
 }
+
+private const val R_ASS = 0x7f0a7a55
 
 private fun selectedVideo(tracks: Tracks): androidx.media3.common.Format? =
     tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }

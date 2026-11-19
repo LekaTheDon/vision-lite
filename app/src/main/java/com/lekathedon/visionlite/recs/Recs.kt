@@ -160,6 +160,13 @@ object Recs {
         trakt?.shows?.forEach { names += RecsLogic.exclusionName(it.show.title, it.show.year) }
         val ex = RecsLogic.Exclusions(exclusionIds(trakt), names)
         write("seen.json", seenSer, ex.ids.toList())
+        // For Moods' TMDB top-up: the same titles by TMDB id and by name + year.
+        write("seen_tmdb.json", seenSer, buildList {
+            trakt?.movies?.forEach { m -> m.movie.ids.tmdb?.let { add("tmdb:movie:$it") } }
+            trakt?.shows?.forEach { sh -> sh.show.ids.tmdb?.let { add("tmdb:tv:$it") } }
+            trakt?.ratings?.forEach { r -> r.movie?.ids?.tmdb?.let { add("tmdb:movie:$it") }; r.show?.ids?.tmdb?.let { add("tmdb:tv:$it") } }
+            addAll(names)
+        })
         var tally = RecsLogic.tally(results, ex, min)
         // Full facts for the best candidates, so taste can judge them.
         val head = tally.values.sortedByDescending { it.score }.take(RecsLogic.LOOKUPS).map { it.facts.id }
@@ -337,6 +344,17 @@ object Recs {
     // ---- files ----
 
     private val seenSer = ListSerializer(String.serializer())
+    /** Moods: TMDB ids and name|year keys of what you've seen (written by the last build), plus saved / turned down names. */
+    fun seenTmdb(): Set<String> = (read("seen_tmdb.json", seenSer)?.toSet() ?: emptySet()) +
+        feedback().filter { !it.like }.map { RecsLogic.exclusionName(it.name, null) } + Saves.all().map { RecsLogic.exclusionName(it.name, null) }
+    fun seenName(name: String, year: String?) = RecsLogic.exclusionName(name, year?.take(4)?.toIntOrNull())
+
+    /** IMDb keywords the engine already holds for these titles (facts file, no requests). */
+    fun keywordsOf(ids: List<String>): Map<String, List<String>> {
+        val f = readFacts()
+        return ids.mapNotNull { id -> f[id]?.keywords?.takeIf { it.isNotEmpty() }?.let { id to it } }.toMap()
+    }
+
     /** What the last build left out, so a details page's "more like this" needs no Trakt calls. */
     private fun seen(): Set<String> = read("seen.json", seenSer)?.toSet() ?: emptySet()
 

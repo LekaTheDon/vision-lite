@@ -44,7 +44,11 @@ object EngineRules {
         val animeId = id.startsWith("kitsu:") || id.startsWith("mal:") || id.startsWith("anilist:")
         val anime = animeId || genres.any { it.equals("anime", true) } ||
             (genres.any { it.equals("animation", true) } && country?.contains("Japan", true) == true)
-        if (anime) { s.reason = "anime → MPV (styled subtitles)"; return Engine.MPV }
+        if (anime) {
+            // libass draws the styled subtitles on ExoPlayer (keeps passthrough and the video layer); without it, MPV.
+            if (com.lekathedon.visionlite.App.instance.prefs.libass.value) { s.reason = "anime, libass on → ExoPlayer"; return Engine.EXO }
+            s.reason = "anime → MPV (styled subtitles)"; return Engine.MPV
+        }
         s.reason = "default → ExoPlayer"
         return Engine.EXO
     }

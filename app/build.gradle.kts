@@ -76,6 +76,8 @@ dependencies {
     // Second engine (Vision's MPV) and FFmpeg audio for ExoPlayer (DTS / TrueHD / anything the box can't decode).
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.8.0+1")
+    // libass for ExoPlayer (styled ASS/SSA subtitles), the release made for media3 1.8.0.
+    implementation("io.github.peerless2012:ass-media:0.5.1")
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)

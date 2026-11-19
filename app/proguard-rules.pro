@@ -5,3 +5,6 @@
 -keep class is.xyz.mpv.** { *; }
 # FFmpeg audio renderer is loaded by reflection (DefaultRenderersFactory extension mode).
 -keep class androidx.media3.decoder.ffmpeg.** { *; }
+
+# libass: native code calls back into these.
+-keep class io.github.peerless2012.ass.** { *; }

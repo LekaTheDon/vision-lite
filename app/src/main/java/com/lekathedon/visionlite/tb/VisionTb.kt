@@ -87,6 +87,9 @@ object VisionTb {
                 suspend fun run(req: SourceRequest, quick: Boolean) {
                     val rows = fetch(req, idTarget) ?: return
                     if (rows.isEmpty()) return
+                    // Torrentio files releases by IMDb episode: its rows vouch for this episode (autoplay's trust).
+                    if (series && (req.source == DiscoverySource.TORRENTIO || req.source == DiscoverySource.TORRENTIO_REGIONAL))
+                        com.lekathedon.visionlite.streams.AutoPick.vouch(id, rows.map { it.hash to (it.fileName ?: it.name) })
                     // Shows: rows naming this exact episode go before the titles arrive; the rest wait for them.
                     if (quick && series && !full.isCompleted) pass(req.source, rows, idTarget)
                     pass(req.source, rows, full.await())
