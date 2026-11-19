@@ -84,6 +84,9 @@ fun Settings(nav: Nav) {
             { m -> Link("This TV", "Dolby Vision 7, frame-rate matching, what the TV and soundbar take", m) { nav.push(Screen.ThisTv) } },
         )),
         Group("Playback", "Autoplay, next episode, skips", listOf(
+            { m -> Choice("Player engine", "Auto: HDR and Dolby Vision on ExoPlayer, anime and Hi10p on MPV", p.engine,
+                listOf("auto" to "Auto", "exo" to "ExoPlayer", "mpv" to "MPV"), m) },
+            { m -> Toggle("Backup engine", "When one engine can't play a file, the other takes over where it stopped", p.engineBackup, m) },
             { m -> Toggle("Smart autoplay", "Off until Vision TB is autoplay safe: plays the right episode, 4K first, then the biggest file", p.autoplay, m) },
             { m -> Toggle("Next episode", "When an episode ends, open the next one's links", p.nextEpisode, m) },
             { m -> Toggle("Next episode popup", "A card at the outro: OK plays the next one", p.nextPopup, m) },

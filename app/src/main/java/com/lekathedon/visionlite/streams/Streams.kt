@@ -160,7 +160,7 @@ private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean,
         say("Getting the TorBox link…")
         com.lekathedon.visionlite.tb.VisionTb.resolve(pick).fold({ say(""); it }, { say("TorBox: ${it.message}"); null })
     } ?: return
-    val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
+    val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source)
     if (replace) nav.replace(p) else nav.push(p)
 }
 
@@ -183,7 +183,7 @@ object LinkFallback {
         while (rest.isNotEmpty()) {
             val l = rest.first(); rest = rest.drop(1)
             val url = l.stream.url ?: l.tb?.let { com.lekathedon.visionlite.tb.VisionTb.resolve(it).getOrNull() } ?: continue
-            return Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
+            return Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source)
         }
         return null
     }

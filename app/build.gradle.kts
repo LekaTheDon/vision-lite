@@ -54,7 +54,11 @@ android {
     }
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true; buildConfig = true }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    packaging {
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        // MPV's native libs stay compressed in the APK (smaller download; unpacked once at install).
+        jniLibs { useLegacyPackaging = true; pickFirsts += "**/libc++_shared.so" }
+    }
 }
 
 dependencies {
@@ -69,6 +73,9 @@ dependencies {
     implementation(libs.media3.hls)
     implementation(libs.media3.okhttp)
     implementation(libs.media3.ui)
+    // Second engine (Vision's MPV) and FFmpeg audio for ExoPlayer (DTS / TrueHD / anything the box can't decode).
+    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.8.0+1")
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)

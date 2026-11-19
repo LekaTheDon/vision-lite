@@ -14,7 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,10 +53,13 @@ object PlayerReturn {
     fun consume(): Boolean = flag.also { flag = false }
 }
 
-/** Native FEL first (DV7 only, when chosen and the box can), then the normal decoders. */
+/**
+ * Native FEL first (DV7 only, when chosen and the box can), then the normal decoders; FFmpeg audio after the box's own
+ * decoders (DTS / TrueHD / anything the soundbar can't take and the box can't decode becomes PCM).
+ */
 @OptIn(UnstableApi::class)
 private class Renderers(context: Context, private val fel: Boolean) : DefaultRenderersFactory(context) {
-    init { setEnableDecoderFallback(true) }
+    init { setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
     override fun buildVideoRenderers(
         context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector, enableDecoderFallback: Boolean,
         eventHandler: Handler, eventListener: VideoRendererEventListener, allowedVideoJoiningTimeMs: Long, out: ArrayList<Renderer>
@@ -66,44 +70,120 @@ private class Renderers(context: Context, private val fel: Boolean) : DefaultRen
     }
 }
 
+/** Codecs MPV may send as a bitstream: the ones the soundbar reports over HDMI (as ExoPlayer's passthrough). */
+private fun spdifCodecs(context: Context): String {
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+    val enc = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+        .filter { it.type == android.media.AudioDeviceInfo.TYPE_HDMI || it.type == android.media.AudioDeviceInfo.TYPE_HDMI_ARC ||
+            (android.os.Build.VERSION.SDK_INT >= 31 && it.type == android.media.AudioDeviceInfo.TYPE_HDMI_EARC) }
+        .flatMap { it.encodings.toList() }.toSet()
+    return buildList {
+        if (android.media.AudioFormat.ENCODING_AC3 in enc) add("ac3")
+        if (android.media.AudioFormat.ENCODING_E_AC3 in enc) add("eac3")
+        if (android.media.AudioFormat.ENCODING_DTS in enc) add("dts")
+        if (android.media.AudioFormat.ENCODING_DTS_HD in enc) add("dts-hd")
+        if (android.media.AudioFormat.ENCODING_DOLBY_TRUEHD in enc) add("truehd")
+    }.joinToString(",")
+}
+
 /**
- * ExoPlayer. Audio passes through whatever the soundbar reports it takes. DV7 uses native FEL when chosen in This TV;
- * if the FEL path gives up on a stream, the same stream replays on the box decoder from where it was.
+ * Two engines, as in Vision: ExoPlayer (passthrough, DV7 native FEL, VS10, the box's video layer) and MPV (software
+ * decoders, styled subtitles, formats ExoPlayer can't open). Auto picks one per link and corrects itself once the
+ * file's tracks are known; the backup engine takes over when one can't play a file; the Engine button switches by hand.
+ * Every switch restarts the same link at the same spot.
  */
 @OptIn(UnstableApi::class)
 @Composable
 fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val context = LocalContext.current
     val prefs = App.instance.prefs
+    val session = remember(s.url) { EngineSession(s.url) }
+    // null until the engine is decided (Auto may look the title up for a moment, as Vision does for anime).
+    var engine by remember(s.url) { mutableStateOf<Engine?>(null) }
+    var gen by remember(s.url) { mutableIntStateOf(0) }
+    var switchNote by remember(s.url) { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(s.url) {
+        engine = when (prefs.engine.value) {
+            "exo" -> Engine.EXO
+            "mpv" -> if (s.type == "live") Engine.EXO else Engine.MPV
+            else -> {
+                session.smartAuto = true
+                val quick = EngineRules.autoPick(session, s.name, s.id, s.type, emptyList(), null)
+                if (quick == Engine.MPV || session.reason != "default → ExoPlayer" || !s.id.startsWith("tt")) quick
+                else {
+                    val meta = kotlinx.coroutines.withTimeoutOrNull(1_500) { runCatching { App.instance.client.meta(s.type, s.id.substringBefore(':')) }.getOrNull() }
+                    EngineRules.autoPick(session, s.name, s.id, s.type, meta?.genres.orEmpty(), null)
+                }
+            }
+        }.also { session.engine = it; if (it == Engine.MPV && EngineRules.namedHi10p(s.name)) session.mpvSoftware = true }
+    }
+    val current = engine ?: run { Box(Modifier.fillMaxSize().background(Color.Black)); return }
+
+    fun switchTo(target: Engine, why: String, at: Long) {
+        if (target == current) return
+        session.resumeAt = at.coerceAtLeast(0)
+        session.engine = target
+        if (why != "smart-auto") session.smartAuto = false
+        switchNote = "Switching to ${target.label}…"
+        engine = target
+        gen++
+    }
+
     var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && AmlFelSupport.nativeFelUsableOnce()) }
-    var resumeAt by remember(s.url) { mutableLongStateOf(0L) }
     // A dead add-on subtitle link must never stop the film: on a load error the file restarts without them.
     var addonSubs by remember(s.url) { mutableStateOf(true) }
     val afr = prefs.afr.value
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var failNote by remember(s.url) { mutableStateOf<String?>(null) }
-    val player = remember(s.url, felAllowed, addonSubs) {
-        val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
-        ExoPlayer.Builder(context, Renderers(context, felAllowed))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context, http)))
-            .setVideoChangeFrameRateStrategy(
-                if (afr == "seamless") C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
-            )
-            .build().apply {
-                Hud.decoder = if (felAllowed) "native FEL renderer (if the file is DV7)" else null
-                addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
-                    override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, initMs: Long, durMs: Long) { Hud.decoder = name }
-                })
-                trackSelectionParameters = trackPrefs(trackSelectionParameters)
-                setMediaItem(if (addonSubs) withSubs(s) else MediaItem.fromUri(s.url), resumeAt)
-                prepare()
-                playWhenReady = true
-            }
+    var firstFrame by remember(s.url, gen) { mutableStateOf(false) }
+    val exoStats = remember(s.url, gen, felAllowed, addonSubs) { ExoStats() }
+    val mpvView = remember(s.url, gen) {
+        if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
+            init(session.mpvSoftware, spdifCodecs(context))
+            languages(langs(prefs.audioLang.value, prefs.audioLang2.value).toList(), langs(prefs.subLang.value, prefs.subLang2.value).toList(), prefs.subsWhen.value == "off")
+            subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value)
+        }
     }
+    val player: MediaPlayer = remember(s.url, gen, felAllowed, addonSubs) {
+        if (current == Engine.MPV) {
+            com.lekathedon.visionlite.player.mpv.MpvPlayer(mpvView!!, s.url, s.headers, session.resumeAt).apply {
+                Hud.decoder = null
+                onLoaded = {
+                    if (addonSubs) com.lekathedon.visionlite.addons.Subs.forId(s.id).forEach { sub -> view.addSubtitle(sub.url, "${sub.lang} · add-on", sub.lang) }
+                    if (afr == "always") view.prop("container-fps")?.toFloatOrNull()?.takeIf { it > 0 }?.let { matchFrameRate(context, it) }
+                    // Smart Auto: a Dolby Vision file that started on MPV goes to ExoPlayer's video layer (one look, before it plays).
+                    if (session.smartAuto && !session.rerouted && !view.prop("current-tracks/video/dolby-vision-profile").isNullOrBlank()) {
+                        session.rerouted = true; session.reason = EngineRules.REASON_DV_FROM_MPV
+                        switchTo(Engine.EXO, "smart-auto", currentPosition)
+                    }
+                }
+            }
+        } else {
+            val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
+            ExoPlayer.Builder(context, Renderers(context, felAllowed))
+                .setMediaSourceFactory(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context, http)))
+                .setVideoChangeFrameRateStrategy(
+                    if (afr == "seamless") C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+                )
+                .build().apply {
+                    Hud.decoder = if (felAllowed) "native FEL renderer (if the file is DV7)" else null
+                    addAnalyticsListener(exoStats)
+                    addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                        override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, initMs: Long, durMs: Long) { Hud.decoder = name }
+                    })
+                    trackSelectionParameters = trackPrefs(trackSelectionParameters)
+                    setMediaItem(if (addonSubs) withSubs(s) else MediaItem.fromUri(s.url), session.resumeAt)
+                    prepare()
+                    playWhenReady = true
+                }
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(switchNote) { if (switchNote != null) { kotlinx.coroutines.delay(2_200); switchNote = null } }
     DisposableEffect(player) {
         var subsChecked = false
         var pausedByUser = false
         val listener = object : MediaPlayer.Listener {
+            override fun onRenderedFirstFrame() { firstFrame = true }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (reason != MediaPlayer.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) return
                 if (!playWhenReady) { pausedByUser = true; return }
@@ -112,31 +192,63 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 pausedByUser = false
             }
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == MediaPlayer.STATE_READY && current == Engine.MPV) firstFrame = true
                 if (state == MediaPlayer.STATE_ENDED && prefs.nextEpisode.value && s.type == "series") scope.launch { nextEpisode(nav, s) }
             }
             override fun onPlayerError(error: PlaybackException) {
-                if (addonSubs && error.errorCode in 2000..2999 && com.lekathedon.visionlite.addons.Subs.forId(s.id).isNotEmpty()) {
-                    resumeAt = player.currentPosition
-                    addonSubs = false
-                    return
-                }
-                if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) {
-                    resumeAt = player.currentPosition
-                    felAllowed = false
-                    return
+                val at = player.currentPosition
+                if (current == Engine.EXO) {
+                    if (addonSubs && error.errorCode in 2000..2999 && com.lekathedon.visionlite.addons.Subs.forId(s.id).isNotEmpty()) {
+                        session.resumeAt = at; addonSubs = false; return
+                    }
+                    if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) { session.resumeAt = at; felAllowed = false; return }
+                    // A format ExoPlayer can't show at all goes to MPV (Vision's unsupported-format fallback, once per link).
+                    val video = (player as? ExoPlayer)?.videoFormat ?: selectedVideo(player.currentTracks)
+                    if (prefs.engineBackup.value && !session.formatFallback && s.type != "live" && EngineRules.exoFatalGoesToMpv(error, video, s.url, firstFrame)) {
+                        session.formatFallback = true
+                        if (EngineRules.isHi10p(video)) session.mpvSoftware = true
+                        session.reason = "ExoPlayer can't play this format"
+                        switchTo(Engine.MPV, "unsupported-format", at); return
+                    }
+                } else if (prefs.engineBackup.value && !session.startupFailover && !firstFrame) {
+                    // MPV failed while starting: ExoPlayer takes the same link (Vision's startup engine failover).
+                    session.startupFailover = true
+                    session.reason = "MPV couldn't start it"
+                    switchTo(Engine.EXO, "startup-failover", at); return
                 }
                 // The link died before it really played: the next link of the same list (Vision's source fallback).
-                if (player.currentPosition < 15_000 && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
+                if (at < 15_000 && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
                     failNote = "Link failed · trying the next one"
                     scope.launch { com.lekathedon.visionlite.streams.LinkFallback.next(s.id)?.let { nav.replace(it) } ?: run { failNote = "No other link worked" } }
                 }
             }
             override fun onTracksChanged(tracks: Tracks) {
                 if (!subsChecked && tracks.groups.isNotEmpty()) { subsChecked = true; foreignOnly(player, tracks) }
-                if (afr != "always") return
-                val fps = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
-                    ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).frameRate } }
+                if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
+                if (afr != "always" || current != Engine.EXO) return
+                val fps = selectedVideo(tracks)?.frameRate
                 if (fps != null && fps > 0) matchFrameRate(context, fps)
+            }
+            /** ExoPlayer read the file: Smart Auto and the no-picture rule may move it to MPV before it plays. */
+            fun exoTracks(tracks: Tracks) {
+                if (firstFrame || s.type == "live") return
+                val groups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+                val video = selectedVideo(tracks) ?: groups.firstOrNull()?.takeIf { it.length > 0 }?.getTrackFormat(0)
+                if (session.smartAuto && EngineRules.isHdr(video)) session.reason = EngineRules.REASON_HDR
+                if (session.smartAuto && !session.rerouted && !EngineRules.isHdr(video) && EngineRules.isHi10p(video)) {
+                    session.rerouted = true; session.mpvSoftware = true; session.reason = EngineRules.REASON_HI10P
+                    switchTo(Engine.MPV, "smart-auto", player.currentPosition); return
+                }
+                if (!prefs.engineBackup.value || session.formatFallback) return
+                val support = groups.firstOrNull()?.takeIf { it.length > 0 }?.getTrackSupport(0) ?: C.FORMAT_HANDLED
+                val hasAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }
+                val hi10pUnsupported = EngineRules.isHi10p(video) && support != C.FORMAT_HANDLED
+                if (hi10pUnsupported || EngineRules.exoNoPictureGoesToMpv(groups.isNotEmpty(), groups.any { it.isSelected }, support, hasAudio, s.url)) {
+                    session.formatFallback = true
+                    if (hi10pUnsupported) session.mpvSoftware = true
+                    session.reason = if (hi10pUnsupported) EngineRules.REASON_HI10P else "ExoPlayer can't show this picture"
+                    switchTo(Engine.MPV, "unsupported-format", player.currentPosition)
+                }
             }
         }
         player.addListener(listener)
@@ -145,7 +257,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         com.lekathedon.visionlite.link.LinkState.setPlayer(player, title, s.title.substringAfter(" · ", ""),
             s.id.substringBefore(':').takeIf { it.startsWith("tt") }?.let { com.lekathedon.visionlite.library.backdropOf(it) },
             s.type, s.id)
-        onDispose { com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release() }
+        onDispose {
+            session.resumeAt = player.currentPosition
+            com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release()
+        }
     }
     DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
     // The phone's Next episode press (only for an episode).
@@ -155,21 +270,24 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     }
     TraktSync(player, s)
     var view by remember { mutableStateOf<PlayerView?>(null) }
-    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize().background(Color.Black),
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    keepScreenOn = true
-                    useController = false
-                    isFocusable = false
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                    subtitleView?.let { styleSubtitles(it) }
-                    view = this
-                }
-            },
-            update = { it.player = player }
-        )
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.runtime.key(gen, current) {
+            if (current == Engine.MPV && mpvView != null) AndroidView(modifier = Modifier.fillMaxSize().background(Color.Black), factory = { mpvView.apply { keepScreenOn = true } })
+            else AndroidView(
+                modifier = Modifier.fillMaxSize().background(Color.Black),
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        keepScreenOn = true
+                        useController = false
+                        isFocusable = false
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                        subtitleView?.let { styleSubtitles(it) }
+                        view = this
+                    }
+                },
+                update = { it.player = player }
+            )
+        }
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
         val skipMode = prefs.skipIntro.value
         val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {
@@ -178,7 +296,20 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         Controls(player, s.title, canNext = s.type == "series",
             onNext = { scope.launch { nextEpisode(nav, s) } },
             onSources = { nav.pop() },
-            onAspect = { mode -> view?.resizeMode = mode },
+            onAspect = { mode ->
+                if (current == Engine.MPV) mpvView?.aspect(when (mode) {
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "zoom"
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> "stretch"
+                    else -> "fit"
+                }) else view?.resizeMode = mode
+            },
+            stats = {
+                StatsSource(player, current, (if (session.smartAuto || session.reason != null) session.reason?.let { if (session.smartAuto) "Auto: $it" else it } else null),
+                    exoStats.takeIf { current == Engine.EXO }, mpvView, s.addon, s.url,
+                    s.name.lineSequence().firstOrNull { it.isNotBlank() } ?: s.url.substringBefore('?').substringAfterLast('/').takeIf { it.contains('.') })
+            },
+            engine = current,
+            onEngine = { switchTo(if (current == Engine.EXO) Engine.MPV else Engine.EXO, "manual", player.currentPosition) },
             segments = segments, skipMode = skipMode, nextPopup = prefs.nextPopup.value, autoNext = prefs.nextEpisode.value,
             onZap = if (s.type != "live") null else { d ->
                 com.lekathedon.visionlite.iptv.Iptv.zap(s.url, d)?.let { c ->
@@ -187,13 +318,17 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 }
             })
         if (s.type == "live") ChannelBanner(s)
-        failNote?.let {
+        (switchNote ?: failNote)?.let {
             androidx.compose.material3.Text(it, color = Color.White, fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
                 modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 40.dp)
                     .background(Color(0xCC121316), androidx.compose.foundation.shape.RoundedCornerShape(50)).padding(horizontal = 18.dp, vertical = 8.dp))
         }
     }
 }
+
+private fun selectedVideo(tracks: Tracks): androidx.media3.common.Format? =
+    tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
+        ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
 
 /** The file plus the add-on subtitles found for this title (side-loaded; picked by the language settings). */
 private fun withSubs(s: Screen.Player): MediaItem {
@@ -229,7 +364,7 @@ private fun iso3(code: String?): String? = code?.takeIf { it.isNotBlank() && it 
 
 /** "Foreign audio only": once per file, no subtitles when the chosen audio is already in a subtitle language. */
 @OptIn(UnstableApi::class)
-private fun foreignOnly(player: ExoPlayer, tracks: Tracks) {
+private fun foreignOnly(player: MediaPlayer, tracks: Tracks) {
     val p = App.instance.prefs
     if (p.subsWhen.value != "foreign") return
     val mine = langs(p.subLang.value, p.subLang2.value).mapNotNull { iso3(it) }.toSet()
@@ -290,7 +425,7 @@ private fun restoreMode(context: Context) {
  */
 @OptIn(UnstableApi::class)
 @Composable
-private fun TraktSync(player: ExoPlayer, s: Screen.Player) {
+private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
     val trakt = App.instance.trakt
     if (s.id.isBlank() || !s.id.startsWith("tt")) return
     val parts = s.id.split(':')

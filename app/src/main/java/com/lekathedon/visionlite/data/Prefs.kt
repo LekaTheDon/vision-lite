@@ -54,6 +54,10 @@ class Prefs(context: Context) {
     val deviceAsked = Flag("device_asked", false)
 
     // Playback
+    /** Player engine: "auto" (Vision's Smart Auto), "exo" (ExoPlayer) or "mpv". */
+    val engine = Text("player_engine", "auto")
+    /** When one engine can't play a file, the other one takes over at the same spot (Vision's engine failover). */
+    val engineBackup = Flag("engine_backup", true)
     val nextEpisode = Flag("next_episode", false)
     /** Skip intro / recap / outro / credits: "button" (OK skips), "auto", "off" (nothing asked). */
     val skipIntro = Text("skip_intro", "button")

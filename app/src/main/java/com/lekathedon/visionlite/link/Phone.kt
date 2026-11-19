@@ -132,6 +132,8 @@ internal class Phone(private val secret: () -> String) {
             o.put("mal", JSONObject().put("access", it).put("user", SignIns.user("mal"))
                 .put("expiresAt", sp.getString("si_mal_until", "")?.toLongOrNull() ?: 0))
         }
+        // The Trakt app's Client ID is built into Lite; the phone needs the same one to use the borrowed token.
+        com.lekathedon.visionlite.BuildConfig.TRAKT_ID.takeIf { it.isNotBlank() }?.let { o.put("traktClientId", it) }
         App.instance.trakt.connected.value?.let { t ->
             o.put("trakt", JSONObject().put("access", t.access).put("expiresAt", (t.createdAt + t.expiresIn) * 1000))
         }

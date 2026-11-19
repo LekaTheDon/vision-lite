@@ -56,8 +56,6 @@ import androidx.media3.common.Format
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.lekathedon.visionlite.ui.Focusable
 import kotlinx.coroutines.Dispatchers
@@ -83,8 +81,12 @@ private val Speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 @OptIn(UnstableApi::class)
 @Composable
 internal fun Controls(
-    player: ExoPlayer, title: String, canNext: Boolean,
+    player: Player, title: String, canNext: Boolean,
     onNext: () -> Unit, onSources: () -> Unit, onAspect: (Int) -> Unit,
+    /** The Stats panel's source (the engine in use and its counters). */
+    stats: () -> StatsSource,
+    /** "ExoPlayer" / "MPV": the Engine button switches to the other one at the same position. */
+    engine: Engine, onEngine: () -> Unit,
     segments: List<Segment> = emptyList(), skipMode: String = "button", nextPopup: Boolean = true, autoNext: Boolean = false,
     /** Live TV: Up / Down (and CH+ / CH−) switch channel while the buttons are hidden. */
     onZap: ((Int) -> Unit)? = null,
@@ -103,7 +105,6 @@ internal fun Controls(
     var seekTo by remember { mutableStateOf<Long?>(null) }
     var seekRepeats by remember { mutableIntStateOf(0) }
     var note by remember { mutableStateOf("") }
-    var dropped by remember { mutableLongStateOf(0L) }
     val vs10 = remember { Vs10Engine.installed(context) }
     val root = remember { FocusRequester() }
     val bar = remember { FocusRequester() }
@@ -113,11 +114,8 @@ internal fun Controls(
         val l = object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { playing = playWhenReady }
         }
-        val a = object : AnalyticsListener {
-            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) { dropped += droppedFrames }
-        }
-        player.addListener(l); player.addAnalyticsListener(a)
-        onDispose { player.removeListener(l); player.removeAnalyticsListener(a) }
+        player.addListener(l)
+        onDispose { player.removeListener(l) }
     }
     LaunchedEffect(player) {
         while (true) {
@@ -254,6 +252,7 @@ internal fun Controls(
                     note = "VS10…"
                     scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
                 }
+                IconPill(Icons.Engine, "Engine: ${engine.label}") { onEngine() }
                 IconPill(Icons.Info, "Stats · HDR · FEL") { panel = if (panel == Panel.STATS) null else Panel.STATS }
                 IconPill(Icons.Sources, "Sources") { onSources() }
             }
@@ -263,7 +262,7 @@ internal fun Controls(
             Panel.AUDIO -> TrackPanel("Audio", player, C.TRACK_TYPE_AUDIO, allowOff = false) { panel = null }
             Panel.SUBS -> TrackPanel("Subtitles", player, C.TRACK_TYPE_TEXT, allowOff = true) { panel = null }
             Panel.SPEED -> SidePanel("Speed", Speeds.map { fmtSpeed(it) }, Speeds.indexOf(speed)) { i -> speed = Speeds[i]; player.setPlaybackSpeed(speed); panel = null }
-            Panel.STATS -> Stats(player, dropped, buffered - pos, Modifier.align(Alignment.TopEnd))
+            Panel.STATS -> StatsPanel(remember(engine) { stats() }, Modifier.align(Alignment.TopEnd))
             null -> {}
         }
     }
@@ -322,7 +321,7 @@ private fun SidePanel(title: String, items: List<String>, selected: Int, onPick:
 
 /** The file's tracks of [type]; picking one pins it, "Off" turns subtitles off. */
 @Composable
-private fun TrackPanel(title: String, player: ExoPlayer, type: Int, allowOff: Boolean, close: () -> Unit) {
+private fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, close: () -> Unit) {
     val groups = player.currentTracks.groups.filter { it.type == type }
     val options = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
     val off = allowOff && player.trackSelectionParameters.disabledTrackTypes.contains(type)
@@ -376,31 +375,6 @@ private fun codecName(mime: String?): String? = when (mime) {
     "video/dolby-vision" -> "Dolby Vision"
     "video/x-vnd.on2.vp9" -> "VP9"
     else -> null
-}
-
-@OptIn(UnstableApi::class)
-@Composable
-private fun Stats(player: ExoPlayer, dropped: Long, aheadMs: Long, modifier: Modifier) {
-    val v = player.videoFormat
-    val a = player.audioFormat
-    val hdr = when (v?.colorInfo?.colorTransfer) {
-        C.COLOR_TRANSFER_ST2084 -> if (v.sampleMimeType == "video/dolby-vision" || v.codecs?.startsWith("dv") == true) "Dolby Vision" else "HDR10"
-        C.COLOR_TRANSFER_HLG -> "HLG"
-        else -> if (v?.sampleMimeType == "video/dolby-vision") "Dolby Vision" else "SDR"
-    }
-    val lines = listOfNotNull(
-        v?.let { "Video  ${it.width}×${it.height} · ${codecName(it.sampleMimeType) ?: it.sampleMimeType}" + (bitDepth(it)?.let { d -> " · $d-bit" } ?: "") + " · $hdr" + (if (it.frameRate > 0) " · ${"%.3f".format(it.frameRate)} fps" else "") },
-        v?.bitrate?.takeIf { it > 0 }?.let { "Video bitrate  ${"%.1f".format(it / 1e6)} Mb/s" },
-        a?.let { "Audio  ${trackLabel(it, C.TRACK_TYPE_AUDIO)}" + (if (it.sampleRate > 0) " · ${it.sampleRate / 1000} kHz" else "") },
-        "Frames shown  ${player.videoDecoderCounters?.renderedOutputBufferCount ?: 0}",
-        "Dropped frames  $dropped",
-        "Buffer ahead  ${(aheadMs.coerceAtLeast(0) / 1000)} s",
-    ) + Hud.rows(v, Hud.decoder)
-    Column(modifier.padding(top = 96.dp, end = 48.dp).background(Color(0xD9101114), RoundedCornerShape(10.dp)).padding(18.dp)) {
-        Text("Stats", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        lines.forEach { Text(it, color = Color(0xFFDADADA), fontSize = 14.sp) }
-    }
 }
 
 private fun bitDepth(f: androidx.media3.common.Format): Int? = f.colorInfo?.lumaBitdepth?.takeIf { it > 0 } ?: f.codecs?.lowercase()?.let { c ->
