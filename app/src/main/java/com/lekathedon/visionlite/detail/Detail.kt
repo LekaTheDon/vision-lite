@@ -183,8 +183,9 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         Button(playLabel, {
                             if (!isSeries) nav.push(Screen.Streams(s.type, s.id, name, s.id))
                             else {
-                                val e = next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
-                                    ?: eps.firstOrNull { it.season == seasons.firstOrNull() }
+                                val e = (next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
+                                    ?: eps.firstOrNull { it.season == seasons.firstOrNull() })
+                                    ?.takeIf { it.airedMs == null || it.airedMs <= System.currentTimeMillis() }
                                 e?.let { nav.push(Screen.Streams("series", it.videoId, "$name S${it.season}E${it.episode}", s.id)) }
                             }
                         }, heroMod.focusRequester(play))
@@ -385,7 +386,8 @@ private fun Header(t: String, by: String? = null) {
 @Composable
 private fun EpisodeCard(e: Ep, showRating: Boolean, watched: Boolean, isNext: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
     val aired = e.airedMs == null || e.airedMs <= System.currentTimeMillis()
-    Focusable(onClick, Modifier.size(260.dp, 146.dp), RoundedCornerShape(10.dp), onFocus) { f ->
+    // Not out yet: nothing to play, so pressing it does nothing (user 2026-11-19).
+    Focusable({ if (aired) onClick() }, Modifier.size(260.dp, 146.dp), RoundedCornerShape(10.dp), onFocus) { f ->
         Box(Modifier.fillMaxSize().background(Palette.Card)) {
             Img(e.image, 260.dp, 146.dp, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color(0xE6000000))))

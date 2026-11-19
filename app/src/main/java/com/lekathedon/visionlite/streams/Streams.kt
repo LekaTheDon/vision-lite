@@ -103,19 +103,24 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     var getting by remember(s.id) { mutableStateOf("") }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Autoplay on: no list while it looks (user 2026-11-19); the list shows only if you ask or it finds nothing safe.
-    var auto by remember(s.id) { mutableStateOf(app.prefs.autoplay.value) }
+    var auto by remember(s.id) { mutableStateOf(app.prefs.autoplay.value && !s.manual) }
+    var notOut by remember(s.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(s.id) {
         // An episode that hasn't aired: nothing plays and Vision TB doesn't search (user 2026-11-19); the add-ons'
         // links still list, for you to look at.
         val target = EpisodeCheck.targetOf(s.id)
         if (s.type == "series" && target != null) EpisodeFacts.ensure(s.type, s.id)
+        if (s.type == "movie" && s.id.startsWith("tt") && auto) launch { MovieFacts.ensure(s.id) }
         val airs = EpisodeFacts.notOutYet(target)
         if (airs != null) {
+            // Not out: no add-on or Vision TB is asked and there is nothing to press (user 2026-11-19).
             auto = false
-            getting = "Not out yet: airs " + java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, HH:mm")
+            notOut = "Airs " + java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM, HH:mm")
                 .format(airs.atZone(java.time.ZoneId.systemDefault()))
+            pending = 0
+            return@LaunchedEffect
         }
-        val tbOn = airs == null && com.lekathedon.visionlite.tb.VisionTb.isOn()
+        val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
         val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + if (tbOn) 1 else 0
         pending = asked
         kotlinx.coroutines.coroutineScope {
@@ -153,12 +158,22 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
     val order = remember(s.id) { listOf(com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }
-    val shown = remember(links.size) { arrange(links.sortedBy { order.indexOf(it.source) }, app.prefs) }
+    val shown = remember(links.size) { arrange(links.filterNot { AutoPick.namesAnotherShow(it, s.id) }.sortedBy { order.indexOf(it.source) }, app.prefs) }
     val hiddenCount = links.size - shown.size
     val first = remember { FocusRequester() }
     val firstPlayable = shown.firstOrNull { it.playable }
     LaunchedEffect(firstPlayable != null) { if (firstPlayable != null) runCatching { first.requestFocus() } }
 
+    notOut?.let { when_ ->
+        Box(Modifier.fillMaxSize().background(LocalLook.current.page), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text(s.title, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text("Not out yet", color = Palette.Text, fontSize = 18.sp, modifier = Modifier.padding(top = 14.dp))
+                Text(when_, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
+        return
+    }
     if (auto) {
         val pick = remember { FocusRequester() }
         LaunchedEffect(Unit) { runCatching { pick.requestFocus() } }

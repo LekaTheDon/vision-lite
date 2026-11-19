@@ -151,7 +151,29 @@ class Trakt(private val prefs: Prefs) {
             }
         }
         // One card per title (like Vision/Nuvio): a show's newest entry wins, whether a paused episode or its next one.
-        (p + next).sortedByDescending { it.at }.distinctBy { it.imdb }
+        val gone = dropped()
+        (p + next).sortedByDescending { it.at }.distinctBy { it.imdb }.filter { it.imdb !in gone }
+    }
+
+    fun dropped(): Set<String> = prefs.cwDropped.value.split('\n').filter { it.isNotBlank() }.toSet()
+
+    /**
+     * Drop a title from Continue watching (hold menu). Kept on this device; a show is also hidden from Trakt's
+     * progress, so other Trakt apps drop it too. Playing it again brings it back ([undrop]).
+     */
+    suspend fun drop(imdb: String, series: Boolean) {
+        prefs.cwDropped.value = (dropped() + imdb).joinToString("\n")
+        if (series && on()) runCatching { call("POST", "users/hidden/progress_watched", hidden(imdb)) }
+    }
+
+    suspend fun undrop(imdb: String, series: Boolean) {
+        if (imdb !in dropped()) return
+        prefs.cwDropped.value = (dropped() - imdb).joinToString("\n")
+        if (series && on()) runCatching { call("POST", "users/hidden/progress_watched/remove", hidden(imdb)) }
+    }
+
+    private fun hidden(imdb: String) = buildJsonObject {
+        put("shows", kotlinx.serialization.json.buildJsonArray { add(buildJsonObject { putJsonObject("ids") { put("imdb", imdb) } }) })
     }
 
     /** What you watched last (the clock's Activity tab): one request. */
@@ -250,6 +272,7 @@ class Trakt(private val prefs: Prefs) {
 
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {
+        if (action == "start") undrop(imdb, season != null)
         if (!on()) return
         val body = buildJsonObject {
             if (season == null) putJsonObject("movie") { putJsonObject("ids") { put("imdb", imdb) } }

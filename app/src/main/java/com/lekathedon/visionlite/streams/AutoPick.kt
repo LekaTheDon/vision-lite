@@ -227,6 +227,26 @@ object EpisodeFacts {
     }
 }
 
+/** A film's titles and year for autoplay's title check (details add-on + TMDB's); last 40 films, no network here. */
+object MovieFacts {
+    private val films = object : LinkedHashMap<String, Pair<List<String>, Int?>>(40, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Pair<List<String>, Int?>>?) = size > 40
+    }
+
+    fun of(imdb: String): Pair<List<String>, Int?>? {
+        val f = synchronized(films) { films[imdb] } ?: return null
+        return (f.first + com.lekathedon.visionlite.tb.TbMeta.knownTitles(imdb)).distinct() to f.second
+    }
+
+    /** Reads the film's name and year before autoplay decides (from memory when the page was open); 2.5 s at most. */
+    suspend fun ensure(imdb: String) {
+        if (synchronized(films) { films.containsKey(imdb) }) return
+        val m = withTimeoutOrNull(2_500) { runCatching { com.lekathedon.visionlite.App.instance.client.meta("movie", imdb) }.getOrNull() } ?: return
+        val year = m.releaseInfo?.let { Regex("\\d{4}").find(it)?.value?.toIntOrNull() }
+        synchronized(films) { films[imdb] = listOfNotNull(m.name.takeIf { it.isNotBlank() }) to year }
+    }
+}
+
 object AutoPick {
     const val TRUST_VERIFIED = 3
 
@@ -236,22 +256,57 @@ object AutoPick {
     fun verdict(l: Link, t: EpisodeCheck.Target?): EpisodeCheck.Verdict =
         if (t == null) EpisodeCheck.Verdict.UNKNOWN else EpisodeCheck.read(l.fileName, l.labels, t)
 
-    /** 3 = verified (own title, Torrentio filed it under this episode, or numbers on a show where they can be trusted); 2 = numbers; 1 = can't tell; 0 = wrong. */
+    /** Every line a link names itself by: its file name and each line of its labels. */
+    private fun Link.names(): List<String> =
+        (listOf(fileName?.substringAfterLast('/')) + labels.flatMap { it?.lines().orEmpty() }).mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
+
+    /** The link names the show itself: a line starts with one of its titles, then a release marker or number. */
+    private fun namesShow(l: Link, titles: List<String>): Boolean =
+        titles.isNotEmpty() && l.names().any { ReleaseMatcher.titleRemainder(it, titles, animeNumbers = true) != null }
+
+    /**
+     * Strict rule (user 2026-11-19: "playing something else entirely is unacceptable"): autoplay plays only a link
+     * that names this show AND this episode (its numbers or its own title). Can't tell = never played; a missed
+     * best link is acceptable, another title is not. 3 = also verified (own episode title, Torrentio filed it under
+     * this episode, or numbers on a show where they can be trusted); 2 = show + numbers; 0 = not autoplayed.
+     */
     fun trust(l: Link, t: EpisodeCheck.Target?): Int {
         if (t == null) return 0
+        if (!namesShow(l, EpisodeFacts.titlesOf(t))) return 0
         val vouched = l.source.startsWith("Torrentio", true) || EpisodeVouches.has(t.season, t.episode, l.tb?.hash ?: l.stream.infoHash)
         return when (verdict(l, t)) {
-            EpisodeCheck.Verdict.WRONG -> 0
+            EpisodeCheck.Verdict.WRONG, EpisodeCheck.Verdict.UNKNOWN -> 0
             EpisodeCheck.Verdict.CONFIRMED -> TRUST_VERIFIED
             EpisodeCheck.Verdict.NAMED -> if (vouched || EpisodeFacts.numbersAreEnough(t)) TRUST_VERIFIED else 2
-            EpisodeCheck.Verdict.UNKNOWN -> if (vouched) TRUST_VERIFIED else 1
         }
     }
 
+    /** A film: a line of the link must name this film by its title and year (Vision TB's own matcher). */
+    private fun namesMovie(l: Link, imdb: String): Boolean {
+        val (titles, year) = MovieFacts.of(imdb) ?: return false
+        if (titles.isEmpty()) return false
+        val target = com.lekathedon.visionlite.tb.DiscoveryTarget(imdb, false, titles, year)
+        return l.names().any { ReleaseMatcher.match(it, target, true, false).accepted }
+    }
+
+    /** The link names another show (the list hides these too: pressing one would play something else). */
+    fun namesAnotherShow(l: Link, videoId: String): Boolean {
+        val t = EpisodeCheck.targetOf(videoId) ?: return false
+        return EpisodeCheck.namesOtherShow(l.fileName, l.labels, t)
+    }
+
     /** Wrong rows out, then only the surest rows there are; empty = open the list. */
-    fun pool(links: List<Link>, t: EpisodeCheck.Target?): List<Link> {
+    fun pool(links: List<Link>, t: EpisodeCheck.Target?, videoId: String = ""): List<Link> {
         val playable = links.filter { it.playable }
-        if (t == null) return playable
+        if (t == null) {
+            val id = videoId.trim()
+            return when {
+                // Films by IMDb id: title + year named.
+                Regex("^tt\\d+$").matches(id) -> playable.filter { namesMovie(it, id) }
+                // Anime and other ids: only Vision TB rows, which its matcher took by the show's titles and numbers.
+                else -> playable.filter { it.tb != null }
+            }
+        }
         val trusts = playable.map { trust(it, t) }
         val top = trusts.maxOrNull() ?: return emptyList()
         if (top <= 0) return emptyList()
@@ -272,7 +327,7 @@ object AutoPick {
     ).map { it.first }
 
     /** The order autoplay tries links in (the manual list keeps every row). */
-    fun order(links: List<Link>, videoId: String): List<Link> = rank(pool(links, EpisodeCheck.targetOf(videoId)))
+    fun order(links: List<Link>, videoId: String): List<Link> = rank(pool(links, EpisodeCheck.targetOf(videoId), videoId))
 
     private val checkClient by lazy { Net.http.newBuilder().callTimeout(3_000, TimeUnit.MILLISECONDS).build() }
 

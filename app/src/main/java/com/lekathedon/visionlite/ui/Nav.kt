@@ -7,7 +7,7 @@ import androidx.compose.runtime.mutableStateListOf
 sealed interface Screen {
     data object Home : Screen
     data class Detail(val type: String, val id: String, val name: String) : Screen
-    data class Streams(val type: String, val id: String, val title: String, val metaId: String) : Screen
+    data class Streams(val type: String, val id: String, val title: String, val metaId: String, val manual: Boolean = false) : Screen
     /** [type]/[id] = what is playing ("tt…" or "tt…:s:e"), for Trakt scrobbling and resume. */
     /** [name]: the link's own text (release name, size, …) for the engine pick and Stats; [addon]: where it came from. */
     data class Player(val url: String, val title: String, val headers: Map<String, String> = emptyMap(), val type: String = "", val id: String = "",

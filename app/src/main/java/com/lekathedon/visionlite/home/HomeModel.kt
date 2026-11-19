@@ -46,6 +46,12 @@ class HomeModel : ViewModel() {
     private var cwAt = 0L
     private var cwJob: Job? = null
 
+    /** Hold menu's Drop: gone from the row at once; Trakt is told in the background. */
+    fun dropContinue(r: com.lekathedon.visionlite.trakt.Resume) {
+        cwState.value = cwState.value.filter { it.imdb != r.imdb }
+        viewModelScope.launch { runCatching { app.trakt.drop(r.imdb, r.type == "series") } }
+    }
+
     /** Asked when Home shows; at most every 30 s (coming back from the player always refreshes via [force]). */
     fun refreshContinue(force: Boolean = false) {
         val now = System.currentTimeMillis()

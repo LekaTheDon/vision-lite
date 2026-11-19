@@ -204,6 +204,7 @@ fun EchoHome(nav: Nav) {
     }
     val recsBuilding by Recs.building.collectAsStateWithLifecycle()
     var hold by remember { mutableStateOf<Pair<Row, MetaPreview>?>(null) }
+    var cwHold by remember { mutableStateOf<com.lekathedon.visionlite.trakt.Resume?>(null) }
     val scope = rememberCoroutineScope()
     fun open(m: MetaPreview) {
         when (m.type) {
@@ -299,7 +300,8 @@ fun EchoHome(nav: Nav) {
                             ContinueWatchingCard(
                                 e.m, r.season?.let { "S$it E${r.episode}" }, r.progress / 100f, dims, Modifier,
                                 onFocus = { focused = e; heroFocused = false },
-                                onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) }
+                                onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) },
+                                onHold = { cwHold = r }
                             )
                         } }
                     }
@@ -355,6 +357,7 @@ fun EchoHome(nav: Nav) {
         )
         if (clockPanel) com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } }
         hold?.let { (row, m) -> HoldMenu(row, m, scope) { hold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
+        cwHold?.let { r -> CwMenu(r, nav, onDrop = { vm.dropContinue(r) }) { cwHold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
@@ -892,10 +895,11 @@ fun EchoRowTitle(title: String) {
 /** Continue Watching: wide, title and episode bottom-left, progress along the bottom edge. */
 @Composable
 private fun ContinueWatchingCard(
-    m: MetaPreview, episode: String?, progress: Float, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit
+    m: MetaPreview, episode: String?, progress: Float, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit,
+    onHold: (() -> Unit)? = null
 ) {
     val hasProgress = progress > 0f
-    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, modifier, onFocus, onClick) {
+    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, modifier, onFocus, onClick, onHold = onHold) {
         Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().bottomShade())
         val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))

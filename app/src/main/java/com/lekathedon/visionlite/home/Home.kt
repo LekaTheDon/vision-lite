@@ -84,6 +84,7 @@ fun Home(nav: Nav) {
     val hiddenText by prefs.rowsHidden.flow.collectAsStateWithLifecycle()
     val exitConfirm by prefs.exitConfirm.flow.collectAsStateWithLifecycle()
     var askExit by remember { mutableStateOf(false) }
+    var cwHold by remember { mutableStateOf<com.lekathedon.visionlite.trakt.Resume?>(null) }
     val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
     androidx.activity.compose.BackHandler(enabled = exitConfirm && !askExit) { askExit = true }
     var focused by remember { mutableStateOf<MetaPreview?>(null) }
@@ -116,7 +117,7 @@ fun Home(nav: Nav) {
                                         val m = remember(r) { MetaPreview(r.imdb, r.type, r.label, com.lekathedon.visionlite.library.posterOf(r.imdb), com.lekathedon.visionlite.library.backdropOf(r.imdb)) }
                                         Box {
                                             Poster(m, if (i == 0) Modifier.focusRequester(firstFocus) else Modifier, onFocus = { focused = m },
-                                                onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) })
+                                                onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) }, onHold = { cwHold = r })
                                             if (r.progress > 0f) Box(Modifier.align(Alignment.BottomStart).padding(6.dp).width(PosterW - 12.dp).height(4.dp).background(Color(0x66FFFFFF))) {
                                                 Box(Modifier.fillMaxHeight().width((PosterW - 12.dp) * (r.progress / 100f)).background(Palette.Accent))
                                             }
@@ -157,16 +158,17 @@ fun Home(nav: Nav) {
                 }
             }
         }
+        cwHold?.let { r -> CwMenu(r, nav, onDrop = { vm.dropContinue(r) }) { cwHold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     } }
 }
 
 @Composable
-private fun Poster(m: MetaPreview, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun Poster(m: MetaPreview, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit, onHold: (() -> Unit)? = null) {
     val me = remember { FocusRequester() }
     val pl = LocalPoster.current
     val PosterW = pl.w; val PosterH = pl.h; val Ratings = pl.ratings
-    Focusable(onClick, modifier.focusRequester(me).size(PosterW, PosterH), onFocus = { LastFocus = me; onFocus() }) {
+    Focusable(onClick, (if (onHold != null) modifier.onHoldOk(onHold) else modifier).focusRequester(me).size(PosterW, PosterH), onFocus = { LastFocus = me; onFocus() }) {
         Box(Modifier.fillMaxSize().background(Palette.Card)) {
             if (m.poster.isNullOrBlank()) {
                 Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))

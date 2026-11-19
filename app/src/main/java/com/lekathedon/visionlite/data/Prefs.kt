@@ -46,6 +46,8 @@ class Prefs(context: Context) {
     val oledBlack = Flag("oled_black", false)
     /** Play picks the best link by itself (off until autoplay is safe). */
     val autoplay = Flag("autoplay", false)
+    /** IMDb ids dropped from Continue watching (hold menu), one per line; playing the title again brings it back. */
+    val cwDropped = Text("cw_dropped", "")
     /** Dolby Vision 7: "fel" = native FEL port (AM9 FEL kernel), "box" = the box's normal decoder. */
     val dv7 = Text("dv7", "box")
     /** Frame-rate matching: "off", "seamless" (only switches the TV can do without a blink), "always". */
