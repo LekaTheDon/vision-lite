@@ -42,6 +42,8 @@ object VisionRows {
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
     fun isPicks(key: String) = key == PICKS || key == IMDB || key == AI
+    /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
+    val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}")
 }
 
 // ------------------------------------------------------------------ TMDB (only with your key)

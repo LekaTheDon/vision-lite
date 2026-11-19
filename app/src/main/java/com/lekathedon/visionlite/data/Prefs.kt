@@ -74,8 +74,10 @@ class Prefs(context: Context) {
     /** Seconds to step back when playing again after a pause ("0" = off). */
     val rewindOnResume = Text("rewind_on_resume", "0")
     // Audio & subtitles ("" = no preference; ISO 639 codes)
-    val audioLang = Text("audio_lang", "")
+    val audioLang = Text("audio_lang", "original")
     val audioLang2 = Text("audio_lang2", "")
+    /** Once (2026-11-19, user): audio "Any" becomes "Original language", so dubs never start by themselves. */
+    init { if (!sp.getBoolean("audio_orig_v1", false)) { if (audioLang.value.isEmpty()) audioLang.value = "original"; sp.edit().putBoolean("audio_orig_v1", true).apply() } }
     val subLang = Text("sub_lang", "")
     val subLang2 = Text("sub_lang2", "")
     /** "off", "foreign" (only when the audio isn't in a subtitle language), "always". */

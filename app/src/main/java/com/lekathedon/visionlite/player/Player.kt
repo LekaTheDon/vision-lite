@@ -142,7 +142,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val mpvView = remember(s.url, gen) {
         if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
             init(session.mpvSoftware, spdifCodecs(context))
-            languages(langs(prefs.audioLang.value, prefs.audioLang2.value).toList(), langs(prefs.subLang.value, prefs.subLang2.value).toList(), prefs.subsWhen.value == "off")
+            languages(OriginalLang.withIso3(OriginalLang.audioLangs(prefs.audioLang.value, prefs.audioLang2.value, s.id)), langs(prefs.subLang.value, prefs.subLang2.value).toList(), prefs.subsWhen.value == "off")
             subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value)
         }
     }
@@ -192,7 +192,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
                         override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, initMs: Long, durMs: Long) { Hud.decoder = name }
                     })
-                    trackSelectionParameters = trackPrefs(trackSelectionParameters)
+                    trackSelectionParameters = trackPrefs(trackSelectionParameters, s.id)
                     // A file with no frame rate in its header: measured from the first frames' timestamps.
                     if (afr) {
                         val stamps = ArrayList<Long>(48)
@@ -211,6 +211,18 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     prepare()
                     playWhenReady = true
                 }
+        }
+    }
+    // Audio "Original": normally known already (looked up when the links page opened); if not, looked up now and the
+    // audio moves to it once (only if you haven't picked a track yourself meanwhile).
+    androidx.compose.runtime.LaunchedEffect(player) {
+        if (OriginalLang.ORIGINAL !in listOf(prefs.audioLang.value, prefs.audioLang2.value) || OriginalLang.cached(s.id.substringBefore(':')) != null) return@LaunchedEffect
+        OriginalLang.resolve(s.id, s.type) ?: return@LaunchedEffect
+        val want = OriginalLang.audioLangs(prefs.audioLang.value, prefs.audioLang2.value, s.id)
+        (player as? ExoPlayer)?.let { it.trackSelectionParameters = trackPrefs(it.trackSelectionParameters, s.id) }
+        mpvView?.let { v ->
+            val forms = OriginalLang.withIso3(want)
+            v.tracks().filter { it.type == "audio" }.firstOrNull { t -> t.lang?.lowercase()?.let { it in forms } == true }?.let { if (!it.selected) v.selectAudio(it.id) }
         }
     }
     androidx.compose.runtime.LaunchedEffect(switchNote) { if (switchNote != null) { kotlinx.coroutines.delay(2_200); switchNote = null } }
@@ -263,6 +275,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
                 if (!(afr || resMatch) || current != Engine.EXO) return
                 val v = selectedVideo(tracks) ?: return
+                // No frame rate in the header: the frame timestamps measure it, then one switch does rate and resolution
+                // together (a resolution-only switch first meant two TV blanks, the second a QMS one).
+                if (afr && v.frameRate <= 0) return
                 if (v.frameRate > 0 || (resMatch && v.width > 0)) DisplayMatch.apply(context, v.frameRate, v.width, v.height, afr, resMatch)
             }
             /** ExoPlayer read the file: Smart Auto and the no-picture rule may move it to MPV before it plays. */
@@ -398,10 +413,10 @@ private fun langs(vararg codes: String) = codes.filter { it.isNotEmpty() }.disti
 
 /** Audio and subtitle languages from Settings; subtitles "Off" disables the text track. */
 @OptIn(UnstableApi::class)
-private fun trackPrefs(base: androidx.media3.common.TrackSelectionParameters): androidx.media3.common.TrackSelectionParameters {
+private fun trackPrefs(base: androidx.media3.common.TrackSelectionParameters, id: String): androidx.media3.common.TrackSelectionParameters {
     val p = App.instance.prefs
     return base.buildUpon()
-        .setPreferredAudioLanguages(*langs(p.audioLang.value, p.audioLang2.value))
+        .setPreferredAudioLanguages(*OriginalLang.audioLangs(p.audioLang.value, p.audioLang2.value, id).toTypedArray())
         .setPreferredTextLanguages(*langs(p.subLang.value, p.subLang2.value))
         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, p.subsWhen.value == "off")
         .build()

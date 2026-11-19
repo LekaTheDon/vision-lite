@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-enum class RowKind { POSTER, COMING, SERVICES, PEOPLE }
+enum class RowKind { POSTER, COMING, SERVICES, PEOPLE, /** Top 20 Today: Vision Echo's wide cards with the big 1-20 behind them. */ RANKED }
 
 /** A Home row: Vision's own (addon == null) or an add-on catalog. */
 data class Row(
@@ -91,7 +91,8 @@ class HomeModel : ViewModel() {
         val order = app.prefs.rowOrder.value.split('\n').filter { it.isNotEmpty() }.withIndex().associate { it.value to it.index }
         val vision = VisionRows.all.map { (key, title) ->
             old[key] ?: Row(key, title, null, null, emptyList(), done = false, kind = when (key) {
-                VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES; VisionRows.PEOPLE -> RowKind.PEOPLE; else -> RowKind.POSTER
+                VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES; VisionRows.PEOPLE -> RowKind.PEOPLE
+                in VisionRows.ranked -> RowKind.RANKED; else -> RowKind.POSTER
             })
         }
         // Lists added from the phone: after Vision's rows, before the add-ons.

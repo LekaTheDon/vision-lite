@@ -106,6 +106,9 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     var auto by remember(s.id) { mutableStateOf(app.prefs.autoplay.value && !s.manual) }
     var notOut by remember(s.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(s.id) {
+        // Audio "Original": the title's language is fetched while you pick a link (one TMDB call per title, ever).
+        if (com.lekathedon.visionlite.player.OriginalLang.ORIGINAL in listOf(app.prefs.audioLang.value, app.prefs.audioLang2.value))
+            launch { com.lekathedon.visionlite.player.OriginalLang.resolve(s.metaId.ifBlank { s.id }, s.type) }
         // An episode that hasn't aired: nothing plays and Vision TB doesn't search (user 2026-11-19); the add-ons'
         // links still list, for you to look at.
         val target = EpisodeCheck.targetOf(s.id)

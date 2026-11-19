@@ -58,6 +58,8 @@ import kotlinx.coroutines.launch
 private val Langs = listOf("" to "Any", "en" to "English", "ar" to "Arabic", "fr" to "French", "de" to "German", "es" to "Spanish",
     "it" to "Italian", "pt" to "Portuguese", "ru" to "Russian", "tr" to "Turkish", "sr" to "Serbian", "hr" to "Croatian",
     "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese")
+/** Audio adds Vision's "Original language" (the title's own, from TMDB). */
+private val AudioLangs = listOf(Langs[0], com.lekathedon.visionlite.player.OriginalLang.ORIGINAL to "Original language") + Langs.drop(1)
 
 /** One group of settings: its name on the left list, its rows on the right. */
 private class Group(val name: String, val note: String, val rows: List<@Composable (Modifier) -> Unit>)
@@ -100,8 +102,8 @@ fun Settings(nav: Nav) {
                 listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s"), m) },
         )),
         Group("Audio and subtitles", "Languages, size, style", listOf(
-            { m -> Choice("Audio language", "Picked first when the file has it", p.audioLang, Langs, m) },
-            { m -> Choice("Second audio language", "If the first isn't there", p.audioLang2, Langs, m) },
+            { m -> Choice("Audio language", "Original = the title's own language (TMDB), never the dub", p.audioLang, AudioLangs, m) },
+            { m -> Choice("Second audio language", "If the first isn't there", p.audioLang2, AudioLangs, m) },
             { m -> Choice("Subtitle language", "", p.subLang, Langs, m) },
             { m -> Choice("Second subtitle language", "", p.subLang2, Langs, m) },
             { m -> Choice("Show subtitles", "Foreign only = none when the audio is already your language", p.subsWhen,

@@ -94,8 +94,24 @@ object DisplayMatch {
         Log.i(TAG, "video ${width}x$height ${fps}fps: ${active.w}x${active.h}@${active.hz} -> ${pick.w}x${pick.h}@${pick.hz}")
         if (pick.id == active.id) return
         if (originalModeId == null) originalModeId = active.id
-        window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id }
+        val set = { window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id } }
+        // A TV with QMS: Amlogic switches 50 / 59.94 / 60 "seamlessly" (HWC: seamless:1 enableVrr:1), the HDMI timing stays
+        // 60 Hz and the TV keeps showing 60 (seen 2026-11-19 on the AM9 + TCL). With root, QMS goes off first (once per
+        // run), so every switch is a real HDMI mode change. Without root nothing changes.
+        val grouped = android.os.Build.VERSION.SDK_INT >= 31 && (cur.alternativeRefreshRates.isNotEmpty() ||
+            display.supportedModes.firstOrNull { it.modeId == pick.id }?.alternativeRefreshRates?.isNotEmpty() == true)
+        if (grouped && !qmsTried && java.io.File(MESON_CLIENT).exists()) {
+            qmsTried = true
+            Thread {
+                val out = com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -v true", 4)
+                Log.i(TAG, "QMS off: ${if (out != null) "done" else "no root"}")
+                activity.runOnUiThread { set() }
+            }.start()
+        } else set()
     }
+
+    private const val MESON_CLIENT = "/vendor/bin/meson_display_client"
+    @Volatile private var qmsTried = false
 
     /** Back to the mode the TV had before the film. */
     fun restore(context: Context) {

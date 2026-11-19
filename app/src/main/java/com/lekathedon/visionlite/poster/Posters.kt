@@ -20,7 +20,9 @@ object Posters {
     private fun custom(on: Boolean, id: String, type: String, shape: String): String? {
         if (!on || id.isBlank()) return null
         val t = when (type) { "movie" -> "movie"; "series", "tv", "show" -> "series"; else -> return null }
-        return CustomPosterUrlResolver.resolve(PATTERN, CustomPosterUrlResolver.extractIds(id), t, shape)
+        // Lite's TMDB cards carry "tmdb:movie:123" / "tmdb:tv:123"; the poster server only takes the number (else 400 = blank card).
+        val clean = Regex("^tmdb:(?:movie|tv|series):(\\d+)$").find(id)?.let { "tmdb:" + it.groupValues[1] } ?: id
+        return CustomPosterUrlResolver.resolve(PATTERN, CustomPosterUrlResolver.extractIds(clean), t, shape)
     }
 
     /** Tall poster. */

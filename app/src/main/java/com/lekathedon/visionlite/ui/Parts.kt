@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -40,15 +41,20 @@ fun snapSpec(leadPx: Float): BringIntoViewSpec = object : BringIntoViewSpec {
 
 /** An image decoded at the size it is drawn ([w] x [h]), never bigger. */
 @Composable
-fun Img(url: String?, w: Dp, h: Dp, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Crop, blur: Boolean = false) {
-    if (url.isNullOrBlank()) return
+fun Img(url: String?, w: Dp, h: Dp, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Crop, blur: Boolean = false,
+    /** Shown instead when [url] fails (custom poster server down or the title unknown to it). */
+    fallback: String? = null) {
+    var failed by androidx.compose.runtime.saveable.rememberSaveable(url) { androidx.compose.runtime.mutableStateOf(false) }
+    val src = if (failed && !fallback.isNullOrBlank()) fallback else url
+    if (src.isNullOrBlank()) return
     val context = LocalContext.current
     val d = LocalDensity.current
-    val req = remember(url, w, h, blur) {
-        with(d) { ImageRequest.Builder(context).data(url).size(w.roundToPx(), h.roundToPx())
+    val req = remember(src, w, h, blur) {
+        with(d) { ImageRequest.Builder(context).data(src).size(w.roundToPx(), h.roundToPx())
             .apply { if (blur) transformations(BlurTransformation()) }.build() }
     }
-    AsyncImage(model = req, contentDescription = null, contentScale = scale, modifier = modifier)
+    AsyncImage(model = req, contentDescription = null, contentScale = scale, modifier = modifier,
+        onError = { if (src == url && !fallback.isNullOrBlank() && fallback != url) failed = true })
 }
 
 /** Spoiler text: blurred (Android 12+), hidden on older boxes where Compose can't blur. */

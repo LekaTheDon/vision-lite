@@ -174,7 +174,7 @@ private fun Poster(m: MetaPreview, modifier: Modifier, onFocus: () -> Unit, onCl
             if (art.isNullOrBlank()) {
                 Text(m.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
             } else {
-                Img(art, PosterW, PosterH, Modifier.fillMaxSize())
+                Img(art, PosterW, PosterH, Modifier.fillMaxSize(), fallback = m.poster)
             }
             if (Ratings && !m.imdbRating.isNullOrBlank()) Text("★ ${m.imdbRating}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.TopEnd).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp))

@@ -454,7 +454,7 @@ private fun PosterRow(items: List<Imdb.Ref>, firstFocus: FocusRequester? = null,
                 Column {
                     Box(Modifier.size(120.dp, 180.dp).clip(RoundedCornerShape(8.dp)).background(Palette.Card)) {
                         val art = com.lekathedon.visionlite.poster.Posters.poster(r.imdb, r.type, r.poster)
-                        if (art != null) Img(art, 120.dp, 180.dp, Modifier.fillMaxSize())
+                        if (art != null) Img(art, 120.dp, 180.dp, Modifier.fillMaxSize(), fallback = r.poster)
                         else Text(r.title, color = Palette.Text, fontSize = 13.sp, modifier = Modifier.align(Alignment.Center).padding(8.dp))
                         r.rating?.let {
                             Text("%.1f".format(it), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold,
