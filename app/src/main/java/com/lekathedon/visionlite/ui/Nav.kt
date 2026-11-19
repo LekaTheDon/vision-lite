@@ -11,7 +11,7 @@ sealed interface Screen {
     /** [type]/[id] = what is playing ("tt…" or "tt…:s:e"), for Trakt scrobbling and resume. */
     /** [name]: the link's own text (release name, size, …) for the engine pick and Stats; [addon]: where it came from. */
     data class Player(val url: String, val title: String, val headers: Map<String, String> = emptyMap(), val type: String = "", val id: String = "",
-                      val name: String = "", val addon: String = "") : Screen
+                      val name: String = "", val addon: String = "", val bytes: Long = 0) : Screen
     data object Search : Screen
     data object Library : Screen
     data object LiveTv : Screen

@@ -109,6 +109,8 @@ class StatsSource(
     val addon: String?,
     val url: String,
     val fileName: String?,
+    /** The link's size from the list (add-on's videoSize or the size in its text): used when the engine can't tell. */
+    val linkBytes: Long = 0,
 )
 
 private class Sampler {
@@ -176,15 +178,16 @@ private fun sample(src: StatsSource, sampler: Sampler, context: Context): List<S
     src.addon?.takeIf { it.isNotBlank() }?.let { add(StatsRow("Add-on", it)) }
     src.fileName?.let { add(StatsRow("File", it.replace("\n", " · "), marquee = true)) }
     runCatching { java.net.URI(src.url).host }.getOrNull()?.let { add(StatsRow("Source host", it)) }
+    // Size on both engines: MPV's file size, else the link's size from the list (ExoPlayer never reported one).
+    ((if (src.engine == Engine.MPV) src.mpv?.prop("file-size")?.toLongOrNull() else null)?.takeIf { it > 0 } ?: src.linkBytes.takeIf { it > 0 })?.let { size ->
+        add(StatsRow("Size", bytes(size)))
+        if (dur > 0) add(StatsRow("File bitrate", mbit(size * 8_000.0 / dur)))
+    }
     val display = (context as? Activity)?.let { a -> @Suppress("DEPRECATION") a.windowManager.defaultDisplay.mode }
 
     if (src.engine == Engine.MPV && src.mpv != null) {
         val m = src.mpv
         val prop = m::prop
-        prop("file-size")?.toLongOrNull()?.takeIf { it > 0 }?.let { size ->
-            add(StatsRow("Size", bytes(size)))
-            if (dur > 0) add(StatsRow("File bitrate", mbit(size * 8_000.0 / dur)))
-        }
         val w = prop("video-params/w") ?: prop("current-tracks/video/demux-w")
         val h = prop("video-params/h") ?: prop("current-tracks/video/demux-h")
         val fps = (prop("container-fps") ?: prop("estimated-vf-fps"))?.toDoubleOrNull()?.takeIf { it > 0 }
