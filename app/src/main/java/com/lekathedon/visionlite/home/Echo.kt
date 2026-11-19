@@ -1,6 +1,6 @@
 // Vision's Echo look (Nuvio Echo, github.com/Laking22/Nuvio-Echo, GPL-3.0, as ported to Nuvio Vision), drawn the
 // Lite way: no motion, focus and scroll in one frame, posters open to landscape at once, images at drawn size.
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package com.lekathedon.visionlite.home
 
@@ -51,6 +51,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -126,6 +128,25 @@ private data class EchoDims(
 }
 
 private val Start = 24.dp
+
+/**
+ * Where focus was on Home, kept while another page is open: the row's key and, per row, the card last focused.
+ * Back to Home puts focus on that card again (the row was snapped to it, so it's the row's first visible card).
+ */
+internal object HomeFocus {
+    var row: String? = null
+    val index = HashMap<String, Int>()
+    /** Set when Home leaves the screen with a card focused; the row clears it once it took focus back. */
+    var restore = false
+}
+
+/** A card's place in its row, for [EchoCard] to register its focus requester ([RowSlots]). */
+private class RowSlots(val key: String) { val reqs = HashMap<Int, FocusRequester>() }
+private val LocalRowSlots = androidx.compose.runtime.compositionLocalOf<RowSlots?> { null }
+private val LocalSlotIndex = androidx.compose.runtime.compositionLocalOf { -1 }
+
+@Composable
+private fun Slot(i: Int, content: @Composable () -> Unit) = CompositionLocalProvider(LocalSlotIndex provides i, content = content)
 private val TopBand = 52.dp
 /** Where the rows start: the hero's copy sits above, the wall-to-wall backdrop behind both. */
 private val RowsTop = 262.dp
@@ -199,7 +220,15 @@ fun EchoHome(nav: Nav) {
     var clockFocused by remember { mutableStateOf(false) }
     var clockPanel by remember { mutableStateOf(false) }
     var pillFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(heroEntries.isNotEmpty()) { if (heroEntries.isNotEmpty() && focused == null) { withFrameNanos { }; runCatching { viewTitle.requestFocus() } } }
+    /** Bumped by Left on the clock: the pill opens on its last item (the profile). */
+    var pillEnd by remember { mutableStateOf(0) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { HomeFocus.restore = HomeFocus.row != null } }
+    LaunchedEffect(heroEntries.isNotEmpty()) {
+        if (heroEntries.isEmpty() || focused != null) return@LaunchedEffect
+        // Back from a page opened on a card: that card's row takes focus back; View title only if it can't.
+        if (HomeFocus.restore) { repeat(20) { withFrameNanos { } }; if (!HomeFocus.restore) return@LaunchedEffect; HomeFocus.restore = false }
+        withFrameNanos { }; runCatching { viewTitle.requestFocus() }
+    }
     val density = androidx.compose.ui.platform.LocalDensity.current
     // Vision's page scroll: just enough for the focused card to rest a margin above the screen's bottom.
     val pageSpec = remember(density) {
@@ -243,21 +272,21 @@ fun EchoHome(nav: Nav) {
                 item(key = "hero") {
                     Billboard(
                         entry, enriched[entry?.m?.id], heroEntries.size, heroIndex, viewTitle, if (clockOn) clockFocus else pillHome,
-                        onFocus = { if (it) heroFocused = true },
+                        onFocus = { if (it) { heroFocused = true; HomeFocus.row = null } },
                         onStep = { d -> if (heroEntries.isNotEmpty()) heroIndex = (heroIndex + d + heroEntries.size) % heroEntries.size },
                         onOpen = { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
                     )
                 }
                 if (cw.isNotEmpty()) item(key = "cw") {
-                    EchoRow("Continue watching", dims, dims.cwHeight, shown?.m) {
-                        itemsIndexed(cw, key = { _, r -> r.streamId }) { _, r ->
+                    EchoRow("cw", "Continue watching", dims, dims.cwHeight, shown?.m) {
+                        itemsIndexed(cw, key = { _, r -> r.streamId }) { i, r -> Slot(i) {
                             val e = remember(r) { HeroEntry(MetaPreview(r.imdb, r.type, r.name, posterOf(r.imdb), backdropOf(r.imdb)), r.season, r.episode) }
                             ContinueWatchingCard(
                                 e.m, r.season?.let { "S$it E${r.episode}" }, r.progress / 100f, dims, Modifier,
                                 onFocus = { focused = e; heroFocused = false },
                                 onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) }
                             )
-                        }
+                        } }
                     }
                 }
                 items(visible, key = { it.key }) { row ->
@@ -270,9 +299,9 @@ fun EchoHome(nav: Nav) {
                         (row.key == VisionRows.PICKS || row.key == VisionRows.IMDB) && recsBuilding -> "${row.title} · thinking…"
                         else -> row.title
                     }
-                    EchoRow(title, dims, h, shown?.m?.takeIf { it.type != "service" && it.type != "person" }) {
+                    EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type != "service" && it.type != "person" }) {
                         if (row.items.isEmpty() && !row.done) item { Box(Modifier.size(if (wide) dims.cwWidth else dims.posterWidth, h).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
-                        itemsIndexed(row.items, key = { i, m -> "$i:${m.id}" }) { i, m ->
+                        itemsIndexed(row.items, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
                             val onFocus = {
                                 if (m.type != "service" && m.type != "person") { focused = HeroEntry(m, null, null); heroFocused = false }
                                 if (i >= row.items.size - 6) vm.more(row.key)
@@ -284,9 +313,11 @@ fun EchoHome(nav: Nav) {
                                 RowKind.PEOPLE -> PersonCard(m, dims, onFocus) { open(m) }
                                 RowKind.POSTER -> PosterCard(m, dims, Modifier, onFocus = onFocus, onClick = { open(m) }, onHold = onHold)
                             }
-                        }
+                        } }
                         if (VisionRows.isPicks(row.key)) item(key = "refresh") {
-                            RefreshCard(dims, onFocus = { focused = null }) { vm.refreshPicks(row.key) }
+                            Slot(row.items.size + if (row.items.isEmpty() && !row.done) 1 else 0) {
+                                RefreshCard(dims, onFocus = { focused = null }) { vm.refreshPicks(row.key) }
+                            }
                         }
                     }
                 }
@@ -297,10 +328,12 @@ fun EchoHome(nav: Nav) {
         // scrolled out, and then its button isn't there to take focus — the old "stuck on the clock").
         val toHero: () -> Unit = { scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { viewTitle.requestFocus() } } }
         TopPill(nav, pillFocused, pillHome, onDown = { if (clockOn) runCatching { clockFocus.requestFocus() } else toHero() },
-            onRight = if (clockOn) ({ runCatching { clockFocus.requestFocus() } }) else null, onFocus = { pillFocused = it })
+            onRight = if (clockOn) ({ runCatching { clockFocus.requestFocus() } }) else null, onFocus = { pillFocused = it; if (it) HomeFocus.row = null },
+            enterAtEnd = pillEnd)
         if (clockOn) ClockPill(
             Modifier.align(Alignment.TopEnd), clockFocus, pillHome, toHero,
-            onFocus = { clockFocused = it }, onClick = { clockPanel = true }
+            onFocus = { clockFocused = it; if (it) HomeFocus.row = null }, onClick = { clockPanel = true },
+            onLeft = { pillEnd++ }
         )
         if (clockPanel) com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } }
         hold?.let { (row, m) -> HoldMenu(row, m, scope) { hold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
@@ -423,7 +456,9 @@ private fun Billboard(
 fun BoxScope.TopPill(
     nav: Nav, open: Boolean, home: FocusRequester, onDown: () -> Unit, onRight: (() -> Unit)?, onFocus: (Boolean) -> Unit,
     /** The hub page on screen (its pill label); null = Home. */
-    current: String? = null
+    current: String? = null,
+    /** Bumped from outside (Left on the clock): focus the pill's last item. */
+    enterAtEnd: Int = 0
 ) {
     val shape = RoundedCornerShape(50)
     val prefs = App.instance.prefs
@@ -451,11 +486,22 @@ fun BoxScope.TopPill(
         pending = null
     }
     fun go(k: String) { val mi = middle.indexOfFirst { it.first == k }; if (mi >= 0) page = mi / 3; pending = k }
+    // Coming in from the right: the pill's items are focusable before it has focus, until one takes it.
+    var entering by remember { mutableStateOf(false) }
+    LaunchedEffect(open) { if (open) entering = false }
     val account = remember(open) {
         val sp = prefs.sp
         (sp.getString("si_nuvio_profile_name", "") ?: "").ifBlank { (sp.getString("si_nuvio_user", "") ?: "").substringBefore('@') }
     }
+    // The profile's picture (Vision's ProfileAvatarCircle): saved link first, refreshed in the background.
+    var avatar by remember { mutableStateOf(com.lekathedon.visionlite.integrations.SignIns.nuvioAvatar() to com.lekathedon.visionlite.integrations.SignIns.nuvioAvatarColor()) }
+    LaunchedEffect(account) {
+        if (account.isBlank()) return@LaunchedEffect
+        runCatching { com.lekathedon.visionlite.integrations.SignIns.refreshNuvioAvatar() }
+        avatar = com.lekathedon.visionlite.integrations.SignIns.nuvioAvatar() to com.lekathedon.visionlite.integrations.SignIns.nuvioAvatarColor()
+    }
     val ends = buildList { add("settings"); if (account.isNotBlank()) add("account") }
+    LaunchedEffect(enterAtEnd) { if (enterAtEnd > 0) { entering = true; pending = ends.last() } }
     fun step(forward: Boolean): Boolean {
         val k = focusedKey ?: return false
         val mi = middle.indexOfFirst { it.first == k }
@@ -493,8 +539,8 @@ fun BoxScope.TopPill(
             .clip(shape).background(Color(0x2EFFFFFF)).border(1.dp, Color(0x59FFFFFF), shape).padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        @Composable fun item(k: String, label: String?, selected: Boolean = false, white: Boolean = false, onClick: () -> Unit) =
-            PillItem(label, k == entryKey || open, selected, Modifier.focusRequester(r(k)).onFocusChanged { if (it.isFocused) focusedKey = k }, white, onClick)
+        @Composable fun item(k: String, label: String?, selected: Boolean = false, white: Boolean = false, face: Pair<String, String>? = null, onClick: () -> Unit) =
+            PillItem(label, k == entryKey || open || entering, selected, Modifier.focusRequester(r(k)).onFocusChanged { if (it.isFocused) focusedKey = k }, white, face, onClick)
         // Where you are: Home and the hub's name on the clock's dark capsule, up to the line.
         Row(Modifier.fillMaxHeight().clip(shape).background(Color(0xFF121316).copy(alpha = 0.86f)).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -526,7 +572,7 @@ fun BoxScope.TopPill(
         if (pages > 1) Text("${page + 1}/$pages", color = Color(0x88FFFFFF), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
         PillDivider()
         item("settings", null) { nav.push(Screen.Settings) }
-        if (account.isNotBlank()) item("account", account) {
+        if (account.isNotBlank()) item("account", account, face = avatar) {
             nav.push(if (prefs.sp.getString("si_nuvio_token", "").isNullOrBlank()) Screen.Integrations else Screen.SignIn("nuvio"))
         }
     }
@@ -542,7 +588,9 @@ fun hubPageOf(s: Screen): String? = Sections.all.firstNotNullOfOrNull { (key, _)
 private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
 
 @Composable
-private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = false, modifier: Modifier = Modifier, white: Boolean = false, onClick: () -> Unit) {
+private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = false, modifier: Modifier = Modifier, white: Boolean = false,
+    /** A profile: (picture link, colour) drawn as Vision's avatar circle instead of the label. */
+    face: Pair<String, String>? = null, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
     val shape = RoundedCornerShape(50)
@@ -552,10 +600,11 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
             .then(if (f) Modifier.background(Color(0x40FFFFFF)).border(1.5.dp, Color(0xCCFFFFFF), shape)
                 else if (selected) Modifier.background(Color(0x26FFFFFF)).border(1.dp, Color(0x40FFFFFF), shape) else Modifier)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(horizontal = 11.dp),
+            .padding(horizontal = if (face != null) 2.dp else 11.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (label != null) Text(label, color = tint, fontSize = 15.sp, fontWeight = if (white) FontWeight.SemiBold else FontWeight.Normal)
+        if (face != null) ProfileFace(label.orEmpty(), face.first, face.second, 26.dp)
+        else if (label != null) Text(label, color = tint, fontSize = 15.sp, fontWeight = if (white) FontWeight.SemiBold else FontWeight.Normal)
         else androidx.compose.foundation.Canvas(Modifier.size(17.dp)) {
             val w = size.width
             val c = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
@@ -569,9 +618,27 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
     }
 }
 
+/** Vision's ProfileAvatarCircle: the profile's colour with its initial, the picture over it once loaded. */
+@Composable
+private fun ProfileFace(name: String, url: String, colorHex: String, size: Dp) {
+    val bg = remember(colorHex) { runCatching { Color(android.graphics.Color.parseColor(colorHex)) }.getOrDefault(Color(0xFF1E88E5)) }
+    var loaded by remember(url) { mutableStateOf(false) }
+    Box(Modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape).background(bg), contentAlignment = Alignment.Center) {
+        if (!loaded) Text(name.firstOrNull()?.uppercaseChar()?.toString() ?: "?", color = Color.White,
+            fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
+        if (url.isNotBlank()) {
+            val context = LocalContext.current
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            val req = remember(url) { ImageRequest.Builder(context).data(url).size(with(d) { size.roundToPx() } * 2).build() }
+            coil3.compose.AsyncImage(req, name, Modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape),
+                contentScale = ContentScale.Crop, onSuccess = { loaded = true })
+        }
+    }
+}
+
 /** Legacy's clock island: the time on a dark capsule, top right; focused, a white ring. OK opens its panel (Live now). */
 @Composable
-private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, onDown: () -> Unit, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
+private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, onDown: () -> Unit, onFocus: (Boolean) -> Unit, onClick: () -> Unit, onLeft: () -> Unit) {
     val context = LocalContext.current
     val fmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
     var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
@@ -586,11 +653,13 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
         modifier.padding(top = 12.dp, end = 25.dp).height(25.dp)
             .then(if (f) Modifier.border(1.5.dp, Color.White, shape) else Modifier)
             .focusRequester(me)
-            // Between the menu and the billboard (Vision's LegacyClockFocus): Up / Left = the menu, Down = the billboard.
+            // Between the menu and the billboard (Vision's LegacyClockFocus): Up = the menu's Home, Left = the menu's
+            // last item (the profile: the clock sits right of it), Down = the billboard.
             .onPreviewKeyEvent { e ->
                 if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key) {
-                    androidx.compose.ui.input.key.Key.DirectionUp, androidx.compose.ui.input.key.Key.DirectionLeft -> { runCatching { up.requestFocus() }; true }
+                    androidx.compose.ui.input.key.Key.DirectionUp -> { runCatching { up.requestFocus() }; true }
+                    androidx.compose.ui.input.key.Key.DirectionLeft -> { onLeft(); true }
                     androidx.compose.ui.input.key.Key.DirectionDown -> { onDown(); true }
                     androidx.compose.ui.input.key.Key.DirectionRight -> true
                     else -> false
@@ -603,9 +672,14 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
     ) { Text(now, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
 }
 
-/** A row: title, cards snapped to the row's start, and the focused card's details line under it (Echo). */
+/**
+ * A row: title, cards snapped to the row's start, and the focused card's details line under it (Echo).
+ * Coming into the row from above or below lands on the card it last had (the one it's snapped to), or the first card
+ * for a row not visited yet. Right on the last card stays put (the clock is reached from the top only).
+ */
 @Composable
 private fun EchoRow(
+    key: String,
     title: String,
     dims: EchoDims,
     cardHeight: Dp,
@@ -613,14 +687,36 @@ private fun EchoRow(
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
+    val state = androidx.compose.foundation.lazy.rememberLazyListState()
+    val slots = remember(key) { RowSlots(key) }
+    LaunchedEffect(key) {
+        if (!HomeFocus.restore || HomeFocus.row != key) return@LaunchedEffect
+        repeat(10) {
+            withFrameNanos { }
+            val i = HomeFocus.index[key] ?: state.firstVisibleItemIndex
+            val r = slots.reqs[i] ?: slots.reqs[state.firstVisibleItemIndex]
+            if (r != null && runCatching { r.requestFocus() }.isSuccess) { HomeFocus.restore = false; return@LaunchedEffect }
+        }
+    }
     Column(Modifier.fillMaxWidth().padding(bottom = dims.rowSpace - dims.posterMeta + 6.dp).onFocusChanged { hasFocus = it.hasFocus }) {
         Text(
             title, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Start).height(dims.rowHead)
         )
-        CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }, LocalRowSlots provides slots) {
             LazyRow(
-                Modifier.fillMaxWidth().height(cardHeight),
+                Modifier.fillMaxWidth().height(cardHeight)
+                    .focusRestorer {
+                        val i = HomeFocus.index[key] ?: state.firstVisibleItemIndex
+                        slots.reqs[i] ?: slots.reqs[state.firstVisibleItemIndex] ?: FocusRequester.Default
+                    }
+                    .focusGroup()
+                    .onPreviewKeyEvent { e ->
+                        // The last card: nothing further right in this row, so Right stays (never jumps to the clock).
+                        e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight &&
+                            (HomeFocus.index[key] ?: -1) >= state.layoutInfo.totalItemsCount - 1
+                    },
+                state = state,
                 contentPadding = PaddingValues(start = Start, end = 600.dp),
                 horizontalArrangement = Arrangement.spacedBy(dims.gap),
                 content = content
@@ -647,7 +743,19 @@ private fun EchoCard(
     val me = remember { FocusRequester() }
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
-    LaunchedEffect(focused) { if (focused) { LastFocus = me; onFocus() } }
+    val slots = LocalRowSlots.current
+    val slot = LocalSlotIndex.current
+    if (slots != null && slot >= 0) androidx.compose.runtime.DisposableEffect(slots, slot) {
+        slots.reqs[slot] = me
+        onDispose { if (slots.reqs[slot] === me) slots.reqs.remove(slot) }
+    }
+    LaunchedEffect(focused) {
+        if (focused) {
+            LastFocus = me
+            if (slots != null && slot >= 0) { HomeFocus.row = slots.key; HomeFocus.index[slots.key] = slot }
+            onFocus()
+        }
+    }
     val shape = RoundedCornerShape(radius)
     Box(
         modifier.focusRequester(me)

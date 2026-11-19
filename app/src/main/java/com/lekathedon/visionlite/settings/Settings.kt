@@ -23,6 +23,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -46,95 +59,146 @@ private val Langs = listOf("" to "Any", "en" to "English", "ar" to "Arabic", "fr
     "it" to "Italian", "pt" to "Portuguese", "ru" to "Russian", "tr" to "Turkish", "sr" to "Serbian", "hr" to "Croatian",
     "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese")
 
-/** All settings on one list; OK on a choice steps to its next value (no dialogs). Each one here does something. */
+/** One group of settings: its name on the left list, its rows on the right. */
+private class Group(val name: String, val note: String, val rows: List<@Composable (Modifier) -> Unit>)
+
+/**
+ * Settings the WuPlay way: the groups down the left, the chosen group's rows on the right (name left, value right).
+ * Focus on a group shows its rows; Right goes in, Left or Back comes out to the group. OK on a row steps its value.
+ */
 @Composable
 fun Settings(nav: Nav) {
     val p = App.instance.prefs
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val scope = rememberCoroutineScope()
     var cleared by remember { mutableStateOf("") }
-    LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp)) {
-        item { Title("Settings") }
-        item { Link("This TV", "Device check: Dolby Vision 7, frame-rate matching, what the TV and soundbar take", Modifier.focusRequester(first)) { nav.push(Screen.ThisTv) } }
-        item { Link("Add-ons", "Install, order, remove") { nav.push(Screen.Addons) } }
-        item { Link("Integrations and tracking", "Every key and sign-in; who drives each group, who helps") { nav.push(Screen.Integrations) } }
-        item { Link("Trakt", "Connect by QR: Continue Watching, Library, scrobbling") { nav.push(Screen.Trakt) } }
-        item { Link("Vision TB", "TorBox-cached links straight from the torrent sites, first in the list") { nav.push(Screen.VisionTb) } }
-
-        item { Section("Playback") }
-        item { Toggle("Smart autoplay", "Off until Vision TB is autoplay safe. On: after every add-on and Vision TB answer, plays the right episode in the best quality (4K first), then the biggest file", p.autoplay) }
-        item { Toggle("Next episode", "When an episode ends (or the popup's 10 s run out), open the next one's links", p.nextEpisode) }
-        item { Toggle("Next episode popup", "A card at the outro (or the last 40 s): OK plays the next one", p.nextPopup) }
-        item { Choice("Skip intro and outro", "IntroDB, AniSkip for anime (Vision's sources)", p.skipIntro, listOf("button" to "Button (OK skips)", "auto" to "Automatic", "off" to "Off")) }
-        item { Toggle("Resume", "Start where you stopped (Trakt progress)", p.resume) }
-        item { Choice("Step back after pause", "Replays a few seconds when you press play again", p.rewindOnResume,
-            listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s")) }
-
-        item { Section("Audio and subtitles") }
-        item { Choice("Audio language", "Picked first when the file has it", p.audioLang, Langs) }
-        item { Choice("Second audio language", "If the first isn't there", p.audioLang2, Langs) }
-        item { Choice("Subtitle language", "", p.subLang, Langs) }
-        item { Choice("Second subtitle language", "", p.subLang2, Langs) }
-        item { Choice("Show subtitles", "Foreign audio only = no subtitles when the audio is already in your language", p.subsWhen,
-            listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off")) }
-        item { Choice("Subtitle size", "", p.subSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")) }
-        item { Choice("Subtitle style", "", p.subStyle, listOf("outline" to "White, outline", "white" to "White, shadow", "yellow" to "Yellow", "box" to "White on black box")) }
-
-        item { Section("Links") }
-        item { Choice("Sort links", "", p.streamSort, listOf("addon" to "Add-on order", "quality" to "Best quality first", "biggest" to "Biggest file first", "smallest" to "Smallest file first")) }
-        item { Choice("Highest quality", "Links above this are hidden", p.maxQuality, listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p")) }
-        item { Choice("File size limit", "Links bigger than this are hidden", p.sizeLimit, listOf("0" to "None", "5" to "5 GB", "10" to "10 GB", "20" to "20 GB", "40" to "40 GB", "80" to "80 GB")) }
-        item { Toggle("Hide torrent-only links", "Links that need a debrid add-on to play", p.hideTorrents) }
-        item { Toggle("Hide CAM / TS", "Cinema recordings", p.hideCam) }
-
-        item { Section("Home") }
-        item { Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack) }
-        item { Choice("Home look", "", p.homeLook, listOf("echo" to "Echo", "classic" to "Classic")) }
-        item { Toggle("Trailers", "Play after focus rests on the billboard or an opened poster", p.trailers) }
-        item { Choice("Trailer delay", "", p.trailerDelay, listOf("1.2" to "1.2 s", "5" to "5 s", "10" to "10 s", "20" to "20 s", "30" to "30 s", "60" to "60 s")) }
-        item { Toggle("Trailer sound", "", p.trailerSound) }
-        item { Choice("Poster size", "", p.posterSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large")) }
-        item { Toggle("Clock", "Time in the top bar", p.clock) }
-        item { Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings) }
-        item { Link("Home rows", "On / off, order, refresh") { nav.push(Screen.Rows) } }
-        item {
-            var n by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }
-            Link("Dropped from Coming up", if (n == 0) "None (hold OK on a Coming up card to drop a show)" else "$n shows · OK brings them all back") {
-                com.lekathedon.visionlite.home.ComingUp.undropAll(); n = 0
+    val groups = listOf(
+        Group("Accounts", "Sign-ins, keys, add-ons", listOf(
+            { m -> Link("Integrations and tracking", "Every key and sign-in; who drives each group, who helps", m) { nav.push(Screen.Integrations) } },
+            { m -> Link("Trakt", "Continue Watching, Library, scrobbling", m) { nav.push(Screen.Trakt) } },
+            { m -> Link("Add-ons", "Install, order, remove", m) { nav.push(Screen.Addons) } },
+            { m -> Link("Vision TB", "TorBox-cached links straight from the torrent sites", m) { nav.push(Screen.VisionTb) } },
+        )),
+        Group("This TV", "Device check", listOf(
+            { m -> Link("This TV", "Dolby Vision 7, frame-rate matching, what the TV and soundbar take", m) { nav.push(Screen.ThisTv) } },
+        )),
+        Group("Playback", "Autoplay, next episode, skips", listOf(
+            { m -> Toggle("Smart autoplay", "Off until Vision TB is autoplay safe: plays the right episode, 4K first, then the biggest file", p.autoplay, m) },
+            { m -> Toggle("Next episode", "When an episode ends, open the next one's links", p.nextEpisode, m) },
+            { m -> Toggle("Next episode popup", "A card at the outro: OK plays the next one", p.nextPopup, m) },
+            { m -> Choice("Skip intro and outro", "IntroDB, AniSkip for anime", p.skipIntro, listOf("button" to "Button", "auto" to "Automatic", "off" to "Off"), m) },
+            { m -> Toggle("Resume", "Start where you stopped (Trakt progress)", p.resume, m) },
+            { m -> Choice("Step back after pause", "Replays a few seconds when you press play again", p.rewindOnResume,
+                listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s"), m) },
+        )),
+        Group("Audio and subtitles", "Languages, size, style", listOf(
+            { m -> Choice("Audio language", "Picked first when the file has it", p.audioLang, Langs, m) },
+            { m -> Choice("Second audio language", "If the first isn't there", p.audioLang2, Langs, m) },
+            { m -> Choice("Subtitle language", "", p.subLang, Langs, m) },
+            { m -> Choice("Second subtitle language", "", p.subLang2, Langs, m) },
+            { m -> Choice("Show subtitles", "Foreign only = none when the audio is already your language", p.subsWhen,
+                listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off"), m) },
+            { m -> Choice("Subtitle size", "", p.subSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large"), m) },
+            { m -> Choice("Subtitle style", "", p.subStyle, listOf("outline" to "Outline", "white" to "Shadow", "yellow" to "Yellow", "box" to "Black box"), m) },
+        )),
+        Group("Links", "Sort and filter", listOf(
+            { m -> Choice("Sort links", "", p.streamSort, listOf("addon" to "Add-on order", "quality" to "Best quality", "biggest" to "Biggest file", "smallest" to "Smallest file"), m) },
+            { m -> Choice("Highest quality", "Links above this are hidden", p.maxQuality, listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p"), m) },
+            { m -> Choice("File size limit", "Links bigger than this are hidden", p.sizeLimit, listOf("0" to "None", "5" to "5 GB", "10" to "10 GB", "20" to "20 GB", "40" to "40 GB", "80" to "80 GB"), m) },
+            { m -> Toggle("Hide torrent-only links", "Links that need a debrid add-on to play", p.hideTorrents, m) },
+            { m -> Toggle("Hide CAM / TS", "Cinema recordings", p.hideCam, m) },
+        )),
+        Group("Home", "Look, rows, trailers", listOf(
+            { m -> Link("Home rows", "On / off, order, refresh", m) { nav.push(Screen.Rows) } },
+            { m -> Choice("Home look", "", p.homeLook, listOf("echo" to "Echo", "classic" to "Classic"), m) },
+            { m -> Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack, m) },
+            { m -> Choice("Poster size", "", p.posterSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large"), m) },
+            { m -> Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings, m) },
+            { m -> Toggle("Clock", "Time in the top bar", p.clock, m) },
+            { m -> Toggle("Trailers", "After focus rests on the billboard or an opened poster", p.trailers, m) },
+            { m -> Choice("Trailer delay", "", p.trailerDelay, listOf("1.2" to "1.2 s", "5" to "5 s", "10" to "10 s", "20" to "20 s", "30" to "30 s", "60" to "60 s"), m) },
+            { m -> Toggle("Trailer sound", "", p.trailerSound, m) },
+            { m ->
+                var n by remember { mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }
+                Link("Dropped from Coming up", if (n == 0) "Hold OK on a Coming up card to drop a show" else "OK brings them all back", m,
+                    value = if (n == 0) "None" else "$n shows") { com.lekathedon.visionlite.home.ComingUp.undropAll(); n = 0 }
+            },
+        )),
+        Group("Details page", "Ratings, reviews, links", listOf(
+            { m -> Choice("Episode IMDb ratings", "", p.epRatings, listOf("all" to "Show all", "watched" to "Watched only", "off" to "Hide"), m) },
+            { m -> Choice("Reviews", "Which reviews show first", p.reviewsSource, listOf("imdb" to "IMDb", "trakt" to "Trakt"), m) },
+            { m -> Toggle("Sequel / Prequel", "IMDb's Follows / Followed by", p.sequelPrequel, m) },
+            { m -> Toggle("Connections", "Spin-offs, remakes and other versions", p.connections, m) },
+        )),
+        Group("Recommendations", "Picks engine", listOf(
+            { m -> Choice("IMDb minimum", "Nothing rated lower is recommended", p.recMinImdb,
+                listOf("0" to "Off", "6" to "6", "6.5" to "6.5", "7" to "7", "7.5" to "7.5", "8" to "8"), m) },
+            { m ->
+                val pool by com.lekathedon.visionlite.recs.Recs.pool.collectAsState()
+                val busy by com.lekathedon.visionlite.recs.Recs.building.collectAsState()
+                val status = when {
+                    busy -> "Building…"
+                    pool == null -> "Not built yet · OK builds now"
+                    pool!!.seeds == 0 -> "Nothing to learn from yet"
+                    else -> "${pool!!.picks.size} picks from ${pool!!.seeds} titles · OK rebuilds"
+                }
+                Link("Picks", status, m) { if (!busy) com.lekathedon.visionlite.recs.Recs.rebuildNow() }
+            },
+            { m -> Link("Start over", "Forgets the picks; keeps More like this / Not for me", m) { com.lekathedon.visionlite.recs.Recs.reset() } },
+        )),
+        Group("App", "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}", listOf(
+            { m -> Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm, m) },
+            { m -> Link("Clear image cache", "Frees memory and disk; posters load again", m, value = cleared) { scope.launch { cleared = clearImages() } } },
+        )),
+    )
+    var sel by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
+    val groupReq = remember { List(groups.size) { FocusRequester() } }
+    val paneFirst = remember { FocusRequester() }
+    var inPane by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { groupReq[sel].requestFocus() } }
+    androidx.activity.compose.BackHandler(enabled = inPane) { runCatching { groupReq[sel].requestFocus() } }
+    Row(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 48.dp, top = 40.dp, end = 48.dp)) {
+        Column(Modifier.width(300.dp).fillMaxHeight()) {
+            Text("Settings", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, bottom = 18.dp))
+            groups.forEachIndexed { i, g ->
+                GroupItem(g, i == sel, Modifier.focusRequester(groupReq[i])
+                    .onFocusChanged { if (it.isFocused) sel = i }
+                    .onPreviewKeyEvent { e ->
+                        if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { runCatching { paneFirst.requestFocus() }; true } else false
+                    }) { runCatching { paneFirst.requestFocus() } }
             }
         }
-
-        item { Section("Details page") }
-        item { Choice("Episode IMDb ratings", "", p.epRatings, listOf("all" to "Show all", "watched" to "Hide on episodes not watched yet", "off" to "Hide")) }
-        item { Choice("Reviews", "Which reviews the page shows first", p.reviewsSource, listOf("imdb" to "IMDb", "trakt" to "Trakt")) }
-        item { Toggle("Sequel / Prequel", "IMDb's Follows / Followed by", p.sequelPrequel) }
-        item { Toggle("Connections", "Spin-offs, remakes and other versions (IMDb)", p.connections) }
-
-        item { Section("Recommendations") }
-        item { Choice("IMDb minimum", "Nothing rated lower is recommended (unrated titles stay)", p.recMinImdb,
-            listOf("0" to "Off", "6" to "6", "6.5" to "6.5", "7" to "7", "7.5" to "7.5", "8" to "8")) }
-        item {
-            val pool by com.lekathedon.visionlite.recs.Recs.pool.collectAsState()
-            val busy by com.lekathedon.visionlite.recs.Recs.building.collectAsState()
-            val status = when {
-                busy -> "Building…"
-                pool == null -> "Not built yet · OK builds now"
-                pool!!.seeds == 0 -> "Nothing to learn from yet (connect Trakt, save titles or mark picks)"
-                else -> "${pool!!.picks.size} picks from ${pool!!.seeds} titles, built ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(pool!!.builtAt))} · OK rebuilds"
+        Box(Modifier.padding(start = 28.dp).width(1.dp).fillMaxHeight().background(Color(0x22FFFFFF)))
+        val g = groups[sel]
+        LazyColumn(
+            Modifier.weight(1f).fillMaxHeight().padding(start = 28.dp)
+                .onFocusChanged { inPane = it.hasFocus }
+                .onPreviewKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { runCatching { groupReq[sel].requestFocus() }; true } else false
+                },
+            contentPadding = PaddingValues(bottom = 48.dp)
+        ) {
+            item(key = "head$sel") {
+                Column(Modifier.padding(bottom = 10.dp, top = 6.dp)) {
+                    Text(g.name, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text(g.note, color = Palette.TextDim, fontSize = 13.sp)
+                }
             }
-            Link("Picks", status) { if (!busy) com.lekathedon.visionlite.recs.Recs.rebuildNow() }
+            g.rows.forEachIndexed { i, row ->
+                item(key = "$sel:$i") { row(if (i == 0) Modifier.focusRequester(paneFirst) else Modifier) }
+            }
         }
-        item { Link("Start over", "Forgets the picks and cached facts; keeps More like this / Not for me") { com.lekathedon.visionlite.recs.Recs.reset() } }
+    }
+}
 
-        item { Section("App") }
-        item { Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm) }
-        item { Link("Clear image cache", cleared.ifEmpty { "Frees memory and disk; posters load again" }) {
-            scope.launch { cleared = clearImages() }
-        } }
-        item {
-            Text("Vision Lite ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 18.dp))
-        }
+@Composable
+private fun GroupItem(g: Group, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Focusable(onClick, modifier.padding(vertical = 2.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
+        Text(
+            g.name, color = if (f) Color.Black else if (selected) Palette.Text else Palette.TextDim, fontSize = 16.sp,
+            fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.fillMaxWidth().background(if (f) Color.White else if (selected) Color(0x1FFFFFFF) else Color.Transparent)
+                .padding(horizontal = 16.dp, vertical = 11.dp)
+        )
     }
 }
 
@@ -146,33 +210,44 @@ private suspend fun clearImages(): String = kotlinx.coroutines.withContext(kotli
 }
 
 @Composable
-private fun Section(t: String) = Text(t, color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 26.dp, bottom = 2.dp))
-
-@Composable
-private fun Link(title: String, sub: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Focusable(onClick, modifier.padding(top = 10.dp).fillMaxWidth(0.6f)) { f -> RowText(title, sub, f) }
+private fun Link(title: String, sub: String, modifier: Modifier = Modifier, value: String = "›", onClick: () -> Unit) {
+    Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f -> RowText(title, sub, value.ifEmpty { "›" }, f) }
 }
 
 @Composable
 private fun Toggle(title: String, sub: String, flag: Prefs.Flag, modifier: Modifier = Modifier) {
     val on by flag.flow.collectAsState()
-    Focusable({ flag.value = !on }, modifier.padding(top = 10.dp).fillMaxWidth(0.6f)) { f -> RowText("$title: ${if (on) "On" else "Off"}", sub, f) }
+    Focusable({ flag.value = !on }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f -> RowText(title, sub, null, f, switch = on) }
 }
 
 @Composable
-private fun Choice(title: String, sub: String, pref: Prefs.Text, options: List<Pair<String, String>>) {
+private fun Choice(title: String, sub: String, pref: Prefs.Text, options: List<Pair<String, String>>, modifier: Modifier = Modifier) {
     val v by pref.flow.collectAsState()
     val i = options.indexOfFirst { it.first == v }.coerceAtLeast(0)
-    Focusable({ pref.value = options[(i + 1) % options.size].first }, Modifier.padding(top = 10.dp).fillMaxWidth(0.6f)) { f ->
-        RowText("$title: ${options[i].second}", sub, f)
+    Focusable({ pref.value = options[(i + 1) % options.size].first }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
+        RowText(title, sub, options[i].second, f)
     }
 }
 
+/** A settings row: name and note on the left, the value (or a switch) on the right; focused = white card, dark text. */
 @Composable
-private fun RowText(title: String, sub: String, focused: Boolean) {
-    Column(Modifier.fillMaxWidth().background(if (focused) Color(0x33FFFFFF) else Palette.Card).padding(14.dp)) {
-        Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        if (sub.isNotEmpty()) Text(sub, color = Palette.TextDim, fontSize = 13.sp)
+private fun RowText(title: String, sub: String, value: String?, focused: Boolean, switch: Boolean? = null) {
+    val fg = if (focused) Color.Black else Palette.Text
+    val dim = if (focused) Color(0x99000000) else Palette.TextDim
+    Row(Modifier.fillMaxWidth().background(if (focused) Color.White else Color(0x14FFFFFF)).padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = fg, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            if (sub.isNotEmpty()) Text(sub, color = dim, fontSize = 12.sp, maxLines = 2)
+        }
+        if (switch != null) {
+            val track = if (switch) (if (focused) Color.Black else Color.White) else (if (focused) Color(0x33000000) else Color(0x33FFFFFF))
+            val knob = if (switch) (if (focused) Color.White else Color.Black) else (if (focused) Color.White else Color(0xFFBDBDBD))
+            Box(Modifier.padding(start = 16.dp).size(40.dp, 22.dp).clip(RoundedCornerShape(50)).background(track).padding(3.dp),
+                contentAlignment = if (switch) Alignment.CenterEnd else Alignment.CenterStart) {
+                Box(Modifier.size(16.dp).clip(RoundedCornerShape(50)).background(knob))
+            }
+        } else if (value != null) Text(value, color = dim, fontSize = 15.sp, modifier = Modifier.padding(start = 16.dp))
     }
 }
 
