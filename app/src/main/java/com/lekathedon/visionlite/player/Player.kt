@@ -173,14 +173,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             assRef[0] = ass
             val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed).let { r ->
                 if (ass != null) io.github.peerless2012.ass.media.factory.AssRenderersFactory(ass, r) else r }
-            val sources = if (ass == null) DefaultMediaSourceFactory(data) else {
+            // MKV: the file's declared frame rate goes to the decoder (MkvFrameRate), libass reader when styled subs are on.
+            val base = androidx.media3.extractor.DefaultExtractorsFactory()
+            val sources = if (ass == null) DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, null)) else {
                 val parsers = io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory(ass)
-                DefaultMediaSourceFactory(data, androidx.media3.extractor.DefaultExtractorsFactory().let { f ->
-                    androidx.media3.extractor.ExtractorsFactory {
-                        f.createExtractors().also { list -> list.forEachIndexed { i, e ->
-                            if (e is androidx.media3.extractor.mkv.MatroskaExtractor) list[i] = io.github.peerless2012.ass.media.extractor.AssMatroskaExtractor(parsers, ass) } }
-                    }
-                }).also { it.setSubtitleParserFactory(parsers) }
+                DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, parsers to ass)).also { it.setSubtitleParserFactory(parsers) }
             }
             ExoPlayer.Builder(context, renderers)
                 .setMediaSourceFactory(sources)
