@@ -117,7 +117,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                 pending--
             }
         }
-        if (app.prefs.autoplay.value) best(arrange(links, app.prefs), s.id)?.let { play(nav, s, it, replace = true) { getting = it } }
+        if (app.prefs.autoplay.value) arrange(links, app.prefs).let { all -> best(all, s.id)?.let { play(nav, s, it, replace = true, all) { getting = it } } }
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
     val order = remember(s.id) { listOf(com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }
@@ -141,7 +141,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             }
             items(shown) { l ->
                 val mod = if (l === firstPlayable) Modifier.focusRequester(first) else Modifier
-                Focusable({ if (l.playable) scope.launch { play(nav, s, l, replace = false) { getting = it } } }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
+                Focusable({ if (l.playable) scope.launch { play(nav, s, l, replace = false, shown) { getting = it } } }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
                     Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(12.dp)) {
                         Text((if (l.tb != null) "" else "${l.source} · ") + l.stream.name.orEmpty().replace('\n', ' '), color = if (l.playable) Palette.Text else Palette.TextDim,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -154,11 +154,37 @@ fun Streams(nav: Nav, s: Screen.Streams) {
 }
 
 /** Vision TB rows get their TorBox link first (about a second); [say] shows how that goes. */
-private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, say: (String) -> Unit) {
+private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, list: List<Link>, say: (String) -> Unit) {
+    LinkFallback.set(s, list.dropWhile { it !== l }.drop(1).filter { it.playable })
     val url = l.stream.url ?: l.tb?.let { pick ->
         say("Getting the TorBox link…")
         com.lekathedon.visionlite.tb.VisionTb.resolve(pick).fold({ say(""); it }, { say("TorBox: ${it.message}"); null })
     } ?: return
     val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
     if (replace) nav.replace(p) else nav.push(p)
+}
+
+/**
+ * A dead link is not a dead end (Vision's source fallback): when a link fails before it really started, the player
+ * moves on to the next playable link of the same list, in the order it was shown. Only references; nothing is
+ * resolved until a link fails.
+ */
+object LinkFallback {
+    private var id = ""
+    private var screen: Screen.Streams? = null
+    private var rest: List<Link> = emptyList()
+
+    fun set(s: Screen.Streams, next: List<Link>) { id = s.id; screen = s; rest = next.take(8) }
+    fun has(id: String) = id == this.id && rest.isNotEmpty()
+
+    /** The next link's player screen (TorBox links resolved first); null when none is left or none resolves. */
+    suspend fun next(id: String): Screen.Player? {
+        val s = screen?.takeIf { id == this.id } ?: return null
+        while (rest.isNotEmpty()) {
+            val l = rest.first(); rest = rest.drop(1)
+            val url = l.stream.url ?: l.tb?.let { com.lekathedon.visionlite.tb.VisionTb.resolve(it).getOrNull() } ?: continue
+            return Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id)
+        }
+        return null
+    }
 }

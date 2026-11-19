@@ -8,9 +8,18 @@ import kotlinx.coroutines.flow.StateFlow
 /** Plain shared preferences, read once at start; settings the UI watches are StateFlows. */
 class Prefs(context: Context) {
     val sp: SharedPreferences = context.getSharedPreferences("vl", Context.MODE_PRIVATE)
+    /** Every Flag and Text by key, so a change from the phone reaches the screens watching it ([setByKey]). */
+    private val byKey = HashMap<String, (String) -> Unit>()
+
+    /** Sets a Flag ("true"/"false") or Text by its key; false when no such setting. */
+    fun setByKey(key: String, v: String): Boolean = byKey[key]?.let { it(v); true } ?: false
+
+    /** For the phone link: also turns the link on/off with the setting. */
+    val phoneLink by lazy { Flag("phone_link", false) }
 
     inner class Flag(private val key: String, default: Boolean) {
         private val state = MutableStateFlow(sp.getBoolean(key, default))
+        init { byKey[key] = { value = it == "true" } }
         val flow: StateFlow<Boolean> get() = state
         var value: Boolean
             get() = state.value
@@ -19,6 +28,7 @@ class Prefs(context: Context) {
 
     inner class Text(private val key: String, default: String) {
         private val state = MutableStateFlow(sp.getString(key, default) ?: default)
+        init { byKey[key] = { value = it } }
         val flow: StateFlow<String> get() = state
         var value: String
             get() = state.value
@@ -75,6 +85,8 @@ class Prefs(context: Context) {
     val trailerDelay = Text("trailer_delay", "5")
     val trailerSound = Flag("trailer_sound", true)
     val clock = Flag("clock", true)
+    /** Watched titles in Home rows (not Continue watching): "show", "dim" or "hide" (Vision's Show / Dim / Hide). */
+    val watchedOnHome = Text("watched_home", "show")
     /** The pill's section (Vision's AppSection): "NUVIO" or "IPTV" (YouTube and Music join as they're built). */
     val appSection = Text("app_section", "NUVIO")
     val ratings = Flag("ratings", false)

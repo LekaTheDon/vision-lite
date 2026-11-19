@@ -35,6 +35,7 @@ sealed interface Screen {
     data object Rows : Screen
     data object VisionTb : Screen
     data object Integrations : Screen
+    data object PhoneLink : Screen
     data class SignIn(val id: String) : Screen
 }
 

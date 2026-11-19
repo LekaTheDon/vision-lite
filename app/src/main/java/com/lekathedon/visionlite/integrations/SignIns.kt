@@ -249,40 +249,77 @@ object SignIns {
      * looked up in Nuvio's avatar catalog (public bucket), else in the supporter catalog (signed link, a day). Saved in
      * si_nuvio_avatar / si_nuvio_avatar_color; asked again after 12 h or when the profile changes (2-3 small calls).
      */
-    suspend fun refreshNuvioAvatar() {
+    suspend fun refreshNuvioAvatar(force: Boolean = false) {
         val prof = nuvioProfile().toString()
         val at = t("si_nuvio_avatar_at").toLongOrNull() ?: 0L
-        if (t("si_nuvio_avatar_for") == prof && System.currentTimeMillis() - at < 12 * 3600_000L) return
-        val tk = nuvioToken().ifBlank { return }
-        val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_profiles", "{}", tk))
-        if (c !in 200..299) return
-        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return
-        val me = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.firstOrNull { it.optInt("profile_index", 1) == nuvioProfile() } ?: return
-        fun s(j: JSONObject, k: String) = if (j.isNull(k)) "" else j.optString(k)
-        val color = s(me, "avatar_color_hex").ifBlank { "#1E88E5" }
-        val avatarId = s(me, "avatar_id")
-        var url = s(me, "avatar_url")
-        if (url.isBlank() && avatarId.isNotBlank()) {
-            fun pathIn(body: String) = runCatching { org.json.JSONArray(body) }.getOrNull()?.let { arr ->
-                (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.firstOrNull { it.optString("id") == avatarId }?.optString("storage_path")
-            }?.trim()?.trimStart('/')?.takeIf { it.isNotBlank() }
-            val std = pathIn(call(nuvioReq("/rest/v1/rpc/get_avatar_catalog", "{}", tk)).second)
-            url = when {
-                std == null -> {
-                    val member = pathIn(call(nuvioReq("/rest/v1/rpc/get_member_profile_avatar_catalog", "{}", tk)).second)
-                    if (member == null) "" else {
-                        val (sc, sb) = call(nuvioReq("/storage/v1/object/sign/membership-profile-avatars/$member", "{\"expiresIn\":86400}", tk))
-                        val signed = runCatching { JSONObject(sb).optString("signedURL") }.getOrDefault("")
-                        if (sc in 200..299 && signed.isNotBlank()) "$NUVIO/storage/v1/" + signed.trimStart('/') else ""
-                    }
-                }
-                std.startsWith("http") -> std
-                else -> "$NUVIO/storage/v1/object/public/avatars/$std"
-            }
-        }
-        put("si_nuvio_avatar" to url, "si_nuvio_avatar_color" to color, "si_nuvio_avatar_for" to prof,
+        if (!force && t("si_nuvio_avatar_for") == prof && System.currentTimeMillis() - at < 12 * 3600_000L) return
+        val all = nuvioFaces()
+        if (all.isEmpty()) return
+        val me = all.firstOrNull { it.index == nuvioProfile() } ?: return
+        put("si_nuvio_avatar" to me.picture, "si_nuvio_avatar_color" to me.color, "si_nuvio_avatar_for" to prof,
             "si_nuvio_avatar_at" to System.currentTimeMillis().toString())
     }
+
+    /** A Nuvio profile as Vision's profile picker shows it. */
+    data class Face(val index: Int, val name: String, val color: String, val picture: String)
+
+    /**
+     * Every profile of the account with its picture: its own avatar_url, else its avatar_id in Nuvio's avatar catalog
+     * (public bucket), else in the supporter catalog (signed link, a day). Saved (si_nuvio_faces) for the picker.
+     */
+    suspend fun nuvioFaces(): List<Face> {
+        val tk = nuvioToken().ifBlank { return emptyList() }
+        val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_profiles", "{}", tk))
+        if (c !in 200..299) return cachedFaces()
+        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return cachedFaces()
+        fun s(j: JSONObject, k: String) = if (j.isNull(k)) "" else j.optString(k)
+        var std: String? = null
+        var member: String? = null
+        fun pathIn(body: String?, id: String) = runCatching { org.json.JSONArray(body) }.getOrNull()?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.firstOrNull { it.optString("id") == id }?.optString("storage_path")
+        }?.trim()?.trimStart('/')?.takeIf { it.isNotBlank() }
+        val out = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { j ->
+            val idx = j.optInt("profile_index", 1)
+            val avatarId = s(j, "avatar_id")
+            var url = s(j, "avatar_url")
+            if (url.isBlank() && avatarId.isNotBlank()) {
+                if (std == null) std = call(nuvioReq("/rest/v1/rpc/get_avatar_catalog", "{}", tk)).second
+                val path = pathIn(std, avatarId)
+                url = when {
+                    path == null -> {
+                        if (member == null) member = call(nuvioReq("/rest/v1/rpc/get_member_profile_avatar_catalog", "{}", tk)).second
+                        val mp = pathIn(member, avatarId)
+                        if (mp == null) "" else {
+                            val (sc, sb) = call(nuvioReq("/storage/v1/object/sign/membership-profile-avatars/$mp", "{\"expiresIn\":86400}", tk))
+                            val signed = runCatching { JSONObject(sb).optString("signedURL") }.getOrDefault("")
+                            if (sc in 200..299 && signed.isNotBlank()) "$NUVIO/storage/v1/" + signed.trimStart('/') else ""
+                        }
+                    }
+                    path.startsWith("http") -> path
+                    else -> "$NUVIO/storage/v1/object/public/avatars/$path"
+                }
+            }
+            Face(idx, s(j, "name").ifBlank { "Profile $idx" }, s(j, "avatar_color_hex").ifBlank { "#1E88E5" }, url)
+        }.sortedBy { it.index }
+        put("si_nuvio_faces" to org.json.JSONArray().apply {
+            out.forEach { f -> put(JSONObject().put("i", f.index).put("n", f.name).put("c", f.color).put("p", f.picture)) }
+        }.toString())
+        return out
+    }
+
+    fun cachedFaces(): List<Face> = runCatching {
+        val a = org.json.JSONArray(t("si_nuvio_faces"))
+        (0 until a.length()).map { a.getJSONObject(it) }.map { Face(it.optInt("i"), it.optString("n"), it.optString("c"), it.optString("p")) }
+    }.getOrDefault(emptyList())
+
+    /** Switches to another Nuvio profile (Coming up re-reads that profile's shows). */
+    fun switchNuvioProfile(f: Face) {
+        setNuvioProfile(f.index, f.name)
+        put("si_nuvio_avatar" to f.picture, "si_nuvio_avatar_color" to f.color, "si_nuvio_avatar_for" to f.index.toString(),
+            "si_nuvio_avatar_at" to System.currentTimeMillis().toString())
+        p.sp.edit().putBoolean("comingup_v3", false).apply()
+    }
+
     fun nuvioAvatar(): String = t("si_nuvio_avatar")
     fun nuvioAvatarColor(): String = t("si_nuvio_avatar_color")
 

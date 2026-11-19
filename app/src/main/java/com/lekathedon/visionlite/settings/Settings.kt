@@ -77,6 +77,8 @@ fun Settings(nav: Nav) {
             { m -> Link("Trakt", "Continue Watching, Library, scrobbling", m) { nav.push(Screen.Trakt) } },
             { m -> Link("Add-ons", "Install, order, remove", m) { nav.push(Screen.Addons) } },
             { m -> Link("Vision TB", "TorBox-cached links straight from the torrent sites", m) { nav.push(Screen.VisionTb) } },
+            { m -> Link("Phone companion", "Pair Vision Lite Companion: Play on TV, seek, save from the phone", m,
+                value = if (p.phoneLink.flow.collectAsState().value) "On" else "Off") { nav.push(Screen.PhoneLink) } },
         )),
         Group("This TV", "Device check", listOf(
             { m -> Link("This TV", "Dolby Vision 7, frame-rate matching, what the TV and soundbar take", m) { nav.push(Screen.ThisTv) } },
@@ -114,6 +116,8 @@ fun Settings(nav: Nav) {
             { m -> Choice("Poster size", "", p.posterSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large"), m) },
             { m -> Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings, m) },
             { m -> Toggle("Clock", "Time in the top bar", p.clock, m) },
+            { m -> Choice("Watched titles", "In Home rows (not Continue watching); needs Trakt", p.watchedOnHome,
+                listOf("show" to "Show", "dim" to "Dim", "hide" to "Hide"), m) },
             { m -> Toggle("Trailers", "After focus rests on the billboard or an opened poster", p.trailers, m) },
             { m -> Choice("Trailer delay", "", p.trailerDelay, listOf("1.2" to "1.2 s", "5" to "5 s", "10" to "10 s", "20" to "20 s", "30" to "30 s", "60" to "60 s"), m) },
             { m -> Toggle("Trailer sound", "", p.trailerSound, m) },

@@ -178,7 +178,14 @@ fun EchoHome(nav: Nav) {
     LaunchedEffect(Unit) { snapshotFlow { focused }.collectLatest { delay(120); shown = it } }
 
     val cw by vm.continueWatching.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.refreshContinue(force = com.lekathedon.visionlite.player.PlayerReturn.consume()) }
+    val watchedMode by prefs.watchedOnHome.flow.collectAsStateWithLifecycle()
+    val watched by Watched.ids.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        val back = com.lekathedon.visionlite.player.PlayerReturn.consume()
+        vm.refreshContinue(force = back)
+        launch { runCatching { Watched.refresh(force = back) } }
+    }
+    LaunchedEffect(watchedMode) { runCatching { Watched.refresh() } }
     val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
     val aiOn = remember(rows) { AiPicks.configured().isNotEmpty() }
     val traktOn = App.instance.trakt.connected.collectAsStateWithLifecycle().value != null
@@ -187,6 +194,14 @@ fun EchoHome(nav: Nav) {
             (r.key == VisionRows.AI && aiOn) || ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
     }
     val aiStatus by AiPicks.status.collectAsStateWithLifecycle()
+    // The phone companion's copy of Home (only while it is switched on; built off the main thread).
+    val linkOn by prefs.phoneLink.flow.collectAsStateWithLifecycle()
+    LaunchedEffect(linkOn, cw, rows) {
+        if (!linkOn) return@LaunchedEffect
+        delay(2_000)
+        val list = visible.map { it.title to it.items }
+        withContext(Dispatchers.Default) { com.lekathedon.visionlite.link.LinkState.publishRows(cw, list) }
+    }
     val recsBuilding by Recs.building.collectAsStateWithLifecycle()
     var hold by remember { mutableStateOf<Pair<Row, MetaPreview>?>(null) }
     val scope = rememberCoroutineScope()
@@ -299,23 +314,26 @@ fun EchoHome(nav: Nav) {
                         (row.key == VisionRows.PICKS || row.key == VisionRows.IMDB) && recsBuilding -> "${row.title} · thinking…"
                         else -> row.title
                     }
+                    val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items
                     EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type != "service" && it.type != "person" }) {
                         if (row.items.isEmpty() && !row.done) item { Box(Modifier.size(if (wide) dims.cwWidth else dims.posterWidth, h).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
-                        itemsIndexed(row.items, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
+                        itemsIndexed(items, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
                             val onFocus = {
                                 if (m.type != "service" && m.type != "person") { focused = HeroEntry(m, null, null); heroFocused = false }
-                                if (i >= row.items.size - 6) vm.more(row.key)
+                                if (i >= items.size - 6) vm.more(row.key)
                             }
                             val onHold: (() -> Unit)? = if (m.type == "service" || m.type == "person") null else ({ hold = row to m })
                             when (row.kind) {
                                 RowKind.COMING -> ComingCard(m, dims, onFocus, onHold) { open(m) }
                                 RowKind.SERVICES -> ServiceCard(m, dims, onFocus) { open(m) }
                                 RowKind.PEOPLE -> PersonCard(m, dims, onFocus) { open(m) }
-                                RowKind.POSTER -> PosterCard(m, dims, Modifier, onFocus = onFocus, onClick = { open(m) }, onHold = onHold)
+                                RowKind.POSTER -> PosterCard(m, dims,
+                                    if (watchedMode == "dim" && m.id in watched) Modifier.graphicsLayer { alpha = 0.4f } else Modifier,
+                                    onFocus = onFocus, onClick = { open(m) }, onHold = onHold)
                             }
                         } }
                         if (VisionRows.isPicks(row.key)) item(key = "refresh") {
-                            Slot(row.items.size + if (row.items.isEmpty() && !row.done) 1 else 0) {
+                            Slot(items.size + if (row.items.isEmpty() && !row.done) 1 else 0) {
                                 RefreshCard(dims, onFocus = { focused = null }) { vm.refreshPicks(row.key) }
                             }
                         }
@@ -501,6 +519,8 @@ fun BoxScope.TopPill(
         avatar = com.lekathedon.visionlite.integrations.SignIns.nuvioAvatar() to com.lekathedon.visionlite.integrations.SignIns.nuvioAvatarColor()
     }
     val ends = buildList { add("settings"); if (account.isNotBlank()) add("account") }
+    // OK on the profile: Vision's "Who's watching" picker over the page.
+    var picking by remember { mutableStateOf(false) }
     LaunchedEffect(enterAtEnd) { if (enterAtEnd > 0) { entering = true; pending = ends.last() } }
     fun step(forward: Boolean): Boolean {
         val k = focusedKey ?: return false
@@ -573,7 +593,47 @@ fun BoxScope.TopPill(
         PillDivider()
         item("settings", null) { nav.push(Screen.Settings) }
         if (account.isNotBlank()) item("account", account, face = avatar) {
-            nav.push(if (prefs.sp.getString("si_nuvio_token", "").isNullOrBlank()) Screen.Integrations else Screen.SignIn("nuvio"))
+            if (prefs.sp.getString("si_nuvio_token", "").isNullOrBlank()) nav.push(Screen.Integrations) else picking = true
+        }
+    }
+    if (picking) ProfilePicker(onManage = { picking = false; nav.push(Screen.SignIn("nuvio")) }) { f ->
+        picking = false
+        if (f != null) {
+            com.lekathedon.visionlite.integrations.SignIns.switchNuvioProfile(f)
+            avatar = f.picture to f.color
+        }
+        entering = true; pending = "account"
+    }
+}
+
+/** Vision's profile picker: every profile of the Nuvio account as its avatar circle; OK switches, Back closes. */
+@Composable
+private fun ProfilePicker(onManage: () -> Unit, onDone: (com.lekathedon.visionlite.integrations.SignIns.Face?) -> Unit) {
+    androidx.activity.compose.BackHandler { onDone(null) }
+    var faces by remember { mutableStateOf(com.lekathedon.visionlite.integrations.SignIns.cachedFaces()) }
+    LaunchedEffect(Unit) { runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioFaces() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { faces = it } }
+    val current = com.lekathedon.visionlite.integrations.SignIns.nuvioProfile()
+    val first = remember { FocusRequester() }
+    LaunchedEffect(faces.isNotEmpty()) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Who's watching?", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                if (faces.isEmpty()) Text("Loading profiles…", color = Color(0xB3FFFFFF), fontSize = 15.sp)
+                faces.forEach { f ->
+                    val source = remember { MutableInteractionSource() }
+                    val focused by source.collectIsFocusedAsState()
+                    val mod = if (f.index == current || (faces.none { it.index == current } && f === faces.first())) Modifier.focusRequester(first) else Modifier
+                    Column(mod.clickable(interactionSource = source, indication = null) { onDone(f) },
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(104.dp).then(if (focused) Modifier.border(3.dp, Color.White, androidx.compose.foundation.shape.CircleShape) else Modifier)
+                            .padding(6.dp)) { ProfileFace(f.name, f.picture, f.color, 92.dp) }
+                        Text(f.name, color = if (focused) Color.White else Color(0xB3FFFFFF), fontSize = 15.sp,
+                            fontWeight = if (f.index == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
+                    }
+                }
+            }
+            com.lekathedon.visionlite.ui.Button("Manage profiles", onManage, Modifier.padding(top = 36.dp))
         }
     }
 }

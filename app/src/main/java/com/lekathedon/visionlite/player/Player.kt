@@ -81,6 +81,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     var addonSubs by remember(s.url) { mutableStateOf(true) }
     val afr = prefs.afr.value
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var failNote by remember(s.url) { mutableStateOf<String?>(null) }
     val player = remember(s.url, felAllowed, addonSubs) {
         val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
         ExoPlayer.Builder(context, Renderers(context, felAllowed))
@@ -122,6 +123,12 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) {
                     resumeAt = player.currentPosition
                     felAllowed = false
+                    return
+                }
+                // The link died before it really played: the next link of the same list (Vision's source fallback).
+                if (player.currentPosition < 15_000 && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
+                    failNote = "Link failed · trying the next one"
+                    scope.launch { com.lekathedon.visionlite.streams.LinkFallback.next(s.id)?.let { nav.replace(it) } ?: run { failNote = "No other link worked" } }
                 }
             }
             override fun onTracksChanged(tracks: Tracks) {
@@ -133,7 +140,12 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener); player.release() }
+        // The phone companion sees and controls this player (only references; nothing runs until it asks).
+        val title = s.title.substringBefore(" · ")
+        com.lekathedon.visionlite.link.LinkState.setPlayer(player, title, s.title.substringAfter(" · ", ""),
+            s.id.substringBefore(':').takeIf { it.startsWith("tt") }?.let { com.lekathedon.visionlite.library.backdropOf(it) },
+            s.type, s.id)
+        onDispose { com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release() }
     }
     DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
     TraktSync(player, s)
@@ -170,6 +182,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 }
             })
         if (s.type == "live") ChannelBanner(s)
+        failNote?.let {
+            androidx.compose.material3.Text(it, color = Color.White, fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
+                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 40.dp)
+                    .background(Color(0xCC121316), androidx.compose.foundation.shape.RoundedCornerShape(50)).padding(horizontal = 18.dp, vertical = 8.dp))
+        }
     }
 }
 
