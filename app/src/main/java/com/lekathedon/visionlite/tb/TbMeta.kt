@@ -101,6 +101,10 @@ object TbMeta {
         titles.keep(imdb, (listOfNotNull(original) + alts).distinct() to anime)
     }
 
+    /** Titles already read for [imdb] (TMDB's original + alternatives, the anime lists'); no request. */
+    fun knownTitles(imdb: String): List<String> =
+        (titles[imdb]?.first.orEmpty() + aniZip["imdb_id:$imdb"]?.titles.orEmpty()).distinct()
+
     /** Kitsu's titles for its entry (Comet's anime rows must carry one of them). */
     suspend fun kitsuTitles(kitsuId: Int): List<String> = withContext(Dispatchers.IO) {
         kitsuTitles[kitsuId]?.let { return@withContext it }

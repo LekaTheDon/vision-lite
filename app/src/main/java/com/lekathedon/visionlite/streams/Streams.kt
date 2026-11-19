@@ -72,10 +72,11 @@ fun arrange(all: List<Link>, p: com.lekathedon.visionlite.data.Prefs): List<Link
  */
 fun best(links: List<Link>, id: String = ""): Link? = AutoPick.order(links, id).firstOrNull()
 
-private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: (String) -> Unit) {
+/** True when it started a link; false leaves the list (with a note) for you to pick. */
+private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: (String) -> Unit): Boolean {
     val target = EpisodeCheck.targetOf(s.id)
     val order = AutoPick.order(all, s.id)
-    if (order.isEmpty()) { say(if (all.any { it.playable }) "Autoplay: no link is surely this episode, pick one" else ""); return }
+    if (order.isEmpty()) { say(if (all.any { it.playable }) "Autoplay: no link is surely this episode, pick one" else ""); return false }
     var wrong = 0
     for (l in order.take(4)) {
         val url = l.stream.url
@@ -87,9 +88,10 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
             }
         }
         // A TorBox link that won't come (removed from TorBox meanwhile) moves on to the next pick.
-        if (play(nav, s, l, replace = true, order, say)) { say(""); return }
+        if (play(nav, s, l, replace = true, order, say)) { say(""); return true }
     }
     say("Autoplay: those links were another episode, pick one")
+    return false
 }
 
 /** Links for a title, asked from every stream add-on only now (Play was pressed); each add-on's answer shows as it lands. */
@@ -100,8 +102,20 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     var pending by remember(s.id) { mutableStateOf(-1) }
     var getting by remember(s.id) { mutableStateOf("") }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Autoplay on: no list while it looks (user 2026-11-19); the list shows only if you ask or it finds nothing safe.
+    var auto by remember(s.id) { mutableStateOf(app.prefs.autoplay.value) }
     LaunchedEffect(s.id) {
-        val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
+        // An episode that hasn't aired: nothing plays and Vision TB doesn't search (user 2026-11-19); the add-ons'
+        // links still list, for you to look at.
+        val target = EpisodeCheck.targetOf(s.id)
+        if (s.type == "series" && target != null) EpisodeFacts.ensure(s.type, s.id)
+        val airs = EpisodeFacts.notOutYet(target)
+        if (airs != null) {
+            auto = false
+            getting = "Not out yet: airs " + java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, HH:mm")
+                .format(airs.atZone(java.time.ZoneId.systemDefault()))
+        }
+        val tbOn = airs == null && com.lekathedon.visionlite.tb.VisionTb.isOn()
         val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + if (tbOn) 1 else 0
         pending = asked
         kotlinx.coroutines.coroutineScope {
@@ -123,7 +137,6 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                 pending--
             }
             // The episode list, so autoplay can tell this episode's file from one that only shares its numbers.
-            if (app.prefs.autoplay.value && s.type == "series") launch { EpisodeFacts.ensure(s.type, s.id) }
             app.client.streams(s.type, s.id) { r ->
                 links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
                 harvest?.trySend(r.streams.filter { it.url == null && it.infoHash != null }.mapNotNull { st ->
@@ -136,7 +149,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             }
             harvest?.close()
         }
-        if (app.prefs.autoplay.value) autoplay(nav, s, arrange(links, app.prefs)) { getting = it }
+        if (auto && !autoplay(nav, s, arrange(links, app.prefs)) { getting = it }) auto = false
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
     val order = remember(s.id) { listOf(com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }
@@ -146,6 +159,23 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     val firstPlayable = shown.firstOrNull { it.playable }
     LaunchedEffect(firstPlayable != null) { if (firstPlayable != null) runCatching { first.requestFocus() } }
 
+    if (auto) {
+        val pick = remember { FocusRequester() }
+        LaunchedEffect(Unit) { runCatching { pick.requestFocus() } }
+        Box(Modifier.fillMaxSize().background(LocalLook.current.page), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text(s.title, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(getting.ifEmpty { "Finding the best link…" }, color = Palette.Text, fontSize = 17.sp, modifier = Modifier.padding(top = 14.dp))
+                Text(if (pending > 0) "${links.size} links · waiting for $pending source(s)" else "${links.size} links · choosing",
+                    color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp, bottom = 22.dp))
+                Focusable({ auto = false }, Modifier.focusRequester(pick)) { f ->
+                    Text("Choose a link myself", color = Palette.Text, fontSize = 15.sp,
+                        modifier = Modifier.background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(horizontal = 20.dp, vertical = 10.dp))
+                }
+            }
+        }
+        return
+    }
     Box(Modifier.fillMaxSize().background(LocalLook.current.page)) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(48.dp)) {
             item {

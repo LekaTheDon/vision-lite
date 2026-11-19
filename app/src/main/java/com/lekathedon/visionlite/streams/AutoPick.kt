@@ -72,8 +72,39 @@ object EpisodeCheck {
         return if (target.episode in first..last) Verdict.NAMED else Verdict.WRONG
     }
 
+    private val CODE = Regex("(?i)(?<![a-z0-9])(?:s\\d{1,2}[ ._-]?e\\d{1,3}|\\d{1,2}x\\d{2,3})(?![0-9])")
+    private val LEAD_JUNK = Regex("^\\s*(?:\\[[^\\]]*]|\\([^)]*\\)|(?:www\\.)?[a-z0-9-]+\\.(?:org|com|net|to|me|cc|xyz|io|tv)\\b)\\s*[-–:|]*\\s*", RegexOption.IGNORE_CASE)
+    private val TAIL_OK = Regex("^(?:(?:19|20)\\d{2}|us|uk|au|nz|ca)$")
+
+    /**
+     * A line naming its show before the episode code ("Castlevania Nocturne S01E05" when the show is "Nocturne"):
+     * true when that name is another show. Names without a show name before the code, or shows we have no title
+     * for, are never ruled out here. The show's name may be the end of its full title ("Marvel's Daredevil").
+     */
+    fun otherShow(line: String?, titles: List<String>): Boolean {
+        if (line.isNullOrBlank() || titles.isEmpty()) return false
+        val at = CODE.find(line) ?: return false
+        var lead = line.substring(0, at.range.first)
+        while (true) { val m = LEAD_JUNK.find(lead) ?: break; if (m.value.isEmpty()) break; lead = lead.substring(m.value.length) }
+        val words = ReleaseMatcher.normalizeTitle(lead).split(' ').filter { it.isNotEmpty() }.toMutableList()
+        while (words.isNotEmpty() && TAIL_OK.matches(words.last())) words.removeAt(words.size - 1)
+        if (words.isEmpty()) return false
+        val name = words.joinToString(" ")
+        return titles.map { ReleaseMatcher.normalizeTitle(it) }.filter { it.isNotEmpty() }.none { t ->
+            val noThe = t.removePrefix("the ")
+            name == t || name == noThe || name.removePrefix("the ") == noThe || t.endsWith(" $name")
+        }
+    }
+
+    /** Any line of the file name or labels that names another show. */
+    fun namesOtherShow(fileName: String?, labels: List<String?>, target: Target): Boolean {
+        val titles = EpisodeFacts.titlesOf(target)
+        return (listOf(fileName?.substringAfterLast('/')) + labels.flatMap { it?.lines().orEmpty() }).any { otherShow(it, titles) }
+    }
+
     /** The file's numbers first, then the show's own episode titles (this one's settles it; another's rules it out). */
     fun read(fileName: String?, labels: List<String?>, target: Target): Verdict {
+        if (namesOtherShow(fileName, labels, target)) return Verdict.WRONG
         val numbers = readName(fileName, target).takeIf { it != Verdict.UNKNOWN }
             ?: readName(labels.filterNot { it.isNullOrBlank() }.joinToString(" "), target)
         if (numbers == Verdict.WRONG) return numbers
@@ -119,7 +150,14 @@ object EpisodeFacts {
         fun tooNewForDisc(today: LocalDate): Boolean = released != null && today.isBefore(released.plusDays(DISC_MIN_DAYS))
     }
 
-    private class Show(val episodes: Map<Pair<Int, Int>, Video>, val titles: Map<Pair<Int, Int>, String>, val notAnimated: Boolean)
+    private class Show(val episodes: Map<Pair<Int, Int>, Video>, val titles: Map<Pair<Int, Int>, String>, val notAnimated: Boolean, val name: String)
+
+    /** The show's names: the details add-on's, plus TMDB's / the anime lists' when Vision TB read them. */
+    fun titlesOf(t: EpisodeCheck.Target): List<String> {
+        val key = t.showKey ?: return emptyList()
+        val own = synchronized(shows) { shows[key]?.name }?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return (listOf(own) + com.lekathedon.visionlite.tb.TbMeta.knownTitles(key)).distinct()
+    }
 
     private val shows = object : LinkedHashMap<String, Show>(40, 0.75f, true) {
         override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Show>?) = size > 40
@@ -137,9 +175,19 @@ object EpisodeFacts {
                 episodes[at] = v
                 strongTitle(v.title ?: v.name)?.takeIf { t -> shown.none { " $it ".contains(" $t ") } }?.let { titles[at] = it }
             }
-            synchronized(shows) { shows[key] = Show(episodes, titles, notAnimated) }
+            synchronized(shows) { shows[key] = Show(episodes, titles, notAnimated, meta.name) }
         }
     }
+
+    /** When this episode airs (the details add-on's date); null = not known. */
+    fun airsAt(t: EpisodeCheck.Target): java.time.Instant? {
+        val raw = synchronized(shows) { shows[t.showKey ?: return null]?.episodes?.get(t.season to t.episode)?.released }?.trim() ?: return null
+        return runCatching { java.time.Instant.parse(raw) }.getOrNull()
+            ?: runCatching { LocalDate.parse(raw.take(10)).atStartOfDay(java.time.ZoneOffset.UTC).toInstant() }.getOrNull()
+    }
+
+    /** Not out yet: its air time is still ahead. Unknown dates count as out. */
+    fun notOutYet(t: EpisodeCheck.Target?): java.time.Instant? = t?.let(::airsAt)?.takeIf { it.isAfter(java.time.Instant.now()) }
 
     fun has(t: EpisodeCheck.Target?): Boolean = t?.showKey?.let { k -> synchronized(shows) { shows.containsKey(k) } } == true
 
@@ -243,6 +291,8 @@ object AutoPick {
             var prior = r.priorResponse
             while (prior != null) { add(EpisodeCheck.fileNameFromUrl(prior.header("Location"))); prior = prior.priorResponse }
         }
+        val titles = EpisodeFacts.titlesOf(t)
+        if (names.any { EpisodeCheck.otherShow(it, titles) }) return EpisodeCheck.Verdict.WRONG
         names.forEach { n -> EpisodeCheck.readName(n, t).let { if (it != EpisodeCheck.Verdict.UNKNOWN) return it } }
         return EpisodeCheck.Verdict.UNKNOWN
     }

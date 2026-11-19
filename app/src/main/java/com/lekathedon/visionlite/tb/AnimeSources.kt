@@ -265,8 +265,9 @@ object AnimeSources {
             out += base.copy(
                 name = afterHash ?: base.name,
                 source = source,
-                // Their own id search: kept only when the name still shows the year / episode, like other add-ons.
-                trustedMatch = true,
+                // They search indexers by title text ("Nocturne" also brings "Castlevania Nocturne"): the name must
+                // carry the show's title like any text source (user 2026-11-19, wrong show played).
+                trustedMatch = false,
                 idTagged = true
             )
         }

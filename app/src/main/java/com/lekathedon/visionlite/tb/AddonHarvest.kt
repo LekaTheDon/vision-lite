@@ -46,7 +46,8 @@ object AddonHarvest {
             seeders = null,
             source = DiscoverySource.ADDONS,
             idTagged = true,
-            trustedMatch = true,
+            // Some add-ons search by title text: the name must carry the show's title (no add-on is taken on trust).
+            trustedMatch = false,
             fileIdx = fileIdx,
             fileName = fileName
         )
