@@ -50,7 +50,7 @@ object DeviceCheck {
                 add("box" to "Box decoder")
             }
             if (dvOptions.size > 1) add(Choice("dv7", "Dolby Vision 7 (disc remuxes)", dvOptions, "fel", "This box decodes both layers; your TV takes Dolby Vision"))
-            if (rates.size > 1) add(Choice("afr", "Match frame rate", listOf("off" to "Off", "seamless" to "Only without a blink", "always" to "Always (TV switches)"),
+            if (rates.size > 1) add(Choice("afr", "Match frame rate", listOf("off" to "Off", "always" to "On (TV switches)"),
                 "always", "24p films play without judder; the TV blanks for a second at the start"))
         }
         return Findings(lines, choices)

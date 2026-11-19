@@ -132,7 +132,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && AmlFelSupport.nativeFelUsableOnce()) }
     // A dead add-on subtitle link must never stop the film: on a load error the file restarts without them.
     var addonSubs by remember(s.url) { mutableStateOf(true) }
-    val afr = prefs.afr.value
+    // Any stored choice but Off matches (the old "seamless" never switched an HDMI TV).
+    val afr = prefs.afr.value != "off"
+    val resMatch = prefs.matchRes.value
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var failNote by remember(s.url) { mutableStateOf<String?>(null) }
     var firstFrame by remember(s.url, gen) { mutableStateOf(false) }
@@ -153,7 +155,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 Hud.decoder = null
                 onLoaded = {
                     if (addonSubs) com.lekathedon.visionlite.addons.Subs.forId(s.id).forEach { sub -> view.addSubtitle(sub.url, "${sub.lang} · add-on", sub.lang) }
-                    if (afr == "always") view.prop("container-fps")?.toFloatOrNull()?.takeIf { it > 0 }?.let { matchFrameRate(context, it) }
+                    if (afr || resMatch) DisplayMatch.apply(context, view.prop("container-fps")?.toFloatOrNull() ?: 0f,
+                        view.prop("width")?.toIntOrNull() ?: 0, view.prop("height")?.toIntOrNull() ?: 0, afr, resMatch)
                     // Smart Auto: a Dolby Vision file that started on MPV goes to ExoPlayer's video layer (one look, before it plays).
                     if (session.smartAuto && !session.rerouted && !view.prop("current-tracks/video/dolby-vision-profile").isNullOrBlank()) {
                         session.rerouted = true; session.reason = EngineRules.REASON_DV_FROM_MPV
@@ -181,9 +184,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
             ExoPlayer.Builder(context, renderers)
                 .setMediaSourceFactory(sources)
-                .setVideoChangeFrameRateStrategy(
-                    if (afr == "seamless") C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
-                )
+                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                 .build().apply {
                     ass?.init(this)
                     Hud.decoder = if (felAllowed) "native FEL renderer (if the file is DV7)" else null
@@ -192,6 +193,20 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                         override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, initMs: Long, durMs: Long) { Hud.decoder = name }
                     })
                     trackSelectionParameters = trackPrefs(trackSelectionParameters)
+                    // A file with no frame rate in its header: measured from the first frames' timestamps.
+                    if (afr) {
+                        val stamps = ArrayList<Long>(48)
+                        val main = Handler(android.os.Looper.getMainLooper())
+                        setVideoFrameMetadataListener { t, _, f, _ ->
+                            if (f.frameRate > 0 || stamps.size >= 48) return@setVideoFrameMetadataListener
+                            stamps.add(t)
+                            if (stamps.size == 48) {
+                                val sorted = stamps.sorted().drop(8)
+                                val fps = 1_000_000f * (sorted.size - 1) / (sorted.last() - sorted.first()).coerceAtLeast(1)
+                                if (fps in 10f..121f) main.post { DisplayMatch.apply(context, fps, f.width, f.height, true, resMatch) }
+                            }
+                        }
+                    }
                     setMediaItem(if (addonSubs) withSubs(s) else MediaItem.fromUri(s.url), session.resumeAt)
                     prepare()
                     playWhenReady = true
@@ -246,9 +261,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             override fun onTracksChanged(tracks: Tracks) {
                 if (!subsChecked && tracks.groups.isNotEmpty()) { subsChecked = true; foreignOnly(player, tracks) }
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
-                if (afr != "always" || current != Engine.EXO) return
-                val fps = selectedVideo(tracks)?.frameRate
-                if (fps != null && fps > 0) matchFrameRate(context, fps)
+                if (!(afr || resMatch) || current != Engine.EXO) return
+                val v = selectedVideo(tracks) ?: return
+                if (v.frameRate > 0 || (resMatch && v.width > 0)) DisplayMatch.apply(context, v.frameRate, v.width, v.height, afr, resMatch)
             }
             /** ExoPlayer read the file: Smart Auto and the no-picture rule may move it to MPV before it plays. */
             fun exoTracks(tracks: Tracks) {
@@ -284,7 +299,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             runCatching { myAss?.release() }; if (assRef[0] === myAss) assRef[0] = null
         }
     }
-    DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
+    DisposableEffect(Unit) { onDispose { DisplayMatch.restore(context) } }
     // The phone's Next episode press (only for an episode).
     androidx.compose.runtime.LaunchedEffect(s.url) {
         while (com.lekathedon.visionlite.link.LinkState.next.tryReceive().isSuccess) { }
@@ -432,24 +447,6 @@ private suspend fun nextEpisode(nav: com.lekathedon.visionlite.ui.Nav, s: Screen
     val i = eps.indexOfFirst { it.id == s.id }
     val next = eps.getOrNull(i + 1)?.takeIf { i >= 0 } ?: return
     nav.replace(Screen.Streams("series", next.id, "${meta.name} S${next.season}E${next.episode}", imdb))
-}
-
-/** Picks the display mode with the current resolution whose refresh is the video's rate or an exact multiple. */
-private fun matchFrameRate(context: Context, fps: Float) {
-    val activity = context as? Activity ?: return
-    val window = activity.window
-    @Suppress("DEPRECATION") val display = activity.windowManager.defaultDisplay
-    val cur = display.mode
-    val same = display.supportedModes.filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
-    val best = same.filter { m -> val k = (m.refreshRate / fps).roundToInt(); k >= 1 && abs(m.refreshRate - fps * k) < 0.05f }
-        .minByOrNull { (it.refreshRate / fps).roundToInt() } ?: return
-    if (best.modeId == cur.modeId) return
-    window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
-}
-
-private fun restoreMode(context: Context) {
-    val window = (context as? Activity)?.window ?: return
-    window.attributes = window.attributes.also { it.preferredDisplayModeId = 0 }
 }
 
 /**

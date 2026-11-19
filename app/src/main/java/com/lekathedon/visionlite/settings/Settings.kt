@@ -84,6 +84,9 @@ fun Settings(nav: Nav) {
             { m -> Link("This TV", "Dolby Vision 7, frame-rate matching, what the TV and soundbar take", m) { nav.push(Screen.ThisTv) } },
         )),
         Group("Playback", "Autoplay, next episode, skips", listOf(
+            { m -> Choice("Match frame rate", "The TV switches to the film's rate (24p without judder); it blanks for a second at the start", p.afr,
+                listOf("off" to "Off", "always" to "On"), m) },
+            { m -> Toggle("Match resolution", "The TV switches to the video's resolution (never below 720p); the TV does the upscaling", p.matchRes, m) },
             { m -> Choice("Player engine", "Auto: HDR, Dolby Vision and anime (libass) on ExoPlayer, Hi10p on MPV", p.engine,
                 listOf("auto" to "Auto", "exo" to "ExoPlayer", "mpv" to "MPV"), m) },
             { m -> Toggle("Styled subtitles (libass)", "Anime subtitles keep their own fonts, colours and positions on ExoPlayer; your subtitle look applies to the rest", p.libass, m) },

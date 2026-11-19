@@ -50,8 +50,11 @@ class Prefs(context: Context) {
     val cwDropped = Text("cw_dropped", "")
     /** Dolby Vision 7: "fel" = native FEL port (AM9 FEL kernel), "box" = the box's normal decoder. */
     val dv7 = Text("dv7", "box")
-    /** Frame-rate matching: "off", "seamless" (only switches the TV can do without a blink), "always". */
+    /** Frame-rate matching: "off" or "always" (an old "seamless" counts as on). */
     val afr = Text("afr", "off")
+    /** Match resolution: the TV takes the smallest mode that fits the video (never below 720p). */
+    val matchRes = Flag("match_res", false)
+    init { if (afr.value == "seamless") afr.value = "always" }
     /** The first-start device check was answered (Use these or Not now). */
     val deviceAsked = Flag("device_asked", false)
 
