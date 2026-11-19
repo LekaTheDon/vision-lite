@@ -111,6 +111,8 @@ class Prefs(context: Context) {
     // Details page (Vision's IMDb parts)
     /** Episode IMDb ratings: "all", "watched" (hide on episodes not watched yet: no spoilers), "off". */
     val epRatings = Text("detail_ep_ratings", "all")
+    /** Spoiler blur: unwatched episodes' images and plots blurred (details page, Continue watching billboard). */
+    val blurUnwatched = Flag("blur_unwatched", false)
     /** Reviews row source: "imdb" or "trakt". */
     val reviewsSource = Text("detail_reviews", "imdb")
     val sequelPrequel = Flag("detail_sequel_prequel", true)

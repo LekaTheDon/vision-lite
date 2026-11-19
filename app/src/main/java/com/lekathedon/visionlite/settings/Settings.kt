@@ -135,6 +135,7 @@ fun Settings(nav: Nav) {
             },
         )),
         Group("Details page", "Ratings, reviews, links", listOf(
+            { m -> Toggle("Blur unwatched episodes", "No spoilers: episode images and plots stay blurred until watched, here and in Continue watching", p.blurUnwatched, m) },
             { m -> Choice("Episode IMDb ratings", "", p.epRatings, listOf("all" to "Show all", "watched" to "Watched only", "off" to "Hide"), m) },
             { m -> Choice("Reviews", "Which reviews show first", p.reviewsSource, listOf("imdb" to "IMDb", "trakt" to "Trakt"), m) },
             { m -> Toggle("Sequel / Prequel", "IMDb's Follows / Followed by", p.sequelPrequel, m) },

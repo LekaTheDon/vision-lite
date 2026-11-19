@@ -53,6 +53,7 @@ import com.lekathedon.visionlite.ui.ArtTint
 import com.lekathedon.visionlite.ui.Button
 import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.Img
+import com.lekathedon.visionlite.ui.spoiler
 import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
@@ -124,6 +125,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             progress?.seasons?.flatMap { ss -> ss.episodes.filter { it.completed }.map { ss.number to it.number } }?.toSet() ?: emptySet()
         }
         val epRule by prefs.epRatings.flow.collectAsState()
+        val blurOn by prefs.blurUnwatched.flow.collectAsState()
         fun showRating(e: Ep) = when (epRule) { "off" -> false; "watched" -> (e.season to e.episode) in watched; else -> true }
 
         val seasons = remember(eps) { eps.map { it.season }.distinct().sorted().let { l -> if (l.size > 1) l.filter { it != 0 } else l } }
@@ -232,7 +234,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     Column {
                         LazyRow(Modifier.padding(top = 12.dp), state = epRow, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(inSeason, key = { it.videoId }) { e ->
-                                EpisodeCard(e, showRating(e), (e.season to e.episode) in watched, next?.let { it.season == e.season && it.number == e.episode } == true,
+                                EpisodeCard(e, showRating(e), (e.season to e.episode) in watched, next?.let { it.season == e.season && it.number == e.episode } == true, blurOn,
                                     onFocus = { focusedEp = e }) { nav.push(Screen.Streams("series", e.videoId, "$name S${e.season}E${e.episode}", s.id)) }
                             }
                         }
@@ -241,7 +243,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             Column(Modifier.padding(top = 10.dp).width(700.dp).heightIn(min = 64.dp)) {
                                 Text("S${e.season} E${e.episode}" + (e.title?.let { " · $it" } ?: "") + (e.airedMs?.let { " · " + date(it) } ?: ""),
                                     color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                e.plot?.let { Text(it, color = Palette.TextDim, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp)) }
+                                e.plot?.let { Text(it, color = Palette.TextDim, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 3.dp).spoiler(blurOn && (e.season to e.episode) !in watched)) }
                             }
                         }
                     }
@@ -384,12 +387,12 @@ private fun Header(t: String, by: String? = null) {
 }
 
 @Composable
-private fun EpisodeCard(e: Ep, showRating: Boolean, watched: Boolean, isNext: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun EpisodeCard(e: Ep, showRating: Boolean, watched: Boolean, isNext: Boolean, blurOn: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
     val aired = e.airedMs == null || e.airedMs <= System.currentTimeMillis()
     // Not out yet: nothing to play, so pressing it does nothing (user 2026-11-19).
     Focusable({ if (aired) onClick() }, Modifier.size(260.dp, 146.dp), RoundedCornerShape(10.dp), onFocus) { f ->
         Box(Modifier.fillMaxSize().background(Palette.Card)) {
-            Img(e.image, 260.dp, 146.dp, Modifier.fillMaxSize())
+            Img(e.image, 260.dp, 146.dp, Modifier.fillMaxSize(), blur = blurOn && !watched)
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color(0xE6000000))))
             if (!aired) Box(Modifier.fillMaxSize().background(Color(0x99000000)))
             Row(Modifier.align(Alignment.TopStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

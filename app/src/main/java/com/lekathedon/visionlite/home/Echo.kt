@@ -100,6 +100,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.Img
+import com.lekathedon.visionlite.ui.spoiler
+import androidx.compose.runtime.collectAsState
 import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
@@ -426,9 +428,11 @@ private fun Billboard(
                     RatingBadge(); Text("  $it", color = dim, fontSize = 13.sp)
                 }
             }
+            // A Continue watching episode is not watched yet: its plot is a spoiler when the blur is on.
+            val blurOn by com.lekathedon.visionlite.App.instance.prefs.blurUnwatched.flow.collectAsState()
             (video?.overview ?: meta?.description ?: m.description)?.takeIf { it.isNotBlank() }?.let {
                 Text(it, color = Color(0xF2FFFFFF), fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 12.dp))
+                    modifier = Modifier.padding(top = 12.dp).spoiler(blurOn && video?.overview != null))
             }
             val source = remember { MutableInteractionSource() }
             val f by source.collectIsFocusedAsState()

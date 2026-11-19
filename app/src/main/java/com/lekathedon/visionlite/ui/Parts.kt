@@ -17,6 +17,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -27,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.transformations
 
 /** Brings the focused item to [leadPx] from the start in one frame (no scroll animation). */
 @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -37,15 +40,20 @@ fun snapSpec(leadPx: Float): BringIntoViewSpec = object : BringIntoViewSpec {
 
 /** An image decoded at the size it is drawn ([w] x [h]), never bigger. */
 @Composable
-fun Img(url: String?, w: Dp, h: Dp, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Crop) {
+fun Img(url: String?, w: Dp, h: Dp, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Crop, blur: Boolean = false) {
     if (url.isNullOrBlank()) return
     val context = LocalContext.current
     val d = LocalDensity.current
-    val req = remember(url, w, h) {
-        with(d) { ImageRequest.Builder(context).data(url).size(w.roundToPx(), h.roundToPx()).build() }
+    val req = remember(url, w, h, blur) {
+        with(d) { ImageRequest.Builder(context).data(url).size(w.roundToPx(), h.roundToPx())
+            .apply { if (blur) transformations(BlurTransformation()) }.build() }
     }
     AsyncImage(model = req, contentDescription = null, contentScale = scale, modifier = modifier)
 }
+
+/** Spoiler text: blurred (Android 12+), hidden on older boxes where Compose can't blur. */
+fun Modifier.spoiler(on: Boolean): Modifier = if (!on) this
+    else if (android.os.Build.VERSION.SDK_INT >= 31) this.then(Modifier.blur(10.dp)) else this.then(Modifier.alpha(0f))
 
 /** A focusable box: white ring when focused, OK = [onClick]. */
 @Composable
