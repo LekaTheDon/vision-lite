@@ -59,7 +59,8 @@ class HomeModel : ViewModel() {
     init {
         viewModelScope.launch {
             app.addons.ensureDefaults()
-            combine(app.addons.addons, app.prefs.rowOrder.flow, app.prefs.addonRows.flow) { list, _, _ -> list }.collect { list -> rebuild(list) }
+            combine(app.addons.addons, app.prefs.rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow) { list, _, _, _ -> list }
+                .collect { list -> rebuild(list) }
         }
         // Vision's rows follow their sources: anything new there shows on Home at once.
         viewModelScope.launch { combine(Recs.pool, Recs.changed) { _, _ -> }.collect { fill(VisionRows.PICKS); fill(VisionRows.IMDB) } }
@@ -87,13 +88,15 @@ class HomeModel : ViewModel() {
                 VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES; VisionRows.PEOPLE -> RowKind.PEOPLE; else -> RowKind.POSTER
             })
         }
+        // Lists added from the phone: after Vision's rows, before the add-ons.
+        val imported = ImportedLists.all().map { l -> old[l.key] ?: Row(l.key, l.name, null, null, emptyList(), done = false) }
         val addons = if (!app.prefs.addonRows.value) emptyList() else list.flatMap { a ->
             a.manifest.catalogs.filter { it.isBoardRow }.map { c ->
                 val key = "${a.manifest.id}/${c.type}/${c.id}"
                 old[key] ?: Row(key, title(a, c), a, c, emptyList(), done = false)
             }
         }
-        state.value = (vision + addons).withIndex().sortedBy { (i, r) -> order[r.key] ?: (order.size + i) }.map { it.value }
+        state.value = (vision + imported + addons).withIndex().sortedBy { (i, r) -> order[r.key] ?: (order.size + i) }.map { it.value }
     }
 
     private fun title(a: Addon, c: CatalogDef): String {
@@ -132,7 +135,13 @@ class HomeModel : ViewModel() {
             VisionRows.AI -> viewModelScope.launch { runCatching { AiPicks.refreshIfDue() } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             VisionRows.PEOPLE -> {}
-            else -> Charts.byKey(key)?.let { c ->
+            else -> ImportedLists.all().firstOrNull { it.key == key }?.let { l ->
+                loading[key] = viewModelScope.launch {
+                    set(key, ImportedLists.items(l))
+                    loading.remove(key)
+                }
+                return
+            } ?: Charts.byKey(key)?.let { c ->
                 loading[key] = viewModelScope.launch {
                     val items = runCatching { Charts.items(c) }.getOrDefault(emptyList())
                     set(key, items)

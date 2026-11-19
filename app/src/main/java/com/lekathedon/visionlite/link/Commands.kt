@@ -7,6 +7,7 @@ import android.provider.Settings
 import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.MainActivity
 import com.lekathedon.visionlite.ui.Screen
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,13 +28,71 @@ class Commands(private val ctx: Context) {
         "watch" -> watch(a)
         "rows" -> LinkState.rows?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")) }
             ?: err("Lite hasn't shown Home yet since it started")
-        "iptv" -> iptv()
+        "iptv" -> iptv(a)
         "channel" -> channel(a)
         "youtube" -> youtube(a)
+        "music" -> music(a)
+        "next" -> next()
+        "sync" -> sync()
         "addons" -> addons()
         "addAddon" -> addAddon(a)
-        "settings" -> settings(a)
+        "settings" -> if (a.has("stores")) ok().put("profile", a.optInt("profile", 1))
+            .put("sealed", phone.seal(phone.settings(a.optJSONArray("stores") ?: JSONArray()).toString(), "vision-link-settings")) else settings(a)
+        // The companion's Vision tab (see Phone).
+        "vision" -> ok().put("sealed", phone.seal(phone.state().toString(), "vision-link-state")).put("queue", phone.queueStatus())
+        "calendar" -> System.currentTimeMillis().let { now ->
+            ok().put("titles", phone.calendar(a.optLong("from", now - 7 * DAY), a.optLong("to", now + 60 * DAY)))
+        }
+        "creds" -> ok().put("sealed", phone.creds())
+        "queue" -> ok().put("queue", phone.queue(a.optJSONArray("items") ?: JSONArray()))
+        "queueStatus" -> ok().put("queue", phone.queueStatus())
         else -> err("Unknown command")
+    }
+
+    private val phone = Phone { Pairing(ctx).secret }
+
+    /** The player's Next episode, as its own button. */
+    private fun next(): JSONObject {
+        if (LinkState.mediaJson() == null) return err("Nothing is playing in Vision Lite")
+        LinkState.next.trySend(Unit)
+        return ok()
+    }
+
+    /** "Sync with TV": Lite reads Trakt again now (Continue watching, Coming up, watched titles). */
+    private fun sync(): JSONObject {
+        com.lekathedon.visionlite.home.ComingUp.refresh(true)
+        com.lekathedon.visionlite.player.PlayerReturn.mark()
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { com.lekathedon.visionlite.home.Watched.refresh(force = true) }
+        }
+        return ok().put("synced", true)
+    }
+
+    /** The phone's YouTube Music songs: play now ("play", "radio") or queue ("next", "add") in Lite's Music. */
+    private fun music(a: JSONObject): JSONObject {
+        val action = a.optString("action").takeIf { it in setOf("play", "next", "add", "radio") } ?: return err("Unknown music action")
+        val tracks = a.optJSONArray("tracks") ?: return err("No songs")
+        val items = (0 until minOf(tracks.length(), 300)).mapNotNull { tracks.optJSONObject(it) }
+            .filter { it.optString("id").matches(Regex("[A-Za-z0-9_-]{11}")) }
+            .map { t -> com.lekathedon.visionlite.youtube.YtItem(t.optString("id"), null, null, t.optString("t").take(200), t.optString("a").take(200),
+                t.optString("th").takeIf { it.startsWith("https://") }) }
+        if (items.isEmpty()) return err("No YouTube Music songs to send")
+        val start = a.optInt("i", 0).coerceIn(0, items.lastIndex)
+        val done = java.util.concurrent.CountDownLatch(1)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching {
+                val mp = com.lekathedon.visionlite.music.MusicPlayer
+                when (action) {
+                    "next" -> mp.insert(items, next = true)
+                    "add" -> mp.insert(items, next = false)
+                    else -> mp.play(items, start)
+                }
+            }
+            done.countDown()
+        }
+        done.await(3, java.util.concurrent.TimeUnit.SECONDS)
+        // Playing: Music's page comes up on the TV (queued songs just wait in the queue).
+        return if (action == "play" || action == "radio") open(Screen.Music("HOME")) else ok()
     }
 
     private fun status(): JSONObject {
@@ -84,18 +143,32 @@ class Commands(private val ctx: Context) {
 
     // ---- Live TV ----
 
-    private fun iptv(): JSONObject {
+    /**
+     * Playlists, favourites and recent channels, as the companion reads them; with "login", the Xtream logins sealed
+     * with the pairing code (the phone browses the provider's lists itself, never opening a stream).
+     */
+    private fun iptv(a: JSONObject): JSONObject {
         val iptv = com.lekathedon.visionlite.iptv.Iptv
+        val pls = iptv.playlists()
+        val stream = Regex("""/(\d+)\.(ts|m3u8)$""")
         fun list(keys: List<String>) = JSONArray().apply {
             runCatching { iptv.channelsByKey(keys) }.getOrDefault(emptyList()).forEach { c ->
-                put(JSONObject().put("key", c.key).put("name", c.name).put("group", c.group).put("logo", c.logo.orEmpty()))
+                put(JSONObject().put("key", c.key).put("playlist", c.pl).put("stream", stream.find(c.url)?.groupValues?.get(1).orEmpty())
+                    .put("name", c.name).put("group", c.group).put("logo", c.logo ?: JSONObject.NULL).put("epg", c.tvg ?: JSONObject.NULL))
             }
         }
-        return ok().put("favourites", list(iptv.favourites().toList())).put("recent", list(iptv.recents()))
+        val out = JSONObject()
+            .put("playlists", JSONArray().apply { pls.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("xtream", it.xtream)) } })
+            .put("favorites", list(iptv.favourites().toList())).put("recent", list(iptv.recents()))
+        if (a.optBoolean("login")) out.put("login", phone.seal(JSONArray().apply {
+            pls.filter { it.xtream }.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("server", it.server).put("user", it.user).put("pass", it.pass)) }
+        }.toString(), "vision-link-iptv-login"))
+        return ok().put("iptv", out)
     }
 
     private fun channel(a: JSONObject): JSONObject {
-        val key = a.optString("key").ifBlank { return err("No channel") }
+        val key = a.optString("key").ifBlank { phone.channelKey(a.optString("playlist"), a.optString("stream")).orEmpty() }
+            .ifBlank { return err("This channel isn't in the TV's list (refresh the playlist on the TV)") }
         val c = runCatching { com.lekathedon.visionlite.iptv.Iptv.channelsByKey(listOf(key)) }.getOrDefault(emptyList()).firstOrNull()
             ?: return err("This channel isn't in the TV's list (refresh the playlist on the TV)")
         com.lekathedon.visionlite.iptv.Iptv.played(c)
@@ -153,14 +226,11 @@ class Commands(private val ctx: Context) {
     private fun ok() = JSONObject().put("ok", true)
     private fun err(msg: String) = JSONObject().put("ok", false).put("error", msg)
 
-    private companion object {
+    internal companion object {
+        const val DAY = 86_400_000L
         /** Settings the phone may change: the plain choices on the Settings page. */
         val SAFE = setOf(
-            "autoplay", "next_episode", "next_popup", "skip_intro", "resume", "rewind_on_resume",
-            "audio_lang", "audio_lang2", "sub_lang", "sub_lang2", "subs_when", "sub_size", "sub_style",
-            "stream_sort", "max_quality", "size_limit", "hide_torrents", "hide_cam",
-            "oled_black", "trailers", "trailer_delay", "trailer_sound", "poster_size", "clock", "ratings",
-            "ep_ratings", "reviews_source", "sequel_prequel", "connections", "rec_min_imdb", "exit_confirm", "watched_home"
+            "autoplay", "next_episode", "next_popup", "skip_intro", "resume", "rewind_on_resume", "audio_lang", "audio_lang2", "sub_lang", "sub_lang2", "subs_when", "sub_size", "sub_style", "stream_sort", "max_quality", "size_limit", "hide_torrents", "hide_cam", "home_look", "oled_black", "poster_size", "ratings", "clock", "watched_home", "trailers", "trailer_delay", "trailer_sound", "detail_ep_ratings", "detail_reviews", "detail_sequel_prequel", "detail_connections", "rec_min_imdb", "exit_confirm"
         )
     }
 }

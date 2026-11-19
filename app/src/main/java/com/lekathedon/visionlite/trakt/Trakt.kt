@@ -181,6 +181,10 @@ class Trakt(private val prefs: Prefs) {
     suspend fun related(imdb: String, tv: Boolean, limit: Int = 20): List<Related>? = if (!on()) null else
         runCatching { get<List<Related>>("${if (tv) "shows" else "movies"}/$imdb/related?limit=$limit") }.getOrNull()
 
+    /** A Trakt list's films and shows by its Trakt id (yours, liked or anyone's public list). Null when Trakt is off. */
+    suspend fun listItems(id: String): List<ListItem>? = if (!on()) null else
+        runCatching { get<List<ListItem>>("lists/$id/items/movie,show?limit=200") }.getOrNull()
+
     /** IMDb ids of every film and show watched (for Home's Watched titles: Dim / Hide). Null when Trakt is off. */
     suspend fun watchedIds(): Set<String>? = if (!on()) null else coroutineScope {
         val m = async { runCatching { get<List<WatchedMovie>>("sync/watched/movies") }.getOrNull() }

@@ -16,6 +16,13 @@ class Prefs(context: Context) {
 
     /** For the phone link: also turns the link on/off with the setting. */
     val phoneLink by lazy { Flag("phone_link", false) }
+    /** Lists added from the phone (Trakt / MDBList / IMDb Picks), each a Home row: JSON array of the phone's list choices. */
+    val importedLists by lazy { Text("imported_lists", "[]") }
+    /** The phone's reminder bells (show keys) and Live TV programme reminders: kept here so the phone's alarms follow the TV. */
+    val phoneBells by lazy { Text("phone_bells", "") }
+    val phoneLive by lazy { Text("phone_live", "[]") }
+    /** What happened to each change the phone sent (id -> applied / failed: why), the last 200. */
+    val phoneQueue by lazy { Text("phone_queue", "{}") }
 
     inner class Flag(private val key: String, default: Boolean) {
         private val state = MutableStateFlow(sp.getBoolean(key, default))

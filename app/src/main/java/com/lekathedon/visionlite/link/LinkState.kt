@@ -80,6 +80,8 @@ object LinkState {
     // ---- Screens the phone asked for; MainActivity pushes them ----
     /** Kept until MainActivity takes them, even if it is still starting. */
     val open = kotlinx.coroutines.channels.Channel<Screen>(8)
+    /** The phone's Next episode press, taken by the player that is open. */
+    val next = kotlinx.coroutines.channels.Channel<Unit>(1, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
     /** Builds the rows answer: Continue watching first ("kind":"continue"), then Home's rows with items. */
     fun publishRows(cw: List<com.lekathedon.visionlite.trakt.Resume>, rows: List<Pair<String, List<com.lekathedon.visionlite.addons.MetaPreview>>>) {

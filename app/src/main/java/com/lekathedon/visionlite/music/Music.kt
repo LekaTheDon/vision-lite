@@ -104,6 +104,16 @@ object MusicPlayer {
         player.setMediaItems(items, start.coerceIn(0, items.lastIndex), 0); player.prepare(); player.playWhenReady = true
     }
 
+    /** Queues songs (the phone's Play next / Add to queue): after the current song, or at the end. Plays them if nothing does. */
+    fun insert(queue: List<YtItem>, next: Boolean) {
+        if (!made || player.mediaItemCount == 0) { play(queue); return }
+        val items = queue.filter { it.videoId != null }.map { t ->
+            MediaItem.Builder().setUri("yt-a://${t.videoId}").setMediaId(t.videoId!!)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.sub).setArtworkUri(t.image?.let(android.net.Uri::parse)).build()).build()
+        }
+        if (next) player.addMediaItems((player.currentMediaItemIndex + 1).coerceAtMost(player.mediaItemCount), items) else player.addMediaItems(items)
+    }
+
     /** Songs on the box (Music › Local), in order from [start]. */
     fun playLocal(songs: List<LocalSong>, start: Int = 0) {
         val items = songs.map { t ->

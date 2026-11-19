@@ -261,6 +261,13 @@ object Iptv {
         c.getString(7)?.let { h -> runCatching { JSONObject(h).let { o -> o.keys().asSequence().associateWith { o.getString(it) } } }.getOrNull() } ?: emptyMap(),
         c.getString(8)?.let { CatchupInfo(it, c.getString(9), c.getInt(10), c.getDouble(11)) })
 
+    /** An Xtream channel's key from its playlist id and stream number (the phone browses by stream number). */
+    fun keyForStream(playlist: String, stream: String): String? {
+        if (!stream.all { it.isDigit() }) return null
+        return db.readableDatabase.rawQuery("SELECT pl||'|'||url FROM ch WHERE pl=? AND (url LIKE ? OR url LIKE ?) LIMIT 1",
+            arrayOf(playlist, "%/$stream.ts", "%/$stream.m3u8")).use { if (it.moveToFirst()) it.getString(0) else null }
+    }
+
     /** Channels by key ("playlist|url"), in the order given. */
     fun channelsByKey(keys: List<String>): List<Channel> {
         if (keys.isEmpty()) return emptyList()

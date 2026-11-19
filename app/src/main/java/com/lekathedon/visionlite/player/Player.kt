@@ -148,6 +148,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         onDispose { com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release() }
     }
     DisposableEffect(Unit) { onDispose { if (afr == "always") restoreMode(context) } }
+    // The phone's Next episode press (only for an episode).
+    androidx.compose.runtime.LaunchedEffect(s.url) {
+        while (com.lekathedon.visionlite.link.LinkState.next.tryReceive().isSuccess) { }
+        for (x in com.lekathedon.visionlite.link.LinkState.next) if (s.type == "series") nextEpisode(nav, s)
+    }
     TraktSync(player, s)
     var view by remember { mutableStateOf<PlayerView?>(null) }
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
