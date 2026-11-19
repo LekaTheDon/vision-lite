@@ -36,7 +36,7 @@ object EngineRules {
 
     /**
      * Auto's first pick from names and ids only (no network, no delay): HDR / Dolby Vision → ExoPlayer; anime →
-     * MPV (styled ASS subtitles; Lite has no libass); everything else → ExoPlayer. Live TV and YouTube stay on ExoPlayer.
+     * ExoPlayer with libass (MPV when libass is off); everything else → ExoPlayer. Live TV and YouTube stay on ExoPlayer.
      */
     fun autoPick(s: EngineSession, name: String, id: String, type: String, genres: List<String>, country: String?): Engine {
         if (type == "live" || type == "youtube") { s.reason = "live / YouTube → ExoPlayer"; return Engine.EXO }

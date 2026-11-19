@@ -86,7 +86,8 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
                 continue
             }
         }
-        say(""); play(nav, s, l, replace = true, order, say); return
+        // A TorBox link that won't come (removed from TorBox meanwhile) moves on to the next pick.
+        if (play(nav, s, l, replace = true, order, say)) { say(""); return }
     }
     say("Autoplay: those links were another episode, pick one")
 }
@@ -106,10 +107,17 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         kotlinx.coroutines.coroutineScope {
             // Add-on subtitles for the player, asked alongside the links (nothing before Play was pressed).
             launch { runCatching { com.lekathedon.visionlite.addons.Subs.load(s.type, s.id) } }
+            // Torrents your add-ons return (hash only, no debrid in the add-on) go to Vision TB's TorBox check.
+            val harvest = if (tbOn) kotlinx.coroutines.channels.Channel<List<com.lekathedon.visionlite.tb.DiscoveryCandidate>>(kotlinx.coroutines.channels.Channel.UNLIMITED) else null
+            val early = HashSet<String>()
             if (tbOn) launch {
-                com.lekathedon.visionlite.tb.VisionTb.discover(s.type, s.id) { rows ->
+                com.lekathedon.visionlite.tb.VisionTb.discover(s.type, s.id, harvest) { rows ->
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         links.addAll(rows.map { (st, pick) -> Link(com.lekathedon.visionlite.tb.VisionTb.NAME, st, pick) })
+                        // Autoplay's likely pick gets its TorBox link now (at most 2 a title), so it starts sooner.
+                        if (app.prefs.autoplay.value && early.size < 2) AutoPick.order(links.toList(), s.id).firstOrNull()?.tb?.let { p ->
+                            if (early.add(p.hash)) com.lekathedon.visionlite.tb.VisionTb.prefetch(p)
+                        }
                     }
                 }
                 pending--
@@ -118,10 +126,15 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             if (app.prefs.autoplay.value && s.type == "series") launch { EpisodeFacts.ensure(s.type, s.id) }
             app.client.streams(s.type, s.id) { r ->
                 links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
+                harvest?.trySend(r.streams.filter { it.url == null && it.infoHash != null }.mapNotNull { st ->
+                    com.lekathedon.visionlite.tb.AddonHarvest.candidate(st.infoHash, st.url, st.title, st.description,
+                        st.behaviorHints?.filename, st.behaviorHints?.videoSize, st.fileIdx)
+                })
                 if (r.addon.manifest.name.startsWith("Torrentio", true))
                     AutoPick.vouch(s.id, r.streams.mapNotNull { st -> st.infoHash?.let { it to (st.behaviorHints?.filename ?: st.title ?: st.description) } })
                 pending--
             }
+            harvest?.close()
         }
         if (app.prefs.autoplay.value) autoplay(nav, s, arrange(links, app.prefs)) { getting = it }
     }
@@ -160,14 +173,15 @@ fun Streams(nav: Nav, s: Screen.Streams) {
 }
 
 /** Vision TB rows get their TorBox link first (about a second); [say] shows how that goes. */
-private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, list: List<Link>, say: (String) -> Unit) {
+private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, list: List<Link>, say: (String) -> Unit): Boolean {
     LinkFallback.set(s, list.dropWhile { it !== l }.drop(1).filter { it.playable })
     val url = l.stream.url ?: l.tb?.let { pick ->
         say("Getting the TorBox link…")
         com.lekathedon.visionlite.tb.VisionTb.resolve(pick).fold({ say(""); it }, { say("TorBox: ${it.message}"); null })
-    } ?: return
+    } ?: return false
     val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source)
     if (replace) nav.replace(p) else nav.push(p)
+    return true
 }
 
 /**

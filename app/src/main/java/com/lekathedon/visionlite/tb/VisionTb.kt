@@ -54,50 +54,105 @@ object VisionTb {
     /** A row's play data: the hash and the file TorBox listed for it. */
     data class Pick(val hash: String, val fileName: String?)
 
-    /** Streams [onRows] in batches as each source's cached rows are checked; ends within [TOTAL_MS]. */
-    suspend fun discover(type: String, id: String, onRows: suspend (List<Pair<Stream, Pick>>) -> Unit) = withContext(Dispatchers.IO) {
-        if (!isOn()) return@withContext
+    /**
+     * Streams [onRows] in batches as each source's cached rows are checked; ends within [TOTAL_MS]. Vision's inputs:
+     * every title (TbMeta), this episode's title, the anime ids and anime sources, the keyed sources (Jackettio,
+     * Meteor) and the torrents your own add-ons returned ([harvest], checked like any other source).
+     */
+    suspend fun discover(
+        type: String, id: String,
+        harvest: kotlinx.coroutines.channels.ReceiveChannel<List<DiscoveryCandidate>>? = null,
+        onRows: suspend (List<Pair<Stream, Pick>>) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        if (!isOn()) { harvest?.cancel(); return@withContext }
         val key = App.instance.prefs.torboxKey.value.trim()
         val parts = id.split(':')
-        val imdb = parts[0].takeIf { it.startsWith("tt") } ?: return@withContext
         val series = type == "series"
-        val season = parts.getOrNull(1)?.toIntOrNull()
-        val episode = parts.getOrNull(2)?.toIntOrNull()
-        if (series && (season == null || episode == null)) return@withContext
+        var imdbAt = parts[0].takeIf { it.startsWith("tt") }
+        var seasonAt = parts.getOrNull(1)?.toIntOrNull()
+        var episodeAt = parts.getOrNull(2)?.toIntOrNull()
+        // Anime ids (kitsu:, mal:, anilist:): ani.zip gives the IMDb id and IMDb-style numbers for the id sources.
+        var zipAt: TbMeta.AniZip? = null
+        val byAnimeId = imdbAt == null && parts[0].lowercase() in setOf("kitsu", "mal", "anilist")
+        if (byAnimeId) {
+            val r = withTimeoutOrNull(3_000) { TbMeta.fromAnimeId(id) }
+            if (r == null) { harvest?.cancel(); return@withContext }
+            zipAt = r.first; imdbAt = r.first.imdb; seasonAt = r.second.first; episodeAt = r.second.second
+        }
+        val imdb = imdbAt
+        val season = seasonAt
+        val episode = episodeAt
+        val zip = zipAt
+        if (imdb == null && !byAnimeId) { harvest?.cancel(); return@withContext }
+        if (series && (season == null || episode == null)) { harvest?.cancel(); return@withContext }
         val t0 = SystemClock.elapsedRealtime()
         withTimeoutOrNull(TOTAL_MS) {
             val idTarget = DiscoveryTarget(imdb, series, emptyList(), null, season, episode)
             val claimed = HashSet<String>()
             var budget = DiscoveryPipeline.MAX_CACHE_CHECKS
-            var shown = 0
             suspend fun pass(source: DiscoverySource, rows: List<DiscoveryCandidate>, target: DiscoveryTarget) {
                 val out = DiscoveryPipeline.processSource(source, rows, target,
                     claim = { rel -> synchronized(claimed) { rel.filter { claimed.add(it.hash) }.take(budget.coerceAtLeast(0)).also { budget -= it.size } } },
                     check = { hashes, _ -> check(key, hashes) })
                 val list = out.verified.shown.map { it.toStream() to Pick(it.release.hash, it.file?.path?.substringAfterLast('/')) }
-                if (list.isNotEmpty()) { synchronized(claimed) { shown += list.size }; onRows(list) }
+                if (list.isNotEmpty()) onRows(list)
             }
             coroutineScope {
-                // Titles + year from the details add-on (Cinemeta normally; already in memory from the details page).
-                val full = async {
-                    val m = withTimeoutOrNull(4_000) { runCatching { App.instance.client.meta(if (series) "series" else "movie", imdb) }.getOrNull() }
-                    val year = m?.releaseInfo?.let { Regex("\\d{4}").find(it)?.value?.toIntOrNull() }
-                    idTarget.copy(titles = listOfNotNull(m?.name?.takeIf { it.isNotBlank() }), year = year)
+                val meta = async {
+                    imdb?.let { i -> withTimeoutOrNull(4_000) { runCatching { App.instance.client.meta(if (series) "series" else "movie", i) }.getOrNull() } }
                 }
-                suspend fun run(req: SourceRequest, quick: Boolean) {
+                val tmdb = async { imdb?.let { i -> withTimeoutOrNull(4_000) { TbMeta.tmdbTitles(i, series) } } }
+                // Every title (details add-on, TMDB's original + alternatives, ani.zip's), the year, this episode's title.
+                val full = async {
+                    val m = meta.await()
+                    val t = tmdb.await()
+                    val year = m?.releaseInfo?.let { Regex("\\d{4}").find(it)?.value?.toIntOrNull() }
+                    val hint = if (series && imdb != null && season != null && episode != null)
+                        withTimeoutOrNull(5_000) { TbMeta.episodeHint(imdb, season, episode, TbMeta.namesOf(m)) } else null
+                    val titles = (listOfNotNull(m?.name?.takeIf { it.isNotBlank() }) + t?.first.orEmpty() + zip?.titles.orEmpty()).distinct()
+                    idTarget.copy(titles = titles, year = year, episodeHint = hint, isAnime = series && (t?.second == true || zip != null))
+                }
+                // Anime (shows): Kitsu / AniList / AniDB ids, Kitsu's titles, SeaDex's best releases. An IMDb season other
+                // than 1 can hold several anime entries (Demon Slayer S2), so only season 1 or an anime id gets the ids.
+                val anime = async {
+                    val f = full.await()
+                    if (!series) return@async f
+                    val looksAnime = f.isAnime || meta.await()?.genres.orEmpty().any { it.equals("Animation", true) || it.equals("Anime", true) }
+                    val z = zip ?: if (looksAnime && imdb != null) withTimeoutOrNull(3_000) { TbMeta.animeOfImdb(imdb) } else null
+                    if (z == null) return@async f
+                    if (!byAnimeId && f.season != 1) return@async f.copy(isAnime = true)
+                    val refs = AnimeRefs(z.kitsu, if (byAnimeId) parts.getOrNull(2)?.toIntOrNull() ?: f.episode else f.episode, z.anilist, z.anidb)
+                    val sea = refs.anilistId?.let { al -> async { withTimeoutOrNull(3_000) { TbMeta.seaDex(al) } } }
+                    val kt = refs.kitsuId?.let { k -> withTimeoutOrNull(3_000) { TbMeta.kitsuTitles(k) } }.orEmpty()
+                    sea?.await()
+                    f.copy(isAnime = true, anime = refs, animeTitles = (kt + z.titles).distinct())
+                }
+                suspend fun run(req: SourceRequest, quick: Boolean, target: kotlinx.coroutines.Deferred<DiscoveryTarget> = full) {
                     val rows = fetch(req, idTarget) ?: return
                     if (rows.isEmpty()) return
                     // Torrentio files releases by IMDb episode: its rows vouch for this episode (autoplay's trust).
                     if (series && (req.source == DiscoverySource.TORRENTIO || req.source == DiscoverySource.TORRENTIO_REGIONAL))
                         com.lekathedon.visionlite.streams.AutoPick.vouch(id, rows.map { it.hash to (it.fileName ?: it.name) })
                     // Shows: rows naming this exact episode go before the titles arrive; the rest wait for them.
-                    if (quick && series && !full.isCompleted) pass(req.source, rows, idTarget)
-                    pass(req.source, rows, full.await())
+                    if (quick && series && !target.isCompleted) pass(req.source, rows, idTarget)
+                    pass(req.source, rows, target.await())
                 }
-                DiscoveryPipeline.planById(idTarget, includeTorboxSearch = false, includeRegional = true).forEach { launch { run(it, true) } }
-                launch { DiscoveryPipeline.planByText(full.await()).forEach { launch { run(it, false) } } }
+                if (imdb != null) {
+                    DiscoveryPipeline.planById(idTarget, includeTorboxSearch = false, includeRegional = true).forEach { launch { run(it, true) } }
+                    // Jackettio and Meteor asked with your TorBox key (the hash is read from the link; the link is never kept).
+                    DiscoveryPipeline.planKeyed(idTarget, key).forEach { launch { run(it, true) } }
+                }
+                launch {
+                    val f = full.await()
+                    (DiscoveryPipeline.planByText(f) + DiscoveryPipeline.planAlternates(f)).forEach { launch { run(it, false) } }
+                    val a = anime.await()
+                    if (a.isAnime) DiscoveryPipeline.planAnime(a, null).forEach { launch { run(it, false, anime) } }
+                }
+                // Your add-ons' torrents (any add-on that returns hashes): checked against TorBox like any source.
+                harvest?.let { ch -> launch { for (b in ch) if (b.isNotEmpty()) launch { pass(DiscoverySource.ADDONS, b, full.await()) } } }
             }
         }
+        harvest?.cancel()
         Log.i(TAG, "VISION_TB_MS total=${SystemClock.elapsedRealtime() - t0}")
     }
 
@@ -149,7 +204,28 @@ object VisionTb {
      * Play: add the cached torrent to the user's TorBox (only if cached), find the pinned file, ask its link.
      * About 1 s. Null with a reason when TorBox says no.
      */
-    suspend fun resolve(pick: Pick): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun resolve(pick: Pick): Result<String> {
+        val early = synchronized(ready) { ready.remove(pick) }
+        if (early != null && SystemClock.elapsedRealtime() - early.first < 30 * 60_000L) early.second.await().let { if (it.isSuccess) return it }
+        return resolveNow(pick)
+    }
+
+    /**
+     * Autoplay's likely pick, asked from TorBox while the last sources still answer, so playing it starts about a
+     * second sooner. The caller asks at most 2 a title; an unused one just stays in your TorBox list.
+     */
+    fun prefetch(pick: Pick) {
+        synchronized(ready) {
+            if (pick in ready) return
+            if (ready.size > 6) ready.keys.firstOrNull()?.let(ready::remove)
+            ready[pick] = SystemClock.elapsedRealtime() to bg.async { resolveNow(pick) }
+        }
+    }
+
+    private val ready = LinkedHashMap<Pick, Pair<Long, kotlinx.coroutines.Deferred<Result<String>>>>()
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    private suspend fun resolveNow(pick: Pick): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val key = App.instance.prefs.torboxKey.value.trim()
             val auth = "Bearer $key"
