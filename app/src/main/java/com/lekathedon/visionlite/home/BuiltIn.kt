@@ -92,8 +92,9 @@ suspend fun openTitle(nav: Nav, m: MetaPreview) {
 suspend fun imdbIdOf(m: MetaPreview): String? {
     return when {
         m.id.startsWith("tmdb:") -> withContext(Dispatchers.IO) { Tmdb.imdbOf(m.id) }
-        m.id.startsWith("anilist:") -> withContext(Dispatchers.IO) {
-            runCatching { JSONObject(Net.get("https://api.ani.zip/mappings?anilist_id=${m.id.removePrefix("anilist:")}", 10))
+        m.id.startsWith("anilist:") || m.id.startsWith("mal:") -> withContext(Dispatchers.IO) {
+            val q = if (m.id.startsWith("mal:")) "mal_id=${m.id.removePrefix("mal:")}" else "anilist_id=${m.id.removePrefix("anilist:")}"
+            runCatching { JSONObject(Net.get("https://api.ani.zip/mappings?$q", 10))
                 .optJSONObject("mappings")?.optString("imdb_id")?.takeIf { it.startsWith("tt") } }.getOrNull()
         } ?: m.id
         else -> m.id

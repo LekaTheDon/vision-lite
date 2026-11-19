@@ -8,7 +8,9 @@ import com.lekathedon.visionlite.library.posterOf
 import com.lekathedon.visionlite.recs.Recs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -21,7 +23,7 @@ object ImportedLists {
     data class L(val key: String, val source: String, val id: String, val name: String)
 
     fun supports(o: JSONObject): Boolean = when (o.optString("source")) {
-        "TRAKT", "TRAKT_LIKED", "MDBLIST" -> true
+        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL" -> true
         "IMDB" -> o.optString("remoteId") == "picks"
         else -> false
     }
@@ -54,9 +56,68 @@ object ImportedLists {
                     part("movies", "movie") + part("shows", "series")
                 }
                 "IMDB" -> Recs.imdbPicks(30).map { meta(it.imdb, it.type, it.name) }
+                "SIMKL" -> simkl(l.id)
+                "ANILIST" -> anilist(l.id)
+                "MAL" -> mal(l.id)
                 else -> emptyList()
             }
         }.getOrDefault(emptyList())
+    }
+
+    private fun token(id: String) = App.instance.prefs.sp.getString("si_${id}_token", "").orEmpty()
+
+    private fun get(url: String, vararg headers: Pair<String, String>): String =
+        Net.http.newCall(Request.Builder().url(url).apply { headers.forEach { (k, v) -> header(k, v) } }.build()).execute().use { it.body?.string().orEmpty() }
+
+    /** Simkl's own statuses (plantowatch, watching…), films, shows and anime; needs Lite's Simkl sign-in. */
+    private fun simkl(status: String): List<MetaPreview> {
+        val tk = token("simkl").ifBlank { return emptyList() }
+        return listOf("movies" to "movie", "shows" to "series", "anime" to "series").flatMap { (kind, type) ->
+            val body = runCatching { get("https://api.simkl.com/sync/all-items/$kind/$status", "Authorization" to "Bearer $tk",
+                "simkl-api-key" to com.lekathedon.visionlite.BuildConfig.SIMKL_CLIENT_ID) }.getOrDefault("")
+            val a = runCatching { JSONObject(body).optJSONArray(kind) }.getOrNull() ?: return@flatMap emptyList()
+            (0 until a.length()).mapNotNull { a.optJSONObject(it) }.mapNotNull { e ->
+                val t = e.optJSONObject(if (kind == "movies") "movie" else "show") ?: return@mapNotNull null
+                t.optJSONObject("ids")?.optString("imdb")?.takeIf { it.startsWith("tt") }?.let { meta(it, type, t.optString("title")) }
+            }
+        }
+    }
+
+    /** An AniList status list (CURRENT, PLANNING…) or "custom:<name>"; needs Lite's AniList sign-in. */
+    private fun anilist(id: String): List<MetaPreview> {
+        val tk = token("anilist").ifBlank { return emptyList() }
+        val user = com.lekathedon.visionlite.integrations.SignIns.user("anilist").ifBlank { return emptyList() }
+        val q = "query (\$u: String) { MediaListCollection(userName: \$u, type: ANIME) { lists { name isCustomList status " +
+            "entries { media { id format title { english userPreferred } coverImage { large } bannerImage } } } } }"
+        val body = JSONObject().put("query", q).put("variables", JSONObject().put("u", user)).toString()
+        val text = Net.http.newCall(Request.Builder().url("https://graphql.anilist.co").header("Authorization", "Bearer $tk")
+            .header("Accept", "application/json").post(body.toRequestBody("application/json".toMediaType())).build())
+            .execute().use { it.body?.string().orEmpty() }
+        val lists = JSONObject(text).optJSONObject("data")?.optJSONObject("MediaListCollection")?.optJSONArray("lists") ?: return emptyList()
+        val custom = id.removePrefix("custom:").takeIf { id.startsWith("custom:") }
+        return (0 until lists.length()).mapNotNull { lists.optJSONObject(it) }
+            .filter { if (custom != null) it.optBoolean("isCustomList") && it.optString("name") == custom else !it.optBoolean("isCustomList") && it.optString("status") == id }
+            .flatMap { l -> l.optJSONArray("entries")?.let { e -> (0 until e.length()).mapNotNull { e.optJSONObject(it)?.optJSONObject("media") } }.orEmpty() }
+            .mapNotNull { m ->
+                val mid = m.optLong("id").takeIf { it > 0 } ?: return@mapNotNull null
+                val t = m.optJSONObject("title")
+                MetaPreview("anilist:$mid", if (m.optString("format") == "MOVIE") "movie" else "series",
+                    t?.optString("english")?.takeIf { it.isNotBlank() && it != "null" } ?: t?.optString("userPreferred").orEmpty(),
+                    m.optJSONObject("coverImage")?.optString("large")?.takeIf { it.startsWith("http") }, m.optString("bannerImage").takeIf { it.startsWith("http") })
+            }.distinctBy { it.id }
+    }
+
+    /** A MyAnimeList status list (watching, plan_to_watch…); needs Lite's MyAnimeList sign-in. */
+    private fun mal(status: String): List<MetaPreview> {
+        val tk = token("mal").ifBlank { return emptyList() }
+        val j = JSONObject(get("https://api.myanimelist.net/v2/users/@me/animelist?status=$status&limit=200&fields=media_type",
+            "Authorization" to "Bearer $tk"))
+        val a = j.optJSONArray("data") ?: return emptyList()
+        return (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optJSONObject("node") }.mapNotNull { n ->
+            val mid = n.optLong("id").takeIf { it > 0 } ?: return@mapNotNull null
+            MetaPreview("mal:$mid", if (n.optString("media_type") == "movie") "movie" else "series", n.optString("title"),
+                n.optJSONObject("main_picture")?.optString("large")?.takeIf { it.startsWith("http") })
+        }
     }
 
     private fun meta(imdb: String, type: String, name: String) = MetaPreview(imdb, type, name, posterOf(imdb), backdropOf(imdb))

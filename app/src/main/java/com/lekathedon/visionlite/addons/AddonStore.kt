@@ -9,15 +9,29 @@ import java.net.URLEncoder
 
 /** Installed add-ons, in the user's order, saved as JSON. Cinemeta is there from the start for titles and details. */
 class AddonStore(private val prefs: Prefs) {
-    private val state = MutableStateFlow(load())
+    /** Every installed add-on (Settings › Add-ons); [addons] is the ones switched on, which everything else uses. */
+    private val everything = MutableStateFlow(load())
+    val all: StateFlow<List<Addon>> get() = everything
+    private var off: Set<String> = prefs.sp.getStringSet(KEY_OFF, emptySet()).orEmpty().toSet()
+    private val state = MutableStateFlow(everything.value.filter { it.base !in off })
     val addons: StateFlow<List<Addon>> get() = state
+
+    fun isOn(base: String) = base !in off
+
+    /** Off = kept installed, but asked for nothing (no rows, links, search or subtitles). */
+    fun setOn(base: String, on: Boolean) {
+        off = if (on) off - base else off + base
+        prefs.sp.edit().putStringSet(KEY_OFF, off).apply()
+        state.value = everything.value.filter { it.base !in off }
+    }
 
     private fun load(): List<Addon> = runCatching {
         prefs.sp.getString(KEY, null)?.let { Net.json.decodeFromString(ListSerializer(Addon.serializer()), it) }
     }.getOrNull() ?: emptyList()
 
     private fun save(list: List<Addon>) {
-        state.value = list
+        everything.value = list
+        state.value = list.filter { it.base !in off }
         prefs.sp.edit().putString(KEY, Net.json.encodeToString(ListSerializer(Addon.serializer()), list)).apply()
     }
 
@@ -33,14 +47,17 @@ class AddonStore(private val prefs: Prefs) {
         val base = normalize(url)
         val manifest = Net.getJson<Manifest>("$base/manifest.json", timeoutSec = 15)
         val addon = Addon(base, manifest)
-        save(state.value.filterNot { it.base == base || it.manifest.id == manifest.id } + addon)
+        val old = everything.value
+        val at = old.indexOfFirst { it.base == base || it.manifest.id == manifest.id }
+        // Reinstalling keeps its place in the order.
+        save(if (at >= 0) old.toMutableList().apply { removeAll { it.base == base || it.manifest.id == manifest.id }; add(at.coerceAtMost(size), addon) } else old + addon)
         return addon
     }
 
-    fun remove(base: String) = save(state.value.filterNot { it.base == base })
+    fun remove(base: String) { save(everything.value.filterNot { it.base == base }); if (base in off) setOn(base, true) }
 
     fun move(base: String, by: Int) {
-        val list = state.value.toMutableList()
+        val list = everything.value.toMutableList()
         val i = list.indexOfFirst { it.base == base }
         val j = (i + by).coerceIn(0, list.lastIndex)
         if (i < 0 || i == j) return
@@ -51,6 +68,7 @@ class AddonStore(private val prefs: Prefs) {
     companion object {
         private const val KEY = "addons"
         private const val KEY_SEEDED = "addons_seeded"
+        private const val KEY_OFF = "addons_off"
         const val CINEMETA = "https://v3-cinemeta.strem.io"
 
         fun normalize(url: String): String = url.trim()

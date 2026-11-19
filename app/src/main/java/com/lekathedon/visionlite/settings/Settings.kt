@@ -262,7 +262,8 @@ private fun Title(t: String) = Text(t, color = Palette.Text, fontSize = 26.sp, f
 @Composable
 fun Addons() {
     val store = App.instance.addons
-    val list by store.addons.collectAsState()
+    val list by store.all.collectAsState()
+    store.addons.collectAsState().value // redraw On / Off
     val scope = rememberCoroutineScope()
     var url by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf("") }
@@ -297,9 +298,10 @@ fun Addons() {
         items(list, key = { it.base }) { a ->
             Row(Modifier.padding(top = 12.dp).fillMaxWidth(0.85f).background(Palette.Card).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text("${a.manifest.name} ${a.manifest.version}", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${a.manifest.name} ${a.manifest.version}", color = if (store.isOn(a.base)) Palette.Text else Palette.TextDim, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(a.base.substringBefore("/", a.base).let { a.base.removePrefix("https://").substringBefore('/') }, color = Palette.TextDim, fontSize = 12.sp)
                 }
+                Button(if (store.isOn(a.base)) "On" else "Off", { store.setOn(a.base, !store.isOn(a.base)) })
                 Button("Up", { store.move(a.base, -1) })
                 Button("Down", { store.move(a.base, 1) })
                 Button("Remove", { store.remove(a.base) })

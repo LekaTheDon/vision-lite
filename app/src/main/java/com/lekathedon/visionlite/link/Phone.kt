@@ -49,11 +49,12 @@ internal class Phone(private val secret: () -> String) {
             if (faces.isEmpty()) put(JSONObject().put("id", 1).put("name", "Lite"))
             faces.forEach { put(JSONObject().put("id", it.index).put("name", it.name).put("color", it.color).put("avatar", it.picture)) }
         }
-        val addons = App.instance.addons.addons.value
+        val store = App.instance.addons
+        val addons = store.all.value
         val sports = com.lekathedon.visionlite.sports.Sports.follows.reminders
         val state = JSONObject()
             .put("profile", active).put("active", active).put("profiles", profiles)
-            .put("addons", JSONObject().put("urls", JSONArray(addons.map { it.manifestUrl() })).put("enabled", JSONObject()))
+            .put("addons", JSONObject().put("urls", JSONArray(addons.map { it.manifestUrl() })).put("enabled", JSONObject().apply { addons.forEach { put(it.manifestUrl(), store.isOn(it.base)) } }))
             .put("lists", runCatching { JSONArray(p.importedLists.value) }.getOrDefault(JSONArray()))
             .put("reminders", JSONObject()
                 .put("bells", JSONArray(bells().toList()))
@@ -122,6 +123,15 @@ internal class Phone(private val secret: () -> String) {
         fun key(id: String) = Integrations.all.firstOrNull { it.id == id }?.let { Integrations.values(it).firstOrNull() }?.takeIf { it.isNotBlank() }
         listOf("tmdb", "mdblist", "gemini", "groq", "mistral", "torbox", "premiumize").forEach { id -> key(id)?.let { o.put(id, it) } }
         key("realdebrid")?.let { o.put("realdebrid", it) }
+        val sp = p.sp
+        sp.getString("si_anilist_token", "").takeIf { !it.isNullOrBlank() }?.let {
+            o.put("anilist", JSONObject().put("token", it).put("user", SignIns.user("anilist"))
+                .put("expiresAt", sp.getString("si_anilist_until", "")?.toLongOrNull() ?: 0))
+        }
+        sp.getString("si_mal_token", "").takeIf { !it.isNullOrBlank() }?.let {
+            o.put("mal", JSONObject().put("access", it).put("user", SignIns.user("mal"))
+                .put("expiresAt", sp.getString("si_mal_until", "")?.toLongOrNull() ?: 0))
+        }
         App.instance.trakt.connected.value?.let { t ->
             o.put("trakt", JSONObject().put("access", t.access).put("expiresAt", (t.createdAt + t.expiresIn) * 1000))
         }
@@ -209,12 +219,12 @@ internal class Phone(private val secret: () -> String) {
                 val store = App.instance.addons
                 val url = o.optString("url")
                 val base = com.lekathedon.visionlite.addons.AddonStore.normalize(url)
-                fun find() = store.addons.value.firstOrNull { com.lekathedon.visionlite.addons.AddonStore.normalize(it.base) == base } ?: error("not installed on the TV")
+                fun find() = store.all.value.firstOrNull { com.lekathedon.visionlite.addons.AddonStore.normalize(it.base) == base } ?: error("not installed on the TV")
                 when (o.optString("op")) {
                     "install" -> runBlocking { store.install(url) }
                     "remove" -> store.remove(find().base)
                     "move" -> store.move(find().base, o.optInt("delta"))
-                    "enable" -> if (!o.optBoolean("on")) store.remove(find().base) else runBlocking { store.install(url) }
+                    "enable" -> store.setOn(find().base, o.optBoolean("on"))
                     else -> error("unknown add-on change")
                 }
             }
