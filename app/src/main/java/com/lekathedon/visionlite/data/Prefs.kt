@@ -113,6 +113,8 @@ class Prefs(context: Context) {
     val epRatings = Text("detail_ep_ratings", "all")
     /** Spoiler blur: unwatched episodes' images and plots blurred (details page, Continue watching billboard). */
     val blurUnwatched = Flag("blur_unwatched", false)
+    /** Custom poster source (the built-in postersplus pattern) on every poster and wide card. */
+    val customPosters = Flag("custom_posters", true)
     /** Reviews row source: "imdb" or "trakt". */
     val reviewsSource = Text("detail_reviews", "imdb")
     val sequelPrequel = Flag("detail_sequel_prequel", true)

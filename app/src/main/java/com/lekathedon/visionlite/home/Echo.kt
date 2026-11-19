@@ -296,11 +296,12 @@ fun EchoHome(nav: Nav) {
                     )
                 }
                 if (cw.isNotEmpty()) item(key = "cw") {
+                    val cwBlur by prefs.blurUnwatched.flow.collectAsStateWithLifecycle()
                     EchoRow("cw", "Continue watching", dims, dims.cwHeight, shown?.m) {
                         itemsIndexed(cw, key = { _, r -> r.streamId }) { i, r -> Slot(i) {
                             val e = remember(r) { HeroEntry(MetaPreview(r.imdb, r.type, r.name, posterOf(r.imdb), backdropOf(r.imdb)), r.season, r.episode) }
                             ContinueWatchingCard(
-                                e.m, r.season?.let { "S$it E${r.episode}" }, r.progress / 100f, dims, Modifier,
+                                e.m, r.season?.let { "S$it E${r.episode}" }, r.progress / 100f, dims, Modifier, cwStill(r), cwBlur,
                                 onFocus = { focused = e; heroFocused = false },
                                 onClick = { nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) },
                                 onHold = { cwHold = r }
@@ -845,10 +846,11 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
     EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, modifier, onFocus = onFocus, onClick = onClick,
         openWidth = dims.posterOpenWidth, onHold = onHold) { f ->
         if (!f) {
-            if (m.poster.isNullOrBlank()) Fallback(m.name) else Img(m.poster, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
+            val art = com.lekathedon.visionlite.poster.Posters.poster(m.id, m.type, m.poster)
+            if (art.isNullOrBlank()) Fallback(m.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
         } else {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                Img(m.wide(), dims.posterOpenWidth, dims.posterHeight, Modifier.fillMaxSize())
+                Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.wide()), dims.posterOpenWidth, dims.posterHeight, Modifier.fillMaxSize())
                 // The opened card plays the title's trailer once focus has rested (Vision's expanded-card target).
                 val look = LocalTrailer.current
                 var trailer by remember { mutableStateOf<String?>(null) }
@@ -882,7 +884,8 @@ fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = 
         CompositionLocalProvider(LocalTrailer provides look) {
             if (expand) PosterCard(mm, dims, modifier, onFocus = {}, onClick = onClick, onHold = onHold)
             else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, modifier, onFocus = {}, onClick = onClick, onHold = onHold) {
-                if (mm.poster.isNullOrBlank()) Fallback(mm.name) else Img(mm.poster, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
+                val art = com.lekathedon.visionlite.poster.Posters.poster(mm.id, mm.type, mm.poster)
+                if (art.isNullOrBlank()) Fallback(mm.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize())
             }
         }
         if (sub != null) Text(sub, color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -896,15 +899,28 @@ fun EchoRowTitle(title: String) {
     if (title.isNotBlank()) Text(title, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1, modifier = Modifier.padding(top = 18.dp, bottom = 10.dp))
 }
 
+/** The Continue watching episode's still from the show's meta (cached; the billboard loads the same meta). */
+@Composable
+private fun cwStill(r: com.lekathedon.visionlite.trakt.Resume): String? {
+    if (r.season == null) return null
+    val still by androidx.compose.runtime.produceState<String?>(null, r.streamId) {
+        value = runCatching { App.instance.client.meta("series", r.imdb) }.getOrNull()?.videos
+            ?.firstOrNull { it.season == r.season && it.episode == r.episode }?.thumbnail?.takeIf { it.isNotBlank() }
+    }
+    return still
+}
+
 /** Continue Watching: wide, title and episode bottom-left, progress along the bottom edge. */
 @Composable
 private fun ContinueWatchingCard(
-    m: MetaPreview, episode: String?, progress: Float, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit,
-    onHold: (() -> Unit)? = null
+    m: MetaPreview, episode: String?, progress: Float, dims: EchoDims, modifier: Modifier, still: String?, blur: Boolean,
+    onFocus: () -> Unit, onClick: () -> Unit, onHold: (() -> Unit)? = null
 ) {
     val hasProgress = progress > 0f
     EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, modifier, onFocus, onClick, onHold = onHold) {
-        Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
+        // The episode's own image (Vision's episode thumbnails); not watched yet, so blurred when the spoiler blur is on.
+        if (still != null) Img(still, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize(), blur = blur)
+        else Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.background), dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().bottomShade())
         val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = if (hasProgress) 14.dp else 12.dp)) {
@@ -1120,7 +1136,7 @@ private object Sections {
 @Composable
 private fun ComingCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onHold: (() -> Unit)?, onClick: () -> Unit) {
     EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick, onHold = onHold) {
-        Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
+        Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.background), dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().bottomShade())
         val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
         val isNew = m.releaseInfo == "New"

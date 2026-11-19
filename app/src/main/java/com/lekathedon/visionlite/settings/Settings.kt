@@ -118,6 +118,7 @@ fun Settings(nav: Nav) {
         )),
         Group("Home", "Look, rows, trailers", listOf(
             { m -> Link("Home rows", "On / off, order, refresh", m) { nav.push(Screen.Rows) } },
+            { m -> Toggle("Custom posters", "Your Vision poster source (ratings on the art) on every poster and wide card; off = add-on art", p.customPosters, m) },
             { m -> Choice("Home look", "", p.homeLook, listOf("echo" to "Echo", "classic" to "Classic"), m) },
             { m -> Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack, m) },
             { m -> Choice("Poster size", "", p.posterSize, listOf("s" to "Small", "m" to "Medium", "l" to "Large"), m) },

@@ -164,7 +164,8 @@ class HomeModel : ViewModel() {
         if (key !in needed) return
         val items: List<MetaPreview> = when (key) {
             VisionRows.COMING_UP -> ComingUp.items.value.map { i ->
-                MetaPreview(i.imdb, i.type, i.name, posterOf(i.imdb), i.image ?: backdropOf(i.imdb),
+                // Wide card: the show's landscape backdrop (TVmaze's image is a tall poster, cropped to its middle).
+                MetaPreview(i.imdb, i.type, i.name, i.image ?: posterOf(i.imdb), backdropOf(i.imdb),
                     description = ComingUp.episodeLine(i), releaseInfo = ComingUp.label(i))
             }
             VisionRows.PICKS -> Recs.forYou(30).map(::meta)
