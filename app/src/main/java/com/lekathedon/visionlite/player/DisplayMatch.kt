@@ -16,7 +16,7 @@ import kotlin.math.min
 object DisplayMatch {
     private const val TAG = "DisplayMatch"
     private const val NTSC_FILM = 24000f / 1001f
-    private val CLEAN_MULTIPLES = floatArrayOf(3f, 4f, 5f, 6f)
+    private val CLEAN_MULTIPLES = listOf(3f, 4f, 5f, 6f)
     private var originalModeId: Int? = null
 
     private data class M(val id: Int, val w: Int, val h: Int, val hz: Float)
