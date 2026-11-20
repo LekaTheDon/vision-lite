@@ -34,7 +34,7 @@ import com.lekathedon.visionlite.ui.Screen
 import kotlinx.coroutines.launch
 
 data class Link(val source: String, val stream: Stream, val tb: com.lekathedon.visionlite.tb.VisionTb.Pick? = null) {
-    val playable get() = !stream.url.isNullOrBlank() || tb != null
+    val playable get() = !stream.url.isNullOrBlank() || tb != null || (!stream.infoHash.isNullOrBlank() && Debrid.any())
     /** 2160 / 1080 / 720 / 480 read from the add-on's text; 0 if not given. */
     val height: Int get() {
         val t = "${stream.name} ${stream.details} ${stream.behaviorHints?.filename}".lowercase()
@@ -124,7 +124,8 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             return@LaunchedEffect
         }
         val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
-        val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + if (tbOn) 1 else 0
+        val servers = MediaServers.plexOn() || MediaServers.jellyfinOn()
+        val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + (if (tbOn) 1 else 0) + (if (servers) 1 else 0)
         pending = asked
         kotlinx.coroutines.coroutineScope {
             // Add-on subtitles for the player, asked alongside the links (nothing before Play was pressed).
@@ -144,6 +145,12 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                 }
                 pending--
             }
+            // Your own Plex / Jellyfin files (only when signed in).
+            if (servers) launch {
+                val mine = MediaServers.links(s.type, s.id, s.title)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { links.addAll(mine) }
+                pending--
+            }
             // The episode list, so autoplay can tell this episode's file from one that only shares its numbers.
             app.client.streams(s.type, s.id) { r ->
                 links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
@@ -160,8 +167,13 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         if (auto && !autoplay(nav, s, arrange(links, app.prefs)) { getting = it }) auto = false
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
-    val order = remember(s.id) { listOf(com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }
-    val shown = remember(links.size) { arrange(links.filterNot { AutoPick.namesAnotherShow(it, s.id) }.sortedBy { order.indexOf(it.source) }, app.prefs) }
+    val order = remember(s.id) { listOf(MediaServers.PLEX, MediaServers.JELLYFIN, com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }
+    // Link memory: marked links sink to the bottom (still pressable); your pick for the show rises to the top.
+    val shown = remember(links.size) {
+        arrange(links.filterNot { AutoPick.namesAnotherShow(it, s.id) }.sortedBy { order.indexOf(it.source) }, app.prefs)
+            .sortedWith(compareBy<Link> { if (LinkMemory.bad(it) != null) 1 else 0 }.thenByDescending { if (it.playable) LinkMemory.pickMatch(s.id, it) else 0 })
+    }
+    val minutes = remember(s.id) { LinkMemory.minutesOf(s.type, s.metaId.ifBlank { s.id }) }
     val hiddenCount = links.size - shown.size
     val first = remember { FocusRequester() }
     val firstPlayable = shown.firstOrNull { it.playable }
@@ -212,7 +224,10 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                     Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(12.dp)) {
                         Text((if (l.tb != null) "" else "${l.source} · ") + l.stream.name.orEmpty().replace('\n', ' '), color = if (l.playable) Palette.Text else Palette.TextDim,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(if (l.playable) l.stream.details else "Torrent link: needs a debrid add-on", color = Palette.TextDim, fontSize = 13.sp, maxLines = 3)
+                        Text(if (l.stream.url == null && l.tb == null && l.playable) "Torrent · plays through ${Debrid.names()} · " + l.stream.details
+                            else if (l.playable) l.stream.details else "Torrent link: sign in to a debrid service (Settings › links) or use a debrid add-on", color = Palette.TextDim, fontSize = 13.sp, maxLines = 3)
+                        if (l.playable && LinkMemory.pickMatch(s.id, l) == 2) Text("★ Same release you watched before", color = Color(0xFFD9DC8E), fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                        LinkMemory.warning(l, minutes)?.let { Text("⚠ $it", color = Color(0xFFFFB454), fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp)) }
                     }
                 }
             }
@@ -226,6 +241,9 @@ private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean,
     val url = l.stream.url ?: l.tb?.let { pick ->
         say("Getting the TorBox link…")
         com.lekathedon.visionlite.tb.VisionTb.resolve(pick).fold({ say(""); it }, { say("TorBox: ${it.message}"); null })
+    } ?: l.stream.infoHash?.takeIf { Debrid.any() }?.let { h ->
+        say("Getting the ${Debrid.names()} link…")
+        Debrid.resolve(h, l.stream.fileIdx, l.stream.behaviorHints?.filename, EpisodeCheck.targetOf(s.id)).fold({ say(""); it }, { say(it.message ?: "Debrid failed"); null })
     } ?: return false
     val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source, l.bytes)
     if (replace) nav.replace(p) else nav.push(p)
@@ -250,7 +268,8 @@ object LinkFallback {
         val s = screen?.takeIf { id == this.id } ?: return null
         while (rest.isNotEmpty()) {
             val l = rest.first(); rest = rest.drop(1)
-            val url = l.stream.url ?: l.tb?.let { com.lekathedon.visionlite.tb.VisionTb.resolve(it).getOrNull() } ?: continue
+            val url = l.stream.url ?: l.tb?.let { com.lekathedon.visionlite.tb.VisionTb.resolve(it).getOrNull() }
+                ?: l.stream.infoHash?.takeIf { Debrid.any() }?.let { Debrid.resolve(it, l.stream.fileIdx, l.stream.behaviorHints?.filename, EpisodeCheck.targetOf(s.id)).getOrNull() } ?: continue
             return Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source, l.bytes)
         }
         return null

@@ -146,6 +146,7 @@ object Sports {
                     val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }
                     val merged = if (all) parsed.distinctBy { it.id }
                         else (parsed + old!!.events).distinctBy { it.id }
+                    old?.let { o -> noticeScoring(l, o.events, merged) }
                     data[l.id] = LeagueData(merged, System.currentTimeMillis())
                     if (all) runCatching { File(dir, "sb_${safe(l.id)}.json").writeText("${System.currentTimeMillis()}\n" + raws.joinToString(SEP)) }
                 }
@@ -244,6 +245,115 @@ object Sports {
     }
 
     fun channelsFor(ev: SportsEvent): List<ChannelMatch> = _matches.value[ev.id].orEmpty()
+
+    /** The freshest copy of a game (scores move on while a page shows it); team seasons included. */
+    fun event(id: String): SportsEvent? = _events.value.firstOrNull { it.id == id }
+        ?: _schedules.value.values.firstNotNullOfOrNull { l -> l.firstOrNull { it.id == id } }
+
+    // ---- scoring alerts (Vision's noticeScoreIncreases; the card waits so it never shows before the stream does) ----
+
+    private val _alerts = MutableStateFlow<SportsAlert?>(null)
+    val alerts: StateFlow<SportsAlert?> get() = _alerts
+    fun clearAlert() { _alerts.value = null }
+
+    private fun noticeScoring(league: League, before: List<SportsEvent>, after: List<SportsEvent>) {
+        val s = settings
+        if (!s.scoringAlerts) return
+        val wait = s.alertDelaySec.coerceIn(0, 300) * 1000L
+        noticeScoreIncreases(league, before, after, follows) { a -> scope.launch { delay(wait); _alerts.value = a } }
+    }
+
+    // ---- a game's page: ESPN's summary (stats, form, meetings, line-ups, table, win chance) ----
+
+    private class Summary(val at: Long, val sig: String, val extras: GameExtras, val plays: List<ScoringPlay>)
+    private val summaries = ConcurrentHashMap<String, Summary>()
+
+    /** Asked again after 25 s while the game is on (straight away when the score changes), else after 30 minutes. */
+    suspend fun extras(ev: SportsEvent): Pair<GameExtras, List<ScoringPlay>>? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val league = SportsCatalog.league(ev.leagueId) ?: return@withContext null
+        val id = ev.espnId ?: return@withContext null
+        if (league.espnPath == null) return@withContext null
+        val sig = "${ev.away?.score}-${ev.home?.score}-${ev.state}"
+        val c = summaries[ev.id]
+        if (c != null && c.sig == sig && System.currentTimeMillis() - c.at < (if (ev.state == GameState.LIVE) 25_000 else 30 * MINUTE)) return@withContext c.extras to c.plays
+        val root = runCatching { feeds.summaryJson(league, id) }.getOrNull() ?: return@withContext c?.let { it.extras to it.plays }
+        val plays = if (ev.state == GameState.PRE) emptyList() else runCatching { SportsFeeds.parseSummary(root) }.getOrDefault(emptyList())
+        val ex = runCatching { SportsExtras.parse(root, ev, league.sport) }.getOrDefault(GameExtras())
+        summaries[ev.id] = Summary(System.currentTimeMillis(), sig, ex, plays)
+        ex to plays
+    }
+
+    // ---- your teams' whole seasons (My Teams rows), every 6 hours, only while My Teams is open ----
+
+    private val _schedules = MutableStateFlow<Map<String, List<SportsEvent>>>(emptyMap())
+    val schedules: StateFlow<Map<String, List<SportsEvent>>> get() = _schedules
+    private val scheduleAt = ConcurrentHashMap<String, Long>()
+
+    suspend fun loadSchedules(force: Boolean = false) = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val f = follows
+        val keys = f.teams.map { it.key }.toSet()
+        if (_schedules.value.keys.any { it !in keys }) _schedules.value = _schedules.value.filterKeys { it in keys }
+        for (t in f.teams) {
+            val l = SportsCatalog.league(t.leagueId) ?: continue
+            val path = l.espnPath ?: continue
+            val file = File(dir, "ts_${safe(t.key)}.json")
+            val now = System.currentTimeMillis()
+            if (_schedules.value[t.key] == null && file.exists()) runCatching {
+                val text = file.readText(); val nl = text.indexOf('\n')
+                scheduleAt[t.key] = text.substring(0, nl).toLong()
+                _schedules.value = _schedules.value + (t.key to merge(text.substring(nl + 1).split(SEP).mapNotNull { part ->
+                    val tab = part.indexOf('\t'); SportsCatalog.league(part.substring(0, tab))?.let { it to part.substring(tab + 1) } }))
+            }
+            if (now - (scheduleAt[t.key] ?: 0L) < (if (force) 3600_000L else 6 * 3600_000L)) continue
+            val raws = ArrayList<Pair<League, String>>()
+            runCatching { feeds.teamScheduleRaw(path, t.teamId, fixtures = false) }.getOrNull()?.let { raws += l to it }
+            if (path.startsWith("soccer/") || l.national) {
+                runCatching { feeds.teamScheduleRaw(path, t.teamId, fixtures = true) }.getOrNull()?.let { raws += l to it }
+                for (rid in SportsCatalog.relatedLeagues(l.id)) {
+                    val rl = SportsCatalog.league(rid) ?: continue
+                    val rp = rl.espnPath ?: continue
+                    runCatching { feeds.teamScheduleRaw(rp, t.teamId, fixtures = true) }.getOrNull()?.let { raws += rl to it }
+                }
+            }
+            if (raws.isEmpty()) { scheduleAt[t.key] = now - 5 * 3600_000L; continue }
+            scheduleAt[t.key] = now
+            _schedules.value = _schedules.value + (t.key to merge(raws))
+            runCatching { file.writeText("$now\n" + raws.joinToString(SEP) { (rl, raw) -> rl.id + "\t" + raw }) }
+        }
+    }
+
+    /** One list from a team's schedule answers: each game once, under the first competition it came with. */
+    private fun merge(raws: List<Pair<League, String>>): List<SportsEvent> {
+        val byId = LinkedHashMap<String, SportsEvent>()
+        for ((rl, raw) in raws) runCatching { SportsFeeds.parseSchedule(rl, raw) }.getOrDefault(emptyList()).forEach { byId.putIfAbsent(it.espnId ?: it.id, it) }
+        // Today's scoreboard is fresher than a season list (live scores).
+        val live = _events.value.associateBy { it.espnId ?: it.id }
+        return byId.values.map { live[it.espnId ?: it.id] ?: it }.sortedBy { it.startMs }
+    }
+
+    /** My Teams as rows (Vision's SportsRows): today's games plus your teams' seasons. */
+    internal fun myTeams(now: Long = System.currentTimeMillis()): MyTeamsPage {
+        val f = follows
+        val known = (_events.value + _schedules.value.values.flatten()).distinctBy { it.espnId ?: it.id }
+        return SportsRows.build(known, f, now) { isMine(it, f) }
+    }
+
+    // ---- reminders (a game you picked, or every game of your teams when "Remind me of my teams' games" is on) ----
+
+    fun hasReminder(ev: SportsEvent) = follows.reminders.any { it.eventId == ev.id }
+    fun toggleReminder(ev: SportsEvent) {
+        val f = follows
+        SportsMine.save(f.copy(reminders = if (hasReminder(ev)) f.reminders.filterNot { it.eventId == ev.id }
+            else f.reminders + SportsReminder(ev.id, ev.title, ev.startMs)))
+    }
+    fun dropReminder(id: String) { val f = follows; if (f.reminders.any { it.eventId == id }) SportsMine.save(f.copy(reminders = f.reminders.filterNot { it.eventId == id })) }
+
+    /** True when something needs Sports running in the background (a reminder, a pinned score, your teams' alerts). */
+    fun needsBackground(): Boolean {
+        val f = follows; val s = settings
+        return f.reminders.any { it.startMs > System.currentTimeMillis() - 3 * 3600_000L } || SportsPins.list.value.isNotEmpty() ||
+            (!f.isEmpty && (s.scoringAlerts || s.remindMyTeams))
+    }
 
     private fun safe(id: String) = id.replace(Regex("[^a-zA-Z0-9]+"), "_")
     private const val SEP = "\n\u001E\n"

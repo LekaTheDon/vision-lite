@@ -115,6 +115,11 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
         }
     }
 
+    /** Sync: audio and subtitle delay in ms (mpv's audio-delay / sub-delay, seconds). */
+    fun delays(audioMs: Long, subMs: Long) {
+        if (!initialized) return
+        runCatching { mpv.setPropertyDouble("audio-delay", audioMs / 1000.0); mpv.setPropertyDouble("sub-delay", subMs / 1000.0) }
+    }
     fun selectAudio(id: Int) = runCatching { mpv.setPropertyInt("aid", id) }.isSuccess
     fun selectSub(id: Int) = runCatching { mpv.setPropertyBoolean("sub-visibility", true); mpv.setPropertyInt("sid", id) }.isSuccess
     fun subsOff() = runCatching { mpv.setPropertyString("sid", "no") }.isSuccess

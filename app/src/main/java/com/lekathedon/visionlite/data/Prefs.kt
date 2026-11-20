@@ -160,6 +160,12 @@ class Prefs(context: Context) {
     /** Sports: Vision's settings and follows (JSON, "" = defaults). */
     val sportsSettings = Text("sports_settings", "")
     val sportsFollows = Text("sports_follows", "")
+    /** Link memory (Haven idea): 7-day "didn't play" / "kept buffering" marks, and your release pick per show. */
+    val linkMarks = Text("link_marks", "")
+    /** Player: audio/subtitle delay per title (JSON) and seek thumbnails (on; boxes under 3 GB skip them anyway). */
+    val syncDelays = Text("sync_delays", "")
+    val seekThumbs = Flag("seek_thumbs", true)
+    val linkPicks = Text("link_picks", "")
     val visionTb = Flag("vision_tb", false)
     val torboxKey = Text("torbox_key", "")
     // App

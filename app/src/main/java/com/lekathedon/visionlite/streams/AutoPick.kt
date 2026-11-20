@@ -327,7 +327,12 @@ object AutoPick {
     ).map { it.first }
 
     /** The order autoplay tries links in (the manual list keeps every row). */
-    fun order(links: List<Link>, videoId: String): List<Link> = rank(pool(links, EpisodeCheck.targetOf(videoId), videoId))
+    fun order(links: List<Link>, videoId: String): List<Link> {
+        // Link memory: a link that failed or kept buffering this week is skipped; your pick for the show goes first.
+        val ranked = rank(pool(links, EpisodeCheck.targetOf(videoId), videoId)).filter { LinkMemory.bad(it) == null }
+        val mine = ranked.filter { LinkMemory.pickMatch(videoId, it) > 0 }.sortedByDescending { LinkMemory.pickMatch(videoId, it) }
+        return mine.take(1) + ranked.filter { it !in mine.take(1) }
+    }
 
     private val checkClient by lazy { Net.http.newBuilder().callTimeout(3_000, TimeUnit.MILLISECONDS).build() }
 

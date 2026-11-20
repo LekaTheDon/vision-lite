@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -64,7 +65,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private enum class Panel { AUDIO, SUBS, SPEED, STATS }
+private enum class Panel { AUDIO, SUBS, SPEED, STATS, SYNC, SLEEP }
 
 private val Aspects = listOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT to "Fit",
@@ -90,6 +91,10 @@ internal fun Controls(
     segments: List<Segment> = emptyList(), skipMode: String = "button", nextPopup: Boolean = true, autoNext: Boolean = false,
     /** Live TV: Up / Down (and CH+ / CH−) switch channel while the buttons are hidden. */
     onZap: ((Int) -> Unit)? = null,
+    /** Sync panel changed a delay: the engine applies it (MPV properties / an ExoPlayer flush). */
+    onDelays: () -> Unit = {},
+    /** Seek thumbnails for this link (null = none: live TV, small boxes, switched off). */
+    thumbs: SeekThumbs? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -130,6 +135,27 @@ internal fun Controls(
         delay(650); player.seekTo(t); pos = t; seekTo = null; seekRepeats = 0
     }
     LaunchedEffect(note) { if (note.isNotEmpty()) { delay(3_500); note = "" } }
+    // Sleep timer: pauses at the time picked, or just before the end of this episode (no next episode then).
+    var sleepAt by remember { mutableStateOf<Long?>(null) }
+    var sleepEnd by remember { mutableStateOf(false) }
+    LaunchedEffect(sleepAt, sleepEnd) {
+        if (sleepAt == null && !sleepEnd) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            val d = player.duration
+            val due = sleepAt?.let { System.currentTimeMillis() >= it } ?: (d > 0 && d - player.currentPosition < 2_000)
+            if (due) { player.pause(); sleepAt = null; sleepEnd = false; note = "Sleep timer: paused"; break }
+        }
+    }
+    // Seek thumbnail: asked only while a seek is pending, for the spot it would land on.
+    var thumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(seekTo != null) { if (seekTo == null) thumb = null }
+    LaunchedEffect(seekTo?.div(10_000)) {
+        val t = seekTo ?: return@LaunchedEffect
+        if (thumbs == null) return@LaunchedEffect
+        delay(120)
+        thumbs.at(t)?.let { thumb = it }
+    }
     LaunchedEffect(visible) { runCatching { if (visible) playButton.requestFocus() else root.requestFocus() } }
 
     // Skip intro / recap / outro / credits (Vision's IntroDB + AniSkip) and the next-episode popup.
@@ -220,6 +246,15 @@ internal fun Controls(
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000)))).padding(start = 48.dp, end = 48.dp, top = 60.dp, bottom = 28.dp)) {
             val shown = seekTo ?: pos
             var barFocused by remember { mutableStateOf(false) }
+            thumb?.takeIf { seekTo != null && dur > 0 }?.let { b ->
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+                    val x = ((maxWidth - 240.dp) * (shown.toFloat() / dur).coerceIn(0f, 1f))
+                    Column(Modifier.padding(start = x).width(240.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        androidx.compose.foundation.Image(b.asImageBitmap(), null, Modifier.width(240.dp).height(135.dp).clip(RoundedCornerShape(8.dp)))
+                        Text(clock(shown), color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(clock(shown), color = Color.White, fontSize = 14.sp)
                 Box(Modifier.weight(1f).padding(horizontal = 14.dp).height(if (barFocused) 8.dp else 4.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x40FFFFFF))
@@ -247,6 +282,8 @@ internal fun Controls(
                 IconPill(Icons.Audio, "Audio") { panel = Panel.AUDIO }
                 IconPill(Icons.Subtitles, "Subtitles") { panel = Panel.SUBS }
                 IconPill(Icons.Speed, "Speed ${fmtSpeed(speed)}") { panel = Panel.SPEED }
+                if (onZap == null) IconPill(Icons.Sync, "Sync · audio ${Sync.label(Sync.audioMs)} · subs ${Sync.label(Sync.subMs)}") { panel = Panel.SYNC }
+                IconPill(Icons.Sleep, sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: if (sleepEnd) "Sleep at the end" else "Sleep timer") { panel = Panel.SLEEP }
                 IconPill(Icons.Aspect, Aspects[aspect].second) { aspect = (aspect + 1) % Aspects.size; onAspect(Aspects[aspect].first) }
                 if (vs10) IconPill(Icons.Hdr, "VS10") {
                     note = "VS10…"
@@ -263,6 +300,20 @@ internal fun Controls(
             Panel.SUBS -> TrackPanel("Subtitles", player, C.TRACK_TYPE_TEXT, allowOff = true) { panel = null }
             Panel.SPEED -> SidePanel("Speed", Speeds.map { fmtSpeed(it) }, Speeds.indexOf(speed)) { i -> speed = Speeds[i]; player.setPlaybackSpeed(speed); panel = null }
             Panel.STATS -> StatsPanel(remember(engine) { stats() }, Modifier.align(Alignment.TopEnd))
+            Panel.SYNC -> SyncPanel(onDelays)
+            Panel.SLEEP -> {
+                val opts = listOf(0, 15, 30, 45, 60, 90)
+                val labels = opts.map { if (it == 0) "Off" else "$it minutes" } + (if (dur > 0 && onZap == null) listOf("End of this episode / film") else emptyList())
+                val sel = when { sleepEnd -> opts.size; sleepAt == null -> 0; else -> -1 }
+                SidePanel("Sleep timer", labels, sel) { i ->
+                    when {
+                        i == 0 -> { sleepAt = null; sleepEnd = false; note = "Sleep timer off" }
+                        i < opts.size -> { sleepEnd = false; sleepAt = System.currentTimeMillis() + opts[i] * 60_000L; note = "Pauses in ${opts[i]} minutes" }
+                        else -> { sleepAt = null; sleepEnd = true; note = "Pauses at the end" }
+                    }
+                    panel = null
+                }
+            }
             null -> {}
         }
     }
@@ -273,6 +324,46 @@ private fun vs10Text(s: Vs10Engine.Step): String {
     val src = when (s.source) { Vs10Engine.Source.SDR -> "SDR"; Vs10Engine.Source.HDR10 -> "HDR10"; Vs10Engine.Source.MPV -> "mpv" }
     val to = when (s.mode) { Vs10Engine.Mode.OFF -> "off"; Vs10Engine.Mode.HDR10 -> "HDR10"; Vs10Engine.Mode.DV -> "Dolby Vision"; null -> "?" }
     return "VS10: $src → $to"
+}
+
+/** Audio and subtitle delay: Left / Right move a line by 50 ms (held: faster), OK on a line sets it back to 0. */
+@Composable
+private fun SyncPanel(onDelays: () -> Unit) {
+    var a by remember { mutableLongStateOf(Sync.audioMs) }
+    var sub by remember { mutableLongStateOf(Sync.subMs) }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(30); runCatching { first.requestFocus() } }
+    // Applied once the presses stop (the ExoPlayer flush is a short re-buffer).
+    LaunchedEffect(a, sub) { if (a != Sync.audioMs || sub != Sync.subMs) { delay(500); Sync.set(a, sub); onDelays() } }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Color(0xF0101114)).padding(24.dp)) {
+            Text("Sync", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Remembered for this title. Left / Right: 50 ms; OK: back to 0", color = Color(0xFFBDBDBD), fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+            listOf(true, false).forEach { audio ->
+                var reps by remember { mutableIntStateOf(0) }
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().then(if (audio) Modifier.focusRequester(first) else Modifier)) {
+                    var f by remember { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().onFocusChanged { f = it.isFocused }.focusable().onKeyEvent { e ->
+                        if (e.type == KeyEventType.KeyUp) { reps = 0; return@onKeyEvent false }
+                        if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        val d = Sync.STEP * if (++reps > 10) 4 else 1
+                        when (e.key) {
+                            Key.DirectionLeft -> { if (audio) a = (a - d).coerceAtLeast(-Sync.LIMIT) else sub = (sub - d).coerceAtLeast(-Sync.LIMIT); true }
+                            Key.DirectionRight -> { if (audio) a = (a + d).coerceAtMost(Sync.LIMIT) else sub = (sub + d).coerceAtMost(Sync.LIMIT); true }
+                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { if (audio) a = 0 else sub = 0; true }
+                            else -> false
+                        }
+                    }.background(if (f) Color.White else Color(0x14FFFFFF)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(if (audio) "Audio delay" else "Subtitle delay", color = if (f) Color.Black else Color.White, fontSize = 16.sp)
+                            Text(if (audio) "+ = sound later" else "+ = subtitles later", color = if (f) Color.DarkGray else Color(0xFFBDBDBD), fontSize = 12.sp)
+                        }
+                        Text("‹  " + Sync.label(if (audio) a else sub) + "  ›", color = if (f) Color.Black else Color(0xFFD9DC8E), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** A round icon button; its name shows under it while focused (Vision's control deck). */

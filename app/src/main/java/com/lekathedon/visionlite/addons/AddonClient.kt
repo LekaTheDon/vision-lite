@@ -30,6 +30,9 @@ class AddonClient(private val store: AddonStore) {
         return metas
     }
 
+    /** Details already fetched (title page open before); no network. */
+    fun cachedMeta(type: String, id: String): Meta? = synchronized(metaCache) { metaCache["$type/$id"] }
+
     /** Details from the first add-on that serves meta for this id (installed order). */
     suspend fun meta(type: String, id: String): Meta? {
         val key = "$type/$id"

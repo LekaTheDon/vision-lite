@@ -87,7 +87,11 @@ object Iptv {
     // ---- loading ----
 
     /** Loads playlists never loaded or older than a day (called when Live TV opens). */
+    /** Live TV or Sports was opened this session: Sports may then run in the background for reminders and alerts. */
+    val openedThisSession = kotlinx.coroutines.flow.MutableStateFlow(false)
+
     suspend fun ensureLoaded() {
+        openedThisSession.value = true
         val now = System.currentTimeMillis()
         playlists().filter { now - loadedAt(it.id) > STALE_MS }.forEach { refresh(it) }
     }

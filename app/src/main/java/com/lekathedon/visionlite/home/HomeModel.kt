@@ -34,6 +34,8 @@ data class Row(
  * the charts) and, when switched on, every add-on catalog that needs no extra. A row loads only when it comes near
  * the screen ([need]); add-on rows ask more pages only when focus nears their end ([more]).
  */
+private const val SERVER_ROW = "vision/server"
+
 class HomeModel : ViewModel() {
     private val app = App.instance
     private val state = MutableStateFlow<List<Row>>(emptyList())
@@ -65,7 +67,7 @@ class HomeModel : ViewModel() {
     init {
         viewModelScope.launch {
             app.addons.ensureDefaults()
-            combine(app.addons.addons, app.prefs.rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow) { list, _, _, _ -> list }
+            combine(app.addons.addons, app.prefs.rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow, com.lekathedon.visionlite.integrations.Integrations.changed) { list, _, _, _, _ -> list }
                 .collect { list -> rebuild(list) }
         }
         // Vision's rows follow their sources: anything new there shows on Home at once.
@@ -96,7 +98,10 @@ class HomeModel : ViewModel() {
             })
         }
         // Lists added from the phone: after Vision's rows, before the add-ons.
-        val imported = ImportedLists.all().map { l -> old[l.key] ?: Row(l.key, l.name, null, null, emptyList(), done = false) }
+        val imported = ImportedLists.all().map { l -> old[l.key] ?: Row(l.key, l.name, null, null, emptyList(), done = false) } +
+            // Plex / Jellyfin: what was added last (only when signed in; asked when the row comes near).
+            (if (com.lekathedon.visionlite.streams.MediaServers.plexOn() || com.lekathedon.visionlite.streams.MediaServers.jellyfinOn())
+                listOf(old[SERVER_ROW] ?: Row(SERVER_ROW, "New on your server", null, null, emptyList(), done = false)) else emptyList())
         val addons = if (!app.prefs.addonRows.value) emptyList() else list.flatMap { a ->
             a.manifest.catalogs.filter { it.isBoardRow }.map { c ->
                 val key = "${a.manifest.id}/${c.type}/${c.id}"
@@ -142,6 +147,14 @@ class HomeModel : ViewModel() {
             VisionRows.AI -> viewModelScope.launch { runCatching { AiPicks.refreshIfDue() } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             VisionRows.PEOPLE -> {}
+            SERVER_ROW -> {
+                loading[key] = viewModelScope.launch {
+                    val items = runCatching { com.lekathedon.visionlite.streams.MediaServers.recentlyAdded() }.getOrDefault(emptyList())
+                    set(key, items.map { MetaPreview(it.id, it.type, it.name, posterOf(it.id), backdropOf(it.id)) })
+                    loading.remove(key)
+                }
+                return
+            }
             else -> ImportedLists.all().firstOrNull { it.key == key }?.let { l ->
                 loading[key] = viewModelScope.launch {
                     set(key, ImportedLists.items(l))

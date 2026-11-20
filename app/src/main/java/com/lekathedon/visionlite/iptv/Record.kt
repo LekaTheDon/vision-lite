@@ -105,6 +105,17 @@ object Recorder {
         alarm(r)
     }
 
+    /** Records [c] from [start] to [stop] (Sports: a game, a few minutes early, as long as you chose). */
+    fun scheduleAt(c: Channel, title: String, start: Long, stop: Long): Rec {
+        val now = System.currentTimeMillis()
+        val r = make(c, title, maxOf(start, now), stop)
+        save(_list.value + r)
+        if (r.start <= now + 5_000) start(r.id) else alarm(r)
+        return r
+    }
+
+    fun isRecording(url: String, start: Long) = _list.value.any { it.url == url && (it.state == "scheduled" || it.state == "recording") && kotlin.math.abs(it.start - start) < 3600_000L }
+
     fun isSet(c: Channel, pr: EpgProgram) = _list.value.any { it.url == c.url && it.title == pr.title && it.start == pr.startMs - 60_000L && it.state == "scheduled" }
 
     fun unschedule(c: Channel, pr: EpgProgram) { _list.value.filter { it.url == c.url && it.title == pr.title && it.state == "scheduled" }.forEach { cancel(it.id) } }

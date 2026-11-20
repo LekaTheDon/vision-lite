@@ -97,6 +97,8 @@ class MainActivity : ComponentActivity() {
                         Screen.LiveTv -> com.lekathedon.visionlite.iptv.LiveTv(nav)
                         Screen.Sports -> com.lekathedon.visionlite.sports.SportsScreen(nav)
                         Screen.SportsTeams -> com.lekathedon.visionlite.sports.SportsTeams()
+                        Screen.SportsMyTeams -> com.lekathedon.visionlite.sports.SportsMyTeamsPage(nav)
+                        is Screen.SportsGame -> com.lekathedon.visionlite.sports.SportsGamePage(nav, s.id)
                         is Screen.Standings -> com.lekathedon.visionlite.sports.SportsStandings(s.leagueId)
                         Screen.Vod -> com.lekathedon.visionlite.iptv.VodScreen(nav)
                         Screen.Recordings -> com.lekathedon.visionlite.iptv.RecordingsScreen(nav)
@@ -119,6 +121,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.Integration -> com.lekathedon.visionlite.integrations.ServiceScreen(nav, s.id)
                     }
                   }
+                  // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).
+                  com.lekathedon.visionlite.sports.SportsHost(nav)
                   if (hub != null) {
                       val pillHome = remember { androidx.compose.ui.focus.FocusRequester() }
                       var pillFocused by remember { androidx.compose.runtime.mutableStateOf(false) }

@@ -17,6 +17,8 @@ sealed interface Screen {
     data object LiveTv : Screen
     data object Sports : Screen
     data object SportsTeams : Screen
+    data object SportsMyTeams : Screen
+    data class SportsGame(val id: String) : Screen
     data class Standings(val leagueId: String) : Screen
     data object Vod : Screen
     data object Recordings : Screen

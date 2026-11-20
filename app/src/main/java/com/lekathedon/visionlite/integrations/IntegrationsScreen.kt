@@ -189,6 +189,10 @@ private fun ServicePanel(s: Service, nav: Nav, first: FocusRequester, setup: Boo
     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         when {
             s.signIn -> Button(if (set) "Signed in" else "Sign in", { nav.push(if (s.id == "trakt") Screen.Trakt else Screen.SignIn(s.id)) }, Modifier.focusRequester(first))
+            s.id == "jellyfin" -> {
+                Button(if (com.lekathedon.visionlite.streams.MediaServers.jfAddress().isBlank()) "Enter address" else "Change address", { asking = true }, if (com.lekathedon.visionlite.streams.MediaServers.jfAddress().isBlank()) Modifier.focusRequester(first) else Modifier)
+                if (com.lekathedon.visionlite.streams.MediaServers.jfAddress().isNotBlank()) Button(if (set) "Signed in" else "Quick Connect", { nav.push(Screen.SignIn(s.id)) }, Modifier.focusRequester(first))
+            }
             s.fields.isNotEmpty() -> Button(if (set) "Change key" else "Enter key", { asking = true }, Modifier.focusRequester(first))
             else -> Button(if (setup) "Next" else "Back", if (setup) next else back, Modifier.focusRequester(first))
         }

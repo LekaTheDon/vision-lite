@@ -60,6 +60,16 @@ object PlayerReturn {
  */
 @OptIn(UnstableApi::class)
 private class Renderers(context: Context, private val fel: Boolean, private val blocked: Set<String> = emptySet()) : DefaultRenderersFactory(context) {
+    /** Sync (Vision's SubtitleOffsetRenderer): text is drawn at the position moved by the audio and subtitle delays. */
+    override fun buildTextRenderers(context: Context, output: androidx.media3.exoplayer.text.TextOutput, outputLooper: android.os.Looper,
+                                    extensionRendererMode: Int, out: ArrayList<Renderer>) {
+        val start = out.size
+        super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, out)
+        for (i in start until out.size) out[i] = object : androidx.media3.exoplayer.ForwardingRenderer(out[i]) {
+            override fun render(positionUs: Long, elapsedRealtimeUs: Long) =
+                super.render((positionUs + Sync.audioMs * 1000 - Sync.subMs * 1000).coerceAtLeast(0L), elapsedRealtimeUs)
+        }
+    }
     init { setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
     /** This TV › Sound: a format set to "Decode in the box" is never sent as a bitstream; FFmpeg/MediaCodec decode it. */
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? {
@@ -176,6 +186,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val resMatch = prefs.matchRes.value
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var failNote by remember(s.url) { mutableStateOf<String?>(null) }
+    remember(s.id) { Sync.open(if (s.type == "live") "" else s.id); 0 }
     var firstFrame by remember(s.url, gen) { mutableStateOf(false) }
     val exoStats = remember(s.url, gen, felAllowed, addonSubs) { ExoStats() }
     val mpvView = remember(s.url, gen) {
@@ -193,6 +204,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             com.lekathedon.visionlite.player.mpv.MpvPlayer(mpvView!!, s.url, s.headers, session.resumeAt).apply {
                 Hud.decoder = null
                 onLoaded = {
+                    view.delays(Sync.audioMs, Sync.subMs)
                     if (addonSubs) com.lekathedon.visionlite.addons.Subs.forId(s.id).forEach { sub -> view.addSubtitle(sub.url, "${sub.lang} · add-on", sub.lang) }
                     if (afr || resMatch) DisplayMatch.apply(context, view.prop("container-fps")?.toFloatOrNull() ?: 0f,
                         view.prop("width")?.toIntOrNull() ?: 0, view.prop("height")?.toIntOrNull() ?: 0, afr, resMatch)
@@ -225,7 +237,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, parsers to ass)).also { it.setSubtitleParserFactory(parsers) }
             }
             ExoPlayer.Builder(context, renderers)
-                .setMediaSourceFactory(sources)
+                .setMediaSourceFactory(Sync.wrap(sources))
                 .apply { loadControl(prefs.buffer.value)?.let { setLoadControl(it) } }
                 .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                 .build().apply {
@@ -268,13 +280,42 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             v.tracks().filter { it.type == "audio" }.firstOrNull { t -> t.lang?.lowercase()?.let { it in forms } == true }?.let { if (!it.selected) v.selectAudio(it.id) }
         }
     }
+    // Sports failover (Vision, idea from CouchSide): a game's channel that fails, or shows nothing for 15 s, hands over
+    // to the next channel found for the same game. Only for channels started from Sports; other channels are left alone.
+    fun sportsFailover(): Boolean {
+        if (s.type != "live") return false
+        val key = com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url)?.key ?: return false
+        val (game, ch) = com.lekathedon.visionlite.sports.SportsFailover.next(key) ?: return false
+        failNote = "This channel won't play · trying ${ch.name} for $game"
+        com.lekathedon.visionlite.iptv.Iptv.channelsByKey(listOf(ch.key)).firstOrNull()?.let { com.lekathedon.visionlite.iptv.Iptv.played(it) }
+        nav.replace(Screen.Player(ch.url, ch.name, ch.headers, type = "live"))
+        return true
+    }
+    androidx.compose.runtime.LaunchedEffect(s.url, gen) {
+        if (s.type != "live") return@LaunchedEffect
+        kotlinx.coroutines.delay(15_000)
+        if (!firstFrame) sportsFailover()
+    }
+    // Link memory: a link that plays 2 minutes without buffering trouble clears its mark and becomes your pick for the show.
+    val linkKey = remember(s.url) { if (s.type != "live" && s.addon.isNotBlank()) com.lekathedon.visionlite.streams.LinkMemory.keyOf(s.addon, s.name) else null }
+    val stalls = remember(s.url) { intArrayOf(0) }
+    androidx.compose.runtime.LaunchedEffect(firstFrame, linkKey) {
+        if (!firstFrame || linkKey == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(120_000)
+        if (stalls[0] < 3) { com.lekathedon.visionlite.streams.LinkMemory.clear(linkKey); com.lekathedon.visionlite.streams.LinkMemory.rememberPick(s.id, s.addon, s.name) }
+    }
     androidx.compose.runtime.LaunchedEffect(switchNote) { if (switchNote != null) { kotlinx.coroutines.delay(2_200); switchNote = null } }
     DisposableEffect(player) {
         val myAss = assRef[0]
         var subsChecked = false
         var pausedByUser = false
+        var lastSeek = 0L
+        var stallFrom = 0L
         val listener = object : MediaPlayer.Listener {
             override fun onRenderedFirstFrame() { firstFrame = true }
+            override fun onPositionDiscontinuity(oldPosition: MediaPlayer.PositionInfo, newPosition: MediaPlayer.PositionInfo, reason: Int) {
+                if (reason == MediaPlayer.DISCONTINUITY_REASON_SEEK) lastSeek = System.currentTimeMillis()
+            }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (reason != MediaPlayer.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) return
                 if (!playWhenReady) { pausedByUser = true; return }
@@ -284,6 +325,13 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == MediaPlayer.STATE_READY && current == Engine.MPV) firstFrame = true
+                // Buffering that isn't a seek, after the picture came, lasting over 2 s: 3 of them mark the link.
+                val nowMs = System.currentTimeMillis()
+                if (state == MediaPlayer.STATE_BUFFERING && firstFrame && nowMs - lastSeek > 3_000) stallFrom = nowMs
+                if (state == MediaPlayer.STATE_READY && stallFrom > 0) {
+                    if (nowMs - stallFrom > 2_000 && ++stalls[0] == 3) linkKey?.let { com.lekathedon.visionlite.streams.LinkMemory.mark(it, com.lekathedon.visionlite.streams.LinkMemory.Bad.BUFFERED) }
+                    stallFrom = 0
+                }
                 if (state == MediaPlayer.STATE_ENDED && prefs.nextEpisode.value && s.type == "series") scope.launch { nextEpisode(nav, s) }
             }
             override fun onPlayerError(error: PlaybackException) {
@@ -307,6 +355,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     session.reason = "MPV couldn't start it"
                     switchTo(Engine.EXO, "startup-failover", at); return
                 }
+                if (sportsFailover()) return
+                if (at < 15_000) linkKey?.let { com.lekathedon.visionlite.streams.LinkMemory.mark(it, com.lekathedon.visionlite.streams.LinkMemory.Bad.FAILED) }
                 // The link died before it really played: the next link of the same list (Vision's source fallback).
                 if (at < 15_000 && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
                     failNote = "Link failed · trying the next one"
@@ -397,7 +447,16 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {
             if (skipMode != "off" || (prefs.nextPopup.value && s.type == "series")) value = Skips.find(s.type, s.id)
         }
+        val thumbs = remember(s.url) {
+            if (s.type == "live" || !prefs.seekThumbs.value || !SeekThumbs.allowed(context)) null else SeekThumbs(s.url, s.headers)
+        }
+        DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
         Controls(player, s.title, canNext = s.type == "series",
+            onDelays = {
+                if (current == Engine.MPV) mpvView?.delays(Sync.audioMs, Sync.subMs)
+                else player.seekTo(player.currentPosition)
+            },
+            thumbs = thumbs,
             onNext = { scope.launch { nextEpisode(nav, s) } },
             onSources = { nav.pop() },
             onAspect = { mode ->

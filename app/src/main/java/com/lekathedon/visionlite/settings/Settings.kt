@@ -177,13 +177,17 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Sort links", "", p.streamSort, SortOpts, m) }
         row { m -> Choice("Highest quality", "Links above this are hidden", p.maxQuality, QualityOpts, m) }
         row { m -> Choice("File size limit", "Bigger links are hidden", p.sizeLimit, SizeOpts, m) }
-        row { m -> Toggle("Hide torrent-only links", "Links that need a debrid add-on to play", p.hideTorrents, m) }
+        row { m -> Toggle("Hide torrent-only links", "Links that need a debrid account or add-on to play", p.hideTorrents, m) }
         row { m -> Toggle("Hide cinema recordings", "CAM and TS copies", p.hideCam, m) }
         head("Autoplay")
         row { m -> Toggle("Smart autoplay", "Plays the right episode, 4K first, then the biggest file. Off until Vision TB is autoplay safe", p.autoplay, m) }
-        head("Not in Lite yet")
+        head("Debrid accounts (torrent links from your add-ons)")
         row { m -> ServiceRow("realdebrid", nav, m) }
+        row { m -> ServiceRow("alldebrid", nav, m) }
         row { m -> ServiceRow("premiumize", nav, m) }
+        head("Your media servers")
+        row { m -> ServiceRow("plex", nav, m) }
+        row { m -> ServiceRow("jellyfin", nav, m) }
     }
     pages += page("Tracking and lists", "Where Continue watching, Library and watched marks come from", {
         watchServices()
@@ -227,6 +231,7 @@ fun Settings(nav: Nav, start: String? = null) {
         head("How they look")
         row { m -> Choice("Size", "", p.subSize, SubSizeOpts, m) }
         row { m -> Choice("Style", "", p.subStyle, SubStyleOpts, m) }
+        row { m -> Toggle("Seek thumbnails", "A picture of the spot while you seek (boxes under 3 GB skip it)", p.seekThumbs, m) }
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
     }
     pages += page("Home and look", "Rows, posters, clock, background", {
@@ -317,6 +322,16 @@ fun Settings(nav: Nav, start: String? = null) {
         }
         head("Sports")
         row { m -> Link("My teams", "Follow teams and leagues", m) { nav.push(Screen.SportsTeams) } }
+        row { m -> SportsSwitch("Remind me of my teams' games", "A card a few minutes before they start", m, { it.remindMyTeams }) { s, v -> s.copy(remindMyTeams = v) } }
+        row { m ->
+            var v by remember { mutableStateOf(com.lekathedon.visionlite.sports.Sports.settings.remindMinutes.toString()) }
+            ChoiceOf("Remind me", "How long before the start", v, RemindOpts, m) { pick -> v = pick
+                com.lekathedon.visionlite.sports.SportsMine.saveSettings(com.lekathedon.visionlite.sports.Sports.settings.copy(remindMinutes = pick.toInt())) }
+        }
+        row { m -> SportsSwitch("Switch to the game by itself", "When a reminder is up: its best channel a minute before the start (10 s to cancel)", m, { it.autoSwitch }) { s, v -> s.copy(autoSwitch = v) } }
+        row { m -> SportsSwitch("Scoring alerts", "A card when a team you follow scores (waits 30 s so it never beats your stream)", m, { it.scoringAlerts }) { s, v -> s.copy(scoringAlerts = v) } }
+        row { m -> SportsSwitch("Hide scores", "No spoilers: scores stay hidden until you open a game", m, { it.hideScores }) { s, v -> s.copy(hideScores = v) } }
+        row { m -> SportsSwitch("Only games on my channels", "Leave out games none of your channels show (your teams always show)", m, { it.onlyOnMyChannels }) { s, v -> s.copy(onlyOnMyChannels = v) } }
         head("YouTube and Music")
         row { m -> Link("YouTube account", "Your subscriptions, Music library and history", m,
             value = if (com.lekathedon.visionlite.youtube.Yt.signedIn) "Signed in" else "Sign in") { nav.push(Screen.YouTube("ACCOUNT")) } }
@@ -541,6 +556,17 @@ private suspend fun clearImages(): String = kotlinx.coroutines.withContext(kotli
     loader.memoryCache?.clear()
     loader.diskCache?.clear()
     "Cleared"
+}
+
+private val RemindOpts = listOf("0" to "At the start", "5" to "5 min before", "10" to "10 min before", "15" to "15 min before", "30" to "30 min before", "60" to "1 hour before")
+
+/** A Sports setting (kept in Sports' own settings, as Vision). */
+@Composable
+private fun SportsSwitch(title: String, sub: String, modifier: Modifier, get: (com.lekathedon.visionlite.sports.SportsSettings) -> Boolean,
+                         set: (com.lekathedon.visionlite.sports.SportsSettings, Boolean) -> com.lekathedon.visionlite.sports.SportsSettings) {
+    var on by remember { mutableStateOf(get(com.lekathedon.visionlite.sports.Sports.settings)) }
+    Focusable({ on = !on; com.lekathedon.visionlite.sports.SportsMine.saveSettings(set(com.lekathedon.visionlite.sports.Sports.settings, on)) },
+        modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f -> RowText(title, sub, null, f, switch = on) }
 }
 
 @Composable

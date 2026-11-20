@@ -40,9 +40,9 @@ object Integrations {
     val all: List<Service> = listOf(
         Service("torbox", "TorBox", Group.LINKS, "Vision TB: TorBox-cached links first", "torbox.app → Settings → API key",
             listOf(Field("TorBox API key", secret = true))) { v -> ok(get("https://api.torbox.app/v1/api/user/me", bearer = v[0])) },
-        Service("realdebrid", "Real-Debrid", Group.LINKS, null, "real-debrid.com/apitoken",
-            listOf(Field("Real-Debrid API token", secret = true))) { v -> ok(get("https://api.real-debrid.com/rest/1.0/user", bearer = v[0])) },
-        Service("premiumize", "Premiumize", Group.LINKS, null, "premiumize.me/account → API key",
+        Service("realdebrid", "Real-Debrid", Group.LINKS, "Torrent links from your add-ons play through it", "Sign in: scan, approve on real-debrid.com", signIn = true),
+        Service("alldebrid", "AllDebrid", Group.LINKS, "Torrent links from your add-ons play through it", "Sign in: scan, enter the code on alldebrid.com", signIn = true),
+        Service("premiumize", "Premiumize", Group.LINKS, "Torrent links from your add-ons play through it", "premiumize.me/account → API key",
             listOf(Field("Premiumize API key", secret = true))) { v ->
             get("https://www.premiumize.me/api/account/info?apikey=${enc(v[0])}")?.second?.contains("\"success\"") == true },
 
@@ -72,6 +72,9 @@ object Integrations {
             listOf(Field("Mistral API key", secret = true))) { v -> ok(get("https://api.mistral.ai/v1/models", bearer = v[0])) },
 
         Service("youtube", "YouTube", Group.EXTRAS, null, "Sign-in comes with YouTube"),
+        Service("plex", "Plex", Group.EXTRAS, "Your Plex files in the links list and a Home row", "Sign in: enter the code at plex.tv/link", signIn = true),
+        Service("jellyfin", "Jellyfin", Group.EXTRAS, "Your Jellyfin files in the links list and a Home row",
+            "Its address from the phone, then Quick Connect (approve the code in Jellyfin)", listOf(Field("Jellyfin address (e.g. 192.168.1.20:8096)", secret = false))),
     )
 
     fun byId(id: String) = all.first { it.id == id }
@@ -90,6 +93,10 @@ object Integrations {
     fun touch() = bump()
     /** Sign-ins on the service's website (SignInScreen); Trakt has its own page. */
     val WEB = setOf("simkl", "anilist", "mal", "nuvio")
+    /** Debrid sign-ins by code (streams.DebridSignIn); they use the same sign-in page. */
+    val DEBRID = setOf("realdebrid", "alldebrid")
+    /** Media servers (streams.MediaServers): Plex by code; Jellyfin by address, then Quick Connect. */
+    val SERVERS = setOf("plex", "jellyfin")
 
     /** TorBox keeps Vision TB's key. */
     private fun keyId(s: Service) = s.id
@@ -107,6 +114,8 @@ object Integrations {
     fun clear(s: Service) {
         if (s.id == "trakt") App.instance.trakt.disconnect()
         if (s.id in WEB) SignIns.signOut(s.id)
+        if (s.id in DEBRID) com.lekathedon.visionlite.streams.DebridSignIn.signOut(s.id)
+        if (s.id in SERVERS) com.lekathedon.visionlite.streams.MediaServers.signOut(s.id)
         s.fields.indices.forEach { field(s, it).value = "" }
         if (s.id == "torbox") p.visionTb.value = false
         status(s).value = ""
@@ -116,6 +125,8 @@ object Integrations {
     fun isSet(s: Service): Boolean = when {
         s.id == "trakt" -> App.instance.trakt.connected.value != null
         s.id in WEB -> SignIns.signedIn(s.id)
+        s.id in DEBRID -> com.lekathedon.visionlite.streams.DebridSignIn.signedIn(s.id)
+        s.id in SERVERS -> com.lekathedon.visionlite.streams.MediaServers.signedIn(s.id)
         s.fields.isEmpty() -> false
         else -> field(s, 0).value.isNotBlank()
     }

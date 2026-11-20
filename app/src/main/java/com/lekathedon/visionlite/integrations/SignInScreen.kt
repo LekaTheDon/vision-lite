@@ -42,7 +42,9 @@ fun SignInScreen(nav: Nav, id: String) {
     var code by remember { mutableStateOf<SignIns.Code?>(null) }
     var pasting by remember { mutableStateOf(false) }
     val nuvio = id == "nuvio"
-    val qr = id == "simkl" || nuvio
+    val debrid = id in Integrations.DEBRID
+    val server = id in Integrations.SERVERS
+    val qr = id == "simkl" || nuvio || debrid || server
     var profiles by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
     var prof by remember { mutableStateOf(SignIns.nuvioProfile()) }
     LaunchedEffect(nuvio) { if (nuvio && SignIns.signedIn("nuvio")) profiles = SignIns.nuvioProfiles() }
@@ -51,6 +53,21 @@ fun SignInScreen(nav: Nav, id: String) {
     LaunchedEffect(round) {
         if (round == 0 || !qr) return@LaunchedEffect
         code = null; msg = "Asking ${s.name} for a code…"
+        if (server) {
+            val MS = com.lekathedon.visionlite.streams.MediaServers
+            val sc = runCatching { if (id == "plex") MS.plexStart() else MS.jfStart() }.getOrElse { msg = "${s.name}: ${it.message}"; return@LaunchedEffect }
+            code = SignIns.Code(sc.url, sc.userCode, 3, sc.expiresIn, null); msg = ""
+            if (if (id == "plex") MS.plexWait(sc) else MS.jfWait(sc)) { Integrations.touch(); nav.pop() }
+            else { code = null; msg = "The code expired or was refused. Try again." }
+            return@LaunchedEffect
+        }
+        if (debrid) {
+            val dc = runCatching { com.lekathedon.visionlite.streams.DebridSignIn.start(id) }.getOrElse { msg = "${s.name} not reachable (${it.message})"; return@LaunchedEffect }
+            code = SignIns.Code(dc.url, dc.userCode, dc.interval, dc.expiresIn, null); msg = ""
+            if (com.lekathedon.visionlite.streams.DebridSignIn.wait(id, dc)) { Integrations.touch(); nav.pop() }
+            else { code = null; msg = "The code expired or was refused. Try again." }
+            return@LaunchedEffect
+        }
         val c = runCatching { if (nuvio) SignIns.nuvioStart() else SignIns.simklStart() }.getOrElse { msg = "${s.name} not reachable (${it.message})"; return@LaunchedEffect }
         code = c; msg = ""
         if (if (nuvio) SignIns.nuvioWait(c) else SignIns.simklWait(c)) {
@@ -63,12 +80,12 @@ fun SignInScreen(nav: Nav, id: String) {
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp)) {
         Text(s.name, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 14.dp))
         when {
-            !SignIns.configured(id) -> {
+            !debrid && !server && !SignIns.configured(id) -> {
                 Text("This build doesn't have ${s.name}'s app ID yet, so sign-in can't start.", color = Palette.Text, fontSize = 16.sp)
                 Button("Back", { nav.pop() }, Modifier.padding(top = 16.dp).focusRequester(first))
             }
-            SignIns.signedIn(id) -> {
-                Text("Signed in${SignIns.user(id).takeIf { it.isNotBlank() }?.let { " as $it" } ?: ""}.", color = Palette.Text, fontSize = 16.sp)
+            (if (debrid) com.lekathedon.visionlite.streams.DebridSignIn.signedIn(id) else if (server) com.lekathedon.visionlite.streams.MediaServers.signedIn(id) else SignIns.signedIn(id)) -> {
+                Text("Signed in${(if (debrid) com.lekathedon.visionlite.streams.DebridSignIn.user(id) else if (server) com.lekathedon.visionlite.streams.MediaServers.user(id) else SignIns.user(id)).takeIf { it.isNotBlank() }?.let { " as $it" } ?: ""}.", color = Palette.Text, fontSize = 16.sp)
                 if (nuvio && profiles.isNotEmpty()) {
                     Text("Coming up follows this profile:", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
                     Row { profiles.forEach { (n, name) ->

@@ -77,13 +77,8 @@ private fun minuteTick(): Long {
     return t
 }
 
-/** Opens a channel full screen; Up / Down in the player then steps through this game's channels. */
-private fun watch(nav: Nav, m: ChannelMatch, all: List<ChannelMatch>) {
-    val list = Iptv.channelsByKey(all.map { it.channel.key }.distinct())
-    Iptv.zapList = list
-    list.firstOrNull { it.key == m.channel.key }?.let { Iptv.played(it) }
-    nav.push(Screen.Player(m.channel.url, m.channel.name, m.channel.headers, type = "live"))
-}
+/** Opens a channel full screen; Up / Down in the player then steps through this game's channels; failover armed. */
+private fun watch(nav: Nav, ev: SportsEvent, m: ChannelMatch, all: List<ChannelMatch>) = watchGame(nav, ev, m, all)
 
 private fun leagueShort(ev: SportsEvent) = SportsCatalog.league(ev.leagueId)?.short ?: ""
 
@@ -195,7 +190,8 @@ fun SportsScreen(nav: Nav) {
                 Text("My Teams", color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if (mineOnly) FontWeight.Bold else FontWeight.Normal,
                     modifier = Modifier.background(if (f) Color.White else if (mineOnly) Color(0x33FFFFFF) else Color.Transparent).padding(horizontal = 14.dp, vertical = 6.dp))
             }
-            Button("Teams", { nav.push(com.lekathedon.visionlite.ui.Screen.SportsTeams) })
+            Button("My Teams page", { nav.push(Screen.SportsMyTeams) })
+            Button("Pick teams", { nav.push(com.lekathedon.visionlite.ui.Screen.SportsTeams) })
             shown?.leagueId?.takeIf { SportsCatalog.league(it)?.espnPath != null }?.let { id ->
                 Button("Table", { nav.push(com.lekathedon.visionlite.ui.Screen.Standings(id)) })
             }
@@ -207,7 +203,7 @@ fun SportsScreen(nav: Nav) {
                     Text(if (status.isNotEmpty() || events.isEmpty()) "Getting the games…" else if (mineOnly) "None of your teams play this day. Teams: pick them." else "No games this day.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(12.dp))
                 }
                 items(games, key = { it.id }) { ev ->
-                    Focusable({ open = ev; playing = null }, if (ev == games.first()) Modifier.focusRequester(firstGame) else Modifier,
+                    Focusable({ nav.push(Screen.SportsGame(ev.id)) }, if (ev == games.first()) Modifier.focusRequester(firstGame) else Modifier,
                         onFocus = { focused = ev; if (open != null && open != ev) { open = null; playing = null } }) { f ->
                         GameLine(ev, now, matches[ev.id]?.size ?: 0, f)
                     }
@@ -220,7 +216,7 @@ fun SportsScreen(nav: Nav) {
                         else "Channels", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                         items(chans, key = { it.channel.key }) { m ->
-                            Focusable({ if (playing?.channel?.key == m.channel.key) watch(nav, m, chans) else { if (open == null) open = shown; playing = m } },
+                            Focusable({ if (playing?.channel?.key == m.channel.key) watch(nav, shown, m, chans) else { if (open == null) open = shown; playing = m } },
                                 if (m == chans.first()) Modifier.focusRequester(firstChannel) else Modifier) { f ->
                                 ChannelLine(m, playing?.channel?.key == m.channel.key, f)
                             }
@@ -442,7 +438,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp))
                         }
                         items(chans, key = { it.channel.key }) { m ->
-                            Focusable({ if (playing?.channel?.key == m.channel.key) { onDismiss(); watch(nav, m, chans) } else playing = m },
+                            Focusable({ if (playing?.channel?.key == m.channel.key) { onDismiss(); watch(nav, g, m, chans) } else playing = m },
                                 if (m == chans.first()) Modifier.focusRequester(first) else Modifier) { f ->
                                 ChannelLine(m, playing?.channel?.key == m.channel.key, f)
                             }
