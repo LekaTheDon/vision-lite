@@ -118,22 +118,27 @@ private fun decodedInBox(p: com.lekathedon.visionlite.data.Prefs): Set<String> =
     if (!p.ptDtshd.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS_HD); add(androidx.media3.common.MimeTypes.AUDIO_DTS_X) }
 }
 
-/** This TV › Playback buffer. Standard = media3's defaults; Large is capped at half the app's memory. */
+/**
+ * This TV › Playback buffer, inside the box's memory class (device/Tier.kt): Standard = media3's defaults where the
+ * heap has room for them (~140 MB of video), else the same durations held to the class ceiling.
+ */
 @OptIn(UnstableApi::class)
 private fun loadControl(choice: String): androidx.media3.exoplayer.DefaultLoadControl? {
     val mb = 1024 * 1024
+    val ceiling = com.lekathedon.visionlite.device.Tier.exoBufferCeilingMb
     return when (choice) {
         "small" -> androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000).setTargetBufferBytes(48 * mb).build()
+            .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000).setTargetBufferBytes(minOf(48, ceiling) * mb).build()
         "large" -> androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(50_000, 120_000, 2_500, 5_000)
-            .setTargetBufferBytes(minOf(200L * mb, Runtime.getRuntime().maxMemory() / 2).toInt()).build()
-        else -> null
+            .setTargetBufferBytes(minOf(200, ceiling) * mb).build()
+        else -> if (com.lekathedon.visionlite.device.Tier.current == com.lekathedon.visionlite.device.Tier.Class.FULL || ceiling >= 150) null
+            else androidx.media3.exoplayer.DefaultLoadControl.Builder().setTargetBufferBytes(ceiling * mb).build()
     }
 }
 
-/** MPV's read-ahead for the same choice (native memory, outside the app's Java heap). */
-private fun mpvBufferMb(choice: String) = when (choice) { "small" -> 32; "large" -> 192; else -> 64 }
+/** MPV's read-ahead for the same choice (native memory, outside the app's Java heap), sized by the box's class. */
+private fun mpvBufferMb(choice: String) = com.lekathedon.visionlite.device.Tier.mpvBufferMb(choice)
 
 /**
  * Two engines, as in Vision: ExoPlayer (passthrough, DV7 native FEL, VS10, the box's video layer) and MPV (software
@@ -145,6 +150,11 @@ private fun mpvBufferMb(choice: String) = when (choice) { "small" -> 32; "large"
 @Composable
 fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val context = LocalContext.current
+    // Memory and what's starting, for problem reports (the link itself is blanked there).
+    androidx.compose.runtime.LaunchedEffect(s.url) {
+        android.util.Log.i("VLPlayer", "start type=${s.type} id=${s.id} title=${s.title} host=${runCatching { java.net.URI(s.url).host }.getOrNull()}")
+        com.lekathedon.visionlite.report.Mem.snapshot(context, "player-start")
+    }
     val prefs = App.instance.prefs
     val session = remember(s.url) { EngineSession(s.url) }
     // null until the engine is decided (Auto may look the title up for a moment, as Vision does for anime).
@@ -339,6 +349,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
             override fun onPlayerError(error: PlaybackException) {
                 val at = player.currentPosition
+                // Into the log a problem report carries (report/Report.kt redacts links and keys).
+                android.util.Log.e("VLPlayer", "error ${error.errorCodeName} (${error.errorCode}) engine=$current at=${at / 1000}s firstFrame=$firstFrame", error)
                 if (current == Engine.EXO) {
                     if (addonSubs && error.errorCode in 2000..2999 && com.lekathedon.visionlite.addons.Subs.forId(s.id).isNotEmpty()) {
                         session.resumeAt = at; addonSubs = false; return

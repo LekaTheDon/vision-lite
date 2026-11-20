@@ -20,7 +20,9 @@ android {
         buildConfigField("String", "TRAKT_ID", "\"${System.getenv("TRAKT_CLIENT_ID") ?: ""}\"")
         buildConfigField("String", "TRAKT_SECRET", "\"${System.getenv("TRAKT_CLIENT_SECRET") ?: ""}\"")
         // Simkl / AniList / MyAnimeList app IDs (repo secrets too): with them, signing in is just approving on the phone.
-        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET", "NUVIO_KEY"))
+        // Problem reports: an issues-only key for the app's repo (REPORT_TOKEN); without it reports go by phone only.
+        buildConfigField("String", "REPORT_REPO", "\"${System.getenv("REPORT_REPO") ?: "LekaTheDon/vision-lite"}\"")
+        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET", "NUVIO_KEY", "REPORT_TOKEN"))
             buildConfigField("String", k, "\"${System.getenv(k) ?: ""}\"")
     }
 
@@ -45,7 +47,7 @@ android {
         }
     }
     splits {
-        abi { isEnable = true; reset(); include("arm64-v8a", "armeabi-v7a"); isUniversalApk = false }
+        abi { isEnable = true; reset(); include("arm64-v8a", "armeabi-v7a"); isUniversalApk = true }
     }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
     compileOptions {

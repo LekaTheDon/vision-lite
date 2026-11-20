@@ -50,6 +50,9 @@ class MainActivity : ComponentActivity() {
             val asked by app.prefs.deviceAsked.flow.collectAsState()
             val saved = rememberSaveableStateHolder()
             val setupDone by com.lekathedon.visionlite.integrations.Integrations.setupDone.flow.collectAsState()
+            // Ended badly last time (crash, freeze, memory kill)? One card offers a report before Home.
+            var problem by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(
+                com.lekathedon.visionlite.report.Problems.lastUnseen(this@MainActivity)) }
             BackHandler(enabled = nav.canPop) { nav.pop() }
             // The phone companion's requests (Play, details, a channel…): opened like a press on the remote.
             androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -82,6 +85,11 @@ class MainActivity : ComponentActivity() {
                         Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) })
                             // Then, once: every integration and tracker, one page each.
                             else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.integrations.Setup(nav) }
+                            else if (problem != null) problem?.let { pr ->
+                                com.lekathedon.visionlite.report.ProblemPrompt(pr,
+                                    onReport = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen(); nav.push(Screen.Report(pr.kind)) },
+                                    onLater = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen() })
+                            }
                             else saved.SaveableStateProvider("home") {
                                 if (app.prefs.homeLook.flow.collectAsState().value == "classic") Home(nav)
                                 else com.lekathedon.visionlite.home.EchoHome(nav)
@@ -119,6 +127,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)
                         is Screen.SignIn -> com.lekathedon.visionlite.integrations.SignInScreen(nav, s.id)
                         is Screen.Integration -> com.lekathedon.visionlite.integrations.ServiceScreen(nav, s.id)
+                        is Screen.Report -> com.lekathedon.visionlite.report.ReportScreen(nav, s.kind)
                     }
                   }
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).

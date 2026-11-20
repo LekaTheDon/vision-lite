@@ -347,7 +347,9 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         row { m -> ThisTvPane(m, nav) }
     }
-    pages += page("About", "Version, cache, first-start setup", { "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}" }) {
+    pages += page("About", "Version, report a problem, cache, first-start setup", { "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}" }) {
+        head("Help")
+        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Vision Lite team (no keys or logins)", m) { nav.push(Screen.Report()) } }
         head("Vision Lite")
         row { m -> Link("Version", "", m, value = com.lekathedon.visionlite.BuildConfig.VERSION_NAME) {} }
         row { m -> Link("Clear image cache", "Frees memory and disk; posters load again", m, value = cleared) { scope.launch { cleared = clearImages() } } }
@@ -411,6 +413,7 @@ private fun tvWatch() {
     val p = App.instance.prefs
     listOf(p.dv7.flow, p.afr.flow, p.engine.flow, p.buffer.flow, p.maxQuality.flow, p.sizeLimit.flow, p.tvFacts.flow).forEach { it.collectAsState().value }
     listOf(p.matchRes.flow, p.dv5To81.flow, p.stripHdr10Plus.flow, p.ptAc3.flow, p.ptEac3.flow, p.ptTruehd.flow, p.ptDts.flow, p.ptDtshd.flow, p.tvAuto.flow).forEach { it.collectAsState().value }
+    listOf(p.perfClass.flow).forEach { it.collectAsState().value }; p.trailers.flow.collectAsState().value
 }
 
 @Composable

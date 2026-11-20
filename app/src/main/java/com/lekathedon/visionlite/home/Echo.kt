@@ -300,7 +300,7 @@ fun EchoHome(nav: Nav) {
         heroTrailer = null
         val id = heroEntry?.m?.id ?: return@LaunchedEffect
         if (!heroFocused || !trailerLook.on) return@LaunchedEffect
-        heroTrailer = trailerAfterRest(id, trailerLook.delayMs, 2160)?.let { id to it }
+        heroTrailer = trailerAfterRest(id, trailerLook.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))?.let { id to it }
     }
 
     Box(Modifier.fillMaxSize().background(look.page)) {
@@ -893,7 +893,7 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
                 // The opened card plays the title's trailer once focus has rested (Vision's expanded-card target).
                 val look = LocalTrailer.current
                 var trailer by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, 1080) else null }
+                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
                 trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, look.muted, Modifier.fillMaxSize()) { trailer = null } }
                 Box(Modifier.fillMaxSize().background(
                     Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
@@ -919,7 +919,7 @@ private fun RankedCard(rank: Int, m: MetaPreview, dims: EchoDims, modifier: Modi
                 if (f) {
                     val look = LocalTrailer.current
                     var trailer by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, 1080) else null }
+                    LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
                     trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, look.muted, Modifier.fillMaxSize()) { trailer = null } }
                 }
                 Box(Modifier.fillMaxSize().background(
@@ -1252,7 +1252,8 @@ private fun ComingCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onHo
 @Composable
 private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
     val sid = m.id.removePrefix("svc:")
-    LaunchedEffect(Unit) { ServiceClips.preloadAll() }
+    // Light boxes: logos only (each clip is cached 20-40 MB and needs a decoder while it plays).
+    LaunchedEffect(Unit) { if (com.lekathedon.visionlite.device.Tier.videoTiles) ServiceClips.preloadAll() }
     val look = LocalTrailer.current
     EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick) { focused ->
         Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
@@ -1271,7 +1272,7 @@ private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onC
         var clip by remember(sid) { mutableStateOf<ServiceClips.Clip?>(null) }
         LaunchedEffect(focused, sid) {
             clip = null
-            if (!focused || !ServiceClips.has(sid)) return@LaunchedEffect
+            if (!focused || !com.lekathedon.visionlite.device.Tier.videoTiles || !ServiceClips.has(sid)) return@LaunchedEffect
             delay(ServiceClips.START_AFTER_MS)
             clip = ServiceClips.clipFor(sid)
         }

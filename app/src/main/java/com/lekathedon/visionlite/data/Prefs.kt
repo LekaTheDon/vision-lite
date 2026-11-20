@@ -73,6 +73,10 @@ class Prefs(context: Context) {
     val tvAuto = Flag("tv_auto", false)
     /** The last device check's findings (JSON, DeviceCheck.Facts). */
     val tvFacts = Text("tv_facts", "")
+    /** Performance class chosen in This TV ("light"/"standard"/"full"); "" = measured from memory (device/Tier.kt). */
+    val perfClass = Text("perf_class", "")
+    /** Newest app exit (ms) already looked at by the "closed unexpectedly" prompt (report/Problems.kt). */
+    val exitSeen = Text("exit_seen", "0")
 
     // Playback
     /** Player engine: "auto" (Vision's Smart Auto), "exo" (ExoPlayer) or "mpv". */

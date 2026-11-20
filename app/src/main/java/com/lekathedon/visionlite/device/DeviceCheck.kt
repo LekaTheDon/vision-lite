@@ -51,6 +51,20 @@ data class Facts(
     val ramMb: Int = 0,
     /** Measured download speed (Mb/s); null = not tested. */
     val mbps: Double? = null,
+    // The box itself (0.23.0): what decides how heavy the app may be. Not part of [print] (the box doesn't change).
+    val maker: String = "", val model: String = "", val soc: String = "", val sdk: Int = 0,
+    val is64: Boolean = false, val cores: Int = 0, val maxMhz: Int = 0, val lowRamFlag: Boolean = false, val heapMb: Int = 0,
+    /** The decoder list could be read. */
+    val decodersKnown: Boolean = false,
+    /** A hardware decoder takes 3840x2160 (HEVC, VP9 or AV1). */
+    val uhdDecode: Boolean = false,
+    /** Hardware HEVC Main10 (10-bit: nearly every 4K HDR file). */
+    val hevc10: Boolean = false,
+    val hevcHw: Boolean = false, val vp9Hw: Boolean = false,
+    /** Tallest video the best hardware HEVC/AVC decoder takes. */
+    val maxDecodeHeight: Int = 0,
+    /** A video decoder that can tunnel (picture and sound timed by the TV chip). */
+    val tunneling: Boolean = false,
 ) {
     /** What decides the choices except speed and the time: when this changes, the TV or soundbar changed. */
     fun print(): String = listOf(capsKnown, dvTv, hdr10, hdr10Plus, hlg, width, height, rates.map { (it * 100).toInt() },
@@ -84,18 +98,33 @@ object DeviceCheck {
         step("Looking at the box's decoders…")
         val fel = runCatching { AmlFelSupport.isDeviceUsable() && AmlFelSupport.hasFelKernelMarkers() }.getOrDefault(false)
         var dv = false; var dv7 = false; var av1 = false
+        var hevc = false; var hevc10 = false; var vp9 = false; var uhd = false; var maxH = 0; var tunnel = false; var known = false
         runCatching {
             for (info in MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos) {
                 if (info.isEncoder) continue
+                known = true
                 for (type in info.supportedTypes) {
-                    when (type.lowercase()) {
+                    val t = type.lowercase()
+                    when (t) {
                         "video/dolby-vision" -> {
                             dv = true
                             val pl = runCatching { info.getCapabilitiesForType(type).profileLevels }.getOrNull().orEmpty()
                             if (pl.any { it.profile == MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtb }) dv7 = true
                         }
-                        "video/av01" -> if (hardware(info)) av1 = true
+                        "video/av01" -> if (hardware(info)) { av1 = true; if (takes4k(info, type)) uhd = true }
+                        "video/hevc" -> if (hardware(info)) {
+                            hevc = true
+                            val caps = runCatching { info.getCapabilitiesForType(type) }.getOrNull()
+                            if (caps?.profileLevels.orEmpty().any { it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }) hevc10 = true
+                            if (takes4k(info, type)) uhd = true
+                            maxH = maxOf(maxH, tallest(info, type))
+                        }
+                        "video/x-vnd.on2.vp9" -> if (hardware(info)) { vp9 = true; if (takes4k(info, type)) uhd = true }
+                        "video/avc" -> if (hardware(info)) maxH = maxOf(maxH, tallest(info, type))
                     }
+                    if (t.startsWith("video/") && hardware(info) && runCatching {
+                            info.getCapabilitiesForType(type).isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
+                        }.getOrDefault(false)) tunnel = true
                 }
             }
         }
@@ -127,8 +156,39 @@ object DeviceCheck {
             fel = fel, dv7Decoder = dv7, dvDecoder = dv, av1Hw = av1,
             converter = com.lekathedon.visionlite.player.dv.DvRoute.converterAvailable(),
             sound = sound, soundKnown = outs.isNotEmpty(), ramMb = (mi.totalMem / (1024 * 1024)).toInt(), mbps = mbps,
+            maker = Build.MANUFACTURER.orEmpty(), model = Build.MODEL.orEmpty(), soc = socName(), sdk = Build.VERSION.SDK_INT,
+            is64 = Build.SUPPORTED_64_BIT_ABIS.isNotEmpty(), cores = Runtime.getRuntime().availableProcessors(), maxMhz = maxCpuMhz(),
+            lowRamFlag = Tier.lowRamFlag, heapMb = Tier.heapMb.toInt(),
+            decodersKnown = known, uhdDecode = uhd, hevc10 = hevc10, hevcHw = hevc, vp9Hw = vp9, maxDecodeHeight = maxH, tunneling = tunnel,
         ).also { save(it) }
     }
+
+    /** The decoder takes 3840x2160 (at 24 fps at least). */
+    private fun takes4k(info: MediaCodecInfo, type: String): Boolean = runCatching {
+        val v = info.getCapabilitiesForType(type).videoCapabilities ?: return false
+        v.isSizeSupported(3840, 2160) || v.isSizeSupported(4096, 2160)
+    }.getOrDefault(false)
+
+    private fun tallest(info: MediaCodecInfo, type: String): Int = runCatching {
+        info.getCapabilitiesForType(type).videoCapabilities?.supportedHeights?.upper ?: 0
+    }.getOrDefault(0)
+
+    /** "Amlogic S928X" / "MediaTek MT9653"-style name: Android 12's SoC fields, else the board/hardware name. */
+    private fun socName(): String {
+        val soc = if (Build.VERSION.SDK_INT >= 31) listOf(Build.SOC_MANUFACTURER, Build.SOC_MODEL).filter { !it.isNullOrBlank() && it != Build.UNKNOWN }.joinToString(" ") else ""
+        if (soc.isNotBlank()) return soc
+        val board = runCatching {
+            Class.forName("android.os.SystemProperties").getMethod("get", String::class.java).invoke(null, "ro.board.platform") as? String
+        }.getOrNull().orEmpty()
+        return listOf(board, Build.HARDWARE.orEmpty()).filter { it.isNotBlank() }.distinct().joinToString(" / ")
+    }
+
+    /** Fastest core's top clock, MHz (0 = unreadable). */
+    private fun maxCpuMhz(): Int = runCatching {
+        (0 until Runtime.getRuntime().availableProcessors()).maxOf { i ->
+            java.io.File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq").takeIf { it.canRead() }?.readText()?.trim()?.toIntOrNull()?.div(1000) ?: 0
+        }
+    }.getOrDefault(0)
 
     private fun hardware(info: MediaCodecInfo): Boolean =
         if (Build.VERSION.SDK_INT >= 29) info.isHardwareAccelerated
@@ -207,16 +267,40 @@ object DeviceCheck {
                 add("normal" to "Standard")
                 if (f.ramMb >= 3277) add("large" to "Large (rides out slow links)")
             }
-            val rec = when { f.ramMb in 1 until 2048 -> "small"; f.ramMb >= 3277 -> "large"; else -> "normal" }
+            val rec = when { Tier.measured() == Tier.Class.LIGHT -> "small"; f.ramMb >= 3277 -> "large"; else -> "normal" }
             add(Choice("buffer", "Playback", "Playback buffer", opts, rec, "This box has %.1f GB of memory".format(gb)))
         }
 
-        // Internet: what the measured speed can carry (a 2.5 h film at 70% of the line).
+        // Performance: how heavy the app may be on this box (device/Tier.kt); the memory decides the recommendation.
+        run {
+            val measured = Tier.measured()
+            val opts = buildList {
+                add("light" to "Light (small caches, 720p trailers, no video tiles)")
+                add("standard" to "Standard (1080p trailers)")
+                if (measured == Tier.Class.FULL || f.ramMb > 2560) add("full" to "Full (everything, 4K trailers)")
+            }
+            add(Choice("perf", "Performance", "How heavy the app may be", opts, Tier.id(measured),
+                "%.1f GB memory%s, %d cores%s, %s: %s. A change takes full effect next start".format(f.ramMb / 1024.0,
+                    if (f.lowRamFlag) " (Android marks it low-memory)" else "", f.cores,
+                    if (f.maxMhz > 0) " up to %.1f GHz".format(f.maxMhz / 1000.0) else "", if (f.is64) "64-bit" else "32-bit",
+                    when (measured) { Tier.Class.LIGHT -> "Light keeps it from being closed for memory"; Tier.Class.STANDARD -> "Standard fits"; Tier.Class.FULL -> "plenty for everything" })))
+            if (measured != Tier.Class.FULL) add(Choice("trailers", "Performance", "Trailers on Home and title pages",
+                listOf("on" to "On", "off" to "Off"), if (measured == Tier.Class.LIGHT) "off" else "on",
+                if (measured == Tier.Class.LIGHT) "A trailer is a second video decoder on top of the UI; on this box it can make Home lag"
+                else "Fine on this box at up to 1080p"))
+        }
+
+        // Highest quality: what the decoders can show, and what the measured speed carries (a 2.5 h film at 70% of the line).
+        val decodeCap = if (f.decodersKnown && !f.uhdDecode) 1080 else 0
+        if (decodeCap > 0 && f.mbps == null) add(Choice("max_quality", "Internet", "Highest quality",
+            listOf("0" to "Any", "1080" to "1080p", "720" to "720p"), "1080", "The box has no hardware 4K decoder: 4K files would stutter"))
         f.mbps?.let { mbps ->
             val use = mbps * 0.7
-            val qRec = when { use < 8 -> "720"; use < 20 -> "1080"; else -> "0" }
-            add(Choice("max_quality", "Internet", "Highest quality",
-                listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p"), qRec, "Measured %.0f Mb/s".format(mbps)))
+            val byLine = when { use < 8 -> "720"; use < 20 -> "1080"; else -> "0" }
+            val qRec = if (decodeCap == 1080 && byLine == "0") "1080" else byLine
+            val opts = listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p").filter { decodeCap == 0 || it.first != "2160" }
+            add(Choice("max_quality", "Internet", "Highest quality", opts, qRec,
+                "Measured %.0f Mb/s".format(mbps) + if (decodeCap == 1080) "; no hardware 4K decoder on this box" else ""))
             val canGb = use * 9000 / 8 / 1000
             val sizes = listOf(5, 10, 20, 40, 80)
             val sRec = if (canGb >= 100) "0" else (sizes.lastOrNull { it <= canGb } ?: 5).toString()
@@ -238,6 +322,8 @@ object DeviceCheck {
         "buffer" -> p.buffer.value
         "max_quality" -> p.maxQuality.value
         "size_limit" -> p.sizeLimit.value
+        "perf" -> p.perfClass.value.ifEmpty { Tier.id(Tier.measured()) }
+        "trailers" -> on(p.trailers.value)
         else -> ""
     }
 
@@ -256,6 +342,8 @@ object DeviceCheck {
             "buffer" -> p.buffer.value = v
             "max_quality" -> p.maxQuality.value = v
             "size_limit" -> p.sizeLimit.value = v
+            "perf" -> { p.perfClass.value = v; Tier.setChoice(v) }
+            "trailers" -> p.trailers.value = v == "on"
         }
     }
 

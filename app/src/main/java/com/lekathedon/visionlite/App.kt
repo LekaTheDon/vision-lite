@@ -4,6 +4,8 @@ import android.app.Application
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.bitmapFactoryMaxParallelism
+import android.content.ComponentCallbacks2
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
@@ -20,19 +22,35 @@ class App : Application(), SingletonImageLoader.Factory {
     lateinit var trakt: com.lekathedon.visionlite.trakt.Trakt; private set
 
     override fun onCreate() {
+        // First: a crash anywhere after this point leaves a report behind (Settings › About › Report a problem).
+        com.lekathedon.visionlite.report.Crash.install(this)
         super.onCreate()
         instance = this
         prefs = Prefs(this)
+        com.lekathedon.visionlite.device.Tier.init(this, prefs.perfClass.value)
+        android.util.Log.i("VLDevice", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} · " +
+            com.lekathedon.visionlite.device.Tier.summary())
+        com.lekathedon.visionlite.report.Mem.snapshot(this, "app-start")
         addons = AddonStore(prefs)
         client = AddonClient(addons)
         trakt = com.lekathedon.visionlite.trakt.Trakt(prefs)
     }
 
-    /** Images: shared HTTP client, no crossfade, memory cache sized to a quarter of the app's heap share. */
+    /** Android asks the app to give memory back: logged (VLMem) so reports show the pressure before a kill. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) com.lekathedon.visionlite.report.Mem.snapshot(this, "trim-$level")
+        // Running critically low (Light boxes mostly): drop decoded posters; they reload from the disk cache.
+        if (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL || level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+            runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
+    }
+
+    /** Images: shared HTTP client, no crossfade, memory cache and parallel decodes sized by the box's class (device/Tier.kt). */
     override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoader.Builder(context)
         .components { add(OkHttpNetworkFetcherFactory(callFactory = { Net.http })) }
-        .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.25).build() }
+        .memoryCache { MemoryCache.Builder().maxSizePercent(context, com.lekathedon.visionlite.device.Tier.imageCachePercent).build() }
         .crossfade(false)
+        .bitmapFactoryMaxParallelism(com.lekathedon.visionlite.device.Tier.imageDecoders)
         .build()
 
     companion object {

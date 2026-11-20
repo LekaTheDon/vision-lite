@@ -42,6 +42,8 @@ sealed interface Screen {
     data object PhoneLink : Screen
     data class SignIn(val id: String) : Screen
     data class Integration(val id: String) : Screen
+    /** Report a problem; [kind] = what ended the app last time ("crash", "anr", "memory"…), "" when opened by hand. */
+    data class Report(val kind: String = "") : Screen
 }
 
 @Stable

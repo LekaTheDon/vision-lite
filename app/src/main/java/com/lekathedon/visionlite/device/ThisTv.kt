@@ -32,13 +32,21 @@ import com.lekathedon.visionlite.ui.Palette
 
 /** The findings in plain words, one line each (Settings › This TV and the first-start card). */
 fun findings(f: Facts): List<String> = buildList {
+    if (f.model.isNotEmpty()) add("Device: ${f.maker} ${f.model}" + listOfNotNull(f.soc.ifBlank { null }, if (f.sdk > 0) "Android API ${f.sdk}" else null,
+        if (f.cores > 0) "${f.cores} cores" + (if (f.maxMhz > 0) " %.1f GHz".format(f.maxMhz / 1000.0) else "") + (if (f.is64) ", 64-bit" else ", 32-bit") else null
+    ).joinToString(" · ", prefix = " · "))
+    add("Performance class: ${Tier.current.label} (%.1f GB memory%s)".format(f.ramMb / 1024.0, if (f.lowRamFlag) ", low-memory device" else ""))
+    if (f.decodersKnown) add("Video decoding: " + listOfNotNull(
+        if (f.uhdDecode) "4K" else "up to ${f.maxDecodeHeight.takeIf { it > 0 }?.let { "${it}p" } ?: "1080p"}",
+        "HEVC 10-bit".takeIf { f.hevc10 }, "HEVC 8-bit only".takeIf { f.hevcHw && !f.hevc10 }, "no hardware HEVC".takeIf { !f.hevcHw },
+        "VP9".takeIf { f.vp9Hw }, "AV1".takeIf { f.av1Hw }, "tunneling".takeIf { f.tunneling }).joinToString(", "))
     add("TV picture: " + if (!f.capsKnown) "HDR formats can't be read" else listOfNotNull(
         "Dolby Vision".takeIf { f.dvTv }, "HDR10".takeIf { f.hdr10 }, "HDR10+".takeIf { f.hdr10Plus }, "HLG".takeIf { f.hlg }
     ).ifEmpty { listOf("SDR only") }.joinToString(", "))
     if (f.width > 0) add("TV mode: ${f.width}x${f.height}, " + if (f.rates.size > 1) "switches refresh rate" else "one refresh rate")
-    add("Box: " + listOfNotNull("native FEL".takeIf { f.fel }, "Dolby Vision 7 decoder".takeIf { f.dv7Decoder },
-        "Dolby Vision decoder".takeIf { f.dvDecoder && !f.dv7Decoder }, "Dolby Vision 8.1 converter".takeIf { f.converter }, "AV1 chip".takeIf { f.av1Hw }
-    ).ifEmpty { listOf("no Dolby Vision extras") }.joinToString(", ") + if (f.ramMb > 0) " · %.1f GB memory".format(f.ramMb / 1024.0) else "")
+    add("Dolby Vision: " + listOfNotNull("native FEL".takeIf { f.fel }, "Dolby Vision 7 decoder".takeIf { f.dv7Decoder },
+        "Dolby Vision decoder".takeIf { f.dvDecoder && !f.dv7Decoder }, "Dolby Vision 8.1 converter".takeIf { f.converter }
+    ).ifEmpty { listOf("no Dolby Vision extras") }.joinToString(", "))
     add("Sound: " + if (!f.soundKnown) "the box can't read what the soundbar takes" else listOfNotNull(
         "Dolby Digital".takeIf { "ac3" in f.sound }, "DD+".takeIf { "eac3" in f.sound }, "Atmos".takeIf { "joc" in f.sound || "truehd" in f.sound },
         "TrueHD".takeIf { "truehd" in f.sound }, "DTS".takeIf { "dts" in f.sound }, "DTS-HD".takeIf { "dtshd" in f.sound }

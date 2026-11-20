@@ -147,7 +147,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             if (!heroFocused && !trailerNow) { trailer = null; return@LaunchedEffect }
             if (imdbId == null || (!trailersOn && !trailerNow)) return@LaunchedEffect
             if (!trailerNow) delay(((delayS.toDoubleOrNull() ?: 5.0) * 1000).toLong())
-            trailer = com.lekathedon.visionlite.trailer.Trailers.find(imdbId, 2160)
+            trailer = com.lekathedon.visionlite.trailer.Trailers.find(imdbId, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))
         }
 
         Box(Modifier.fillMaxWidth().height(460.dp)) {

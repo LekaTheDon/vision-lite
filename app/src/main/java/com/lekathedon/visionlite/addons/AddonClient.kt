@@ -2,6 +2,7 @@ package com.lekathedon.visionlite.addons
 
 import com.lekathedon.visionlite.data.Net
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -54,11 +55,13 @@ class AddonClient(private val store: AddonStore) {
      * Asked only when the user presses Play (nothing searches ahead).
      */
     suspend fun streams(type: String, id: String, timeoutMs: Long = 20_000, onEach: (SourceStreams) -> Unit) = coroutineScope {
+        // At most a few add-ons answer at once on small boxes (device/Tier.kt): each holds a whole answer in memory.
+        val gate = kotlinx.coroutines.sync.Semaphore(com.lekathedon.visionlite.device.Tier.addonFetches)
         store.addons.value.filter { it.serves("stream", type, id) }.map { a ->
             async {
-                val list = withTimeoutOrNull(timeoutMs) {
+                val list = gate.withPermit { withTimeoutOrNull(timeoutMs) {
                     runCatching { Net.getJson<StreamResponse>("${a.base}/stream/$type/${AddonStore.enc(id)}.json").streams }.getOrNull()
-                }
+                } }
                 onEach(SourceStreams(a, list.orEmpty(), list == null))
             }
         }.forEach { it.await() }
