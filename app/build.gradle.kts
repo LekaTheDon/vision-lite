@@ -62,6 +62,8 @@ android {
 }
 
 dependencies {
+    // Vision's vendored Matroska extractor (player/dv/mkv) keeps media3's nullness annotations: compile time only, 0 bytes.
+    compileOnly("org.checkerframework:checker-qual:3.43.0")
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
