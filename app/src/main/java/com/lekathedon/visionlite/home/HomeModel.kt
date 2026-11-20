@@ -213,7 +213,8 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.AI -> AiPicks.picks(hub).value.map(::meta)
             VisionRows.SERVICES -> if (!Services.on()) emptyList() else Services.S.entries.map { s ->
                 val art = Services.art.value.firstOrNull { it.id == s.id }
-                MetaPreview("svc:${s.id}", "service", s.title, null, Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))
+                // Anime: the logo alone (the tile's backdrop is a Films & TV show); the service's page shows only its anime.
+                MetaPreview("svc:${s.id}", "service", s.title, null, if (hub == Hub.ANIME) null else Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))
             }
             VisionRows.PEOPLE -> People.list.value.map { MetaPreview(it.id, "person", it.name, it.photo) }
             else -> return

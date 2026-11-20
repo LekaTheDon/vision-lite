@@ -48,14 +48,17 @@ object VisionRows {
     fun forHub(hub: com.lekathedon.visionlite.anime.Hub): List<Pair<String, String>> {
         val animeCharts = Charts.Chart.entries.filter { it.src == Charts.Src.ANILIST || it.src == Charts.Src.IMDB_ANIME }.map { "c/${it.id}" }.toSet()
         if (hub == com.lekathedon.visionlite.anime.Hub.FILMS) return all.filter { it.first !in animeCharts }
-        val (charts, rest) = all.partition { it.first in animeCharts }
+        // Anime: its own Top 20 Today (AniList) in place of TMDB's, whose lists are hardly ever anime.
+        val tmdbToday = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}")
+        val (charts, rest) = all.filter { it.first !in tmdbToday }.partition { it.first in animeCharts }
         val head = rest.takeWhile { it.first != SERVICES }
         return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "") } + rest.drop(head.size)
     }
 
     fun isPicks(key: String) = key == PICKS || key == IMDB || key == AI
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
-    val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}")
+    val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}",
+        "c/${Charts.Chart.ANIME_TODAY_SERIES.id}", "c/${Charts.Chart.ANIME_TODAY_MOVIES.id}")
 }
 
 // ------------------------------------------------------------------ TMDB (only with your key)
@@ -133,6 +136,9 @@ object Charts {
         IMDB_TOP_TV("imdb.top250.series", "Top 250 TV Shows", "series", Src.IMDB),
         ANILIST_TRENDING("anilist.trending", "Trending Now · Anime", "series", Src.ANILIST),
         ANILIST_SEASON("anilist.season", "Popular This Season · Anime", "series", Src.ANILIST),
+        /** The Anime hub's Top 20 Today (its highlight rows): AniList's trending, asked in the same request. */
+        ANIME_TODAY_SERIES("anilist.today.series", "Top 20 Anime Shows Today", "series", Src.ANILIST),
+        ANIME_TODAY_MOVIES("anilist.today.movie", "Top 20 Anime Movies Today", "movie", Src.ANILIST),
         IMDB_ANIME_SERIES("imdb.anime250.series", "Top 250 Anime Series", "series", Src.IMDB_ANIME),
         IMDB_ANIME_MOVIES("imdb.anime250.movie", "Top 250 Anime Movies", "movie", Src.IMDB_ANIME)
     }
@@ -149,7 +155,8 @@ object Charts {
         locks.getValue(c.src).withLock {
             val now = System.currentTimeMillis()
             var have = loaded[c.src] ?: runCatching { Net.json.decodeFromString(Disk.serializer(), file(c.src).readText()) }.getOrNull()?.also { loaded[c.src] = it }
-            if (have == null || now - have.at > c.src.freshMs) {
+            // A chart added since the last fetch (the Anime hub's Top 20 Today) is asked at once, not after 12 h.
+            if (have == null || now - have.at > c.src.freshMs || c.id !in have.rows) {
                 val fresh = runCatching { fetch(c.src) }.onFailure { Log.w("Charts", "${c.src}: ${it.message}") }.getOrNull()
                 if (fresh != null && fresh.values.any { it.isNotEmpty() }) {
                     have = Disk(now, fresh); loaded[c.src] = have
@@ -183,7 +190,8 @@ object Charts {
         Src.ANILIST -> {
             val (season, year) = season(LocalDate.now())
             post("https://graphql.anilist.co", JSONObject().put("query", ANILIST_QUERY).put("variables", JSONObject().put("season", season).put("year", year)))?.let { d ->
-                mapOf(Chart.ANILIST_TRENDING.id to ani(d, "trending"), Chart.ANILIST_SEASON.id to ani(d, "season"))
+                mapOf(Chart.ANILIST_TRENDING.id to ani(d, "trending"), Chart.ANILIST_SEASON.id to ani(d, "season"),
+                    Chart.ANIME_TODAY_SERIES.id to ani(d, "todayTv").take(20), Chart.ANIME_TODAY_MOVIES.id to ani(d, "todayMovies").take(20))
             }
         }
     }
@@ -238,7 +246,9 @@ object Charts {
         "animeJapan: advancedTitleSearch(first: 250, constraints: {$AB, originCountryConstraint: {anyPrimaryCountries: [\"JP\"], excludeCountries: [\"US\"]}}, sort: {sortBy: USER_RATING, sortOrder: DESC}) { $SF } }"
     private const val AF = "media(type: ANIME, sort: %s, isAdult: false%s) { id idMal format seasonYear title { english userPreferred } coverImage { extraLarge large } bannerImage genres averageScore description(asHtml: false) }"
     private val ANILIST_QUERY = "query (\$season: MediaSeason, \$year: Int) { trending: Page(perPage: 50) { ${AF.format("TRENDING_DESC", "")} } " +
-        "season: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", season: \$season, seasonYear: \$year")} } }"
+        "season: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", season: \$season, seasonYear: \$year")} } " +
+        "todayTv: Page(perPage: 20) { ${AF.format("TRENDING_DESC", ", format_in: [TV, TV_SHORT, ONA]")} } " +
+        "todayMovies: Page(perPage: 20) { ${AF.format("TRENDING_DESC", ", format: MOVIE")} } }"
 }
 
 // ------------------------------------------------------------------ Streaming services (TMDB)

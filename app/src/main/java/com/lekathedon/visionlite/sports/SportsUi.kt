@@ -299,7 +299,10 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         delay(600)
         value = runCatching { com.lekathedon.visionlite.youtube.Yt.subscriptions().flatMap { it.items }.filter { it.videoId != null }.distinctBy { it.videoId }.shuffled().take(30) }.getOrDefault(emptyList())
     }
-    val coming by com.lekathedon.visionlite.home.ComingUp.items.collectAsState()
+    val comingAll by com.lekathedon.visionlite.home.ComingUp.items.collectAsState()
+    // The clock's notices and calendar follow the hub Home shows (Films & TV or Anime).
+    val panelHub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
+    val coming = comingAll.filter { com.lekathedon.visionlite.anime.Hubs.keepsId(panelHub, it.imdb) }
     // Vision's windows on the left: the first OK on a video or a song plays it there, OK again goes full screen.
     // Back closes the window (music stops); leaving the tab closes it too.
     var ytShown by remember { mutableStateOf<com.lekathedon.visionlite.youtube.YtItem?>(null) }

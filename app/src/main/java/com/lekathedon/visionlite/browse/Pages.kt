@@ -218,15 +218,18 @@ private fun LoadingRail(title: String, nav: Nav, load: suspend (skip: Int) -> Li
     val items = remember(title) { mutableStateListOf<MetaPreview>() }
     var busy by remember(title) { mutableStateOf(false) }
     var end by remember(title) { mutableStateOf(false) }
+    /** Cards the source has given so far (before dropping repeats): the next page starts there. */
+    var fetched by remember(title) { mutableStateOf(0) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun more() {
         if (busy || end) return
         busy = true
         scope.launch {
-            var asked = items.size
             for (tries in 0 until 3) {
-                val p = load(asked).filter { m -> items.none { it.id == m.id } }
-                asked += p.size; items.addAll(p); end = p.isEmpty()
+                val got = load(fetched)
+                fetched += got.size
+                val p = got.filter { m -> items.none { it.id == m.id } }
+                items.addAll(p); end = got.isEmpty()
                 if (end || p.any { com.lekathedon.visionlite.anime.Hubs.keeps(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
             }
             busy = false
