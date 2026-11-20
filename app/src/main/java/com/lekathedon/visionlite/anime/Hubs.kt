@@ -110,6 +110,12 @@ object AnimeIds {
         moves = m; _changed.value++
     }
 
+    /** For the phone: when the list last changed (0 = the one shipped in the app), the list itself, and your moves. */
+    fun stamp(): Long = if (file.length() > 10_000) file.lastModified() else 0L
+    fun listText(): String = runCatching { if (file.length() > 10_000) file.readText() else null }.getOrNull()
+        ?: runCatching { App.instance.assets.open("anime_ids.txt").bufferedReader().readText() }.getOrDefault("")
+    fun movesText(): String = p.animeMoves.value
+
     private fun index(): Index = index ?: synchronized(this) { index ?: load().also { index = it } }
 
     /** Loads off the main thread ahead of the first screen that filters. */

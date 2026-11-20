@@ -83,10 +83,13 @@ object LinkState {
     /** The phone's Next episode press, taken by the player that is open. */
     val next = kotlinx.coroutines.channels.Channel<Unit>(1, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
-    /** Builds the rows answer: Continue watching first ("kind":"continue"), then Home's rows with items. */
-    fun publishRows(cw: List<com.lekathedon.visionlite.trakt.Resume>, rows: List<Pair<String, List<com.lekathedon.visionlite.addons.MetaPreview>>>) {
+    /** Each hub's last rows (Films & TV, Anime): a hub publishes when its Home is shown; the phone gets both, tagged "hub". */
+    private val hubRows = java.util.concurrent.ConcurrentHashMap<String, JSONArray>()
+
+    /** Builds the rows answer: per hub, Continue watching first ("kind":"continue"), then Home's rows with items. */
+    fun publishRows(hub: com.lekathedon.visionlite.anime.Hub, cw: List<com.lekathedon.visionlite.trakt.Resume>, rows: List<Pair<String, List<com.lekathedon.visionlite.addons.MetaPreview>>>) {
         val a = JSONArray()
-        if (cw.isNotEmpty()) a.put(JSONObject().put("title", "Continue watching").put("kind", "continue").put("items", JSONArray().apply {
+        if (cw.isNotEmpty()) a.put(JSONObject().put("title", "Continue watching").put("kind", "continue").put("hub", hub.key).put("items", JSONArray().apply {
             cw.forEach { r ->
                 put(JSONObject().put("id", r.imdb).put("imdb", r.imdb).put("type", r.type).put("name", r.name)
                     .put("poster", com.lekathedon.visionlite.library.posterOf(r.imdb)).put("backdrop", com.lekathedon.visionlite.library.backdropOf(r.imdb))
@@ -97,13 +100,17 @@ object LinkState {
         rows.forEach { (title, items) ->
             val list = items.filter { it.type == "movie" || it.type == "series" }
             if (list.isEmpty()) return@forEach
-            a.put(JSONObject().put("title", title).put("source", "Vision Lite").put("items", JSONArray().apply {
+            a.put(JSONObject().put("title", title).put("source", "Vision Lite").put("hub", hub.key).put("items", JSONArray().apply {
                 list.take(40).forEach { m ->
                     put(JSONObject().put("id", m.id).put("type", m.type).put("name", m.name).put("year", m.releaseInfo)
                         .put("poster", m.poster).put("backdrop", m.background).put("imdb", m.id.takeIf { it.startsWith("tt") }))
                 }
             }))
         }
-        this.rows = JSONObject().put("at", System.currentTimeMillis()).put("rows", a)
+        hubRows[hub.key] = a
+        val all = JSONArray()
+        com.lekathedon.visionlite.anime.Hub.entries.forEach { h -> hubRows[h.key]?.let { r -> for (i in 0 until r.length()) all.put(r.get(i)) } }
+        this.rows = JSONObject().put("at", System.currentTimeMillis()).put("rows", all)
+            .put("hubs", JSONArray(hubRows.keys.toList()))
     }
 }

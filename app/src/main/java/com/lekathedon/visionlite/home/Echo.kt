@@ -236,7 +236,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (!linkOn) return@LaunchedEffect
         delay(2_000)
         val list = visible.map { it.title to it.items }
-        withContext(Dispatchers.Default) { com.lekathedon.visionlite.link.LinkState.publishRows(cw, list) }
+        withContext(Dispatchers.Default) { com.lekathedon.visionlite.link.LinkState.publishRows(hub, cw, list) }
     }
     val recsBuilding by Recs.building(hub).collectAsStateWithLifecycle()
     var hold by remember { mutableStateOf<Pair<Row, MetaPreview>?>(null) }

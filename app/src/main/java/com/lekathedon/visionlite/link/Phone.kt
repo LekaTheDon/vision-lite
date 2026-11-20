@@ -103,6 +103,7 @@ internal class Phone(private val secret: () -> String) {
             items.groupBy { it.imdb }.forEach { (imdb, list) ->
                 val f = list.first()
                 put(JSONObject().put("key", imdb).put("name", f.name).put("contentId", imdb).put("type", f.type)
+                    .put("hub", com.lekathedon.visionlite.anime.Hubs.hubOf(imdb).key)
                     .put("ids", JSONObject().put("imdb", imdb))
                     .put("poster", com.lekathedon.visionlite.library.posterOf(imdb))
                     .put("entries", JSONArray().apply {
