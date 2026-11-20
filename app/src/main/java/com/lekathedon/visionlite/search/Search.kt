@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -45,7 +46,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-/** Search every add-on catalog that takes a search term; asked only when Done is pressed. */
+/** Suggestions while typing (IMDb feed); every add-on catalog that takes a search term is asked when Search is pressed. */
 @Composable
 fun Search(nav: Nav) {
     val app = App.instance
@@ -64,32 +65,63 @@ fun Search(nav: Nav) {
         prefs.recentSearches.value = recent.joinToString("\n")
         job = scope.launch {
             app.addons.addons.value.flatMap { a -> a.manifest.catalogs.filter { it.supportsSearch }.map { a to it } }
-                .map { (a, c) -> async { (c.name ?: c.type) + " · " + a.manifest.name to runCatching { app.client.catalog(a, c, search = term) }.getOrDefault(emptyList()) } }
+                .map { (a, c) -> async { searchRowName(c.name, c.type, a.manifest.name) to runCatching { app.client.catalog(a, c, search = term) }.getOrDefault(emptyList()) } }
                 .forEach { d -> d.await().takeIf { it.second.isNotEmpty() }?.let { results.add(it) } }
         }
     }
+    // Suggestions as you type: 0.25 s after typing stops, IMDb's feed (see Suggest). Also sent to the keyboard's
+    // suggestion bar; picking one there fills the field with that title, which searches it at once.
+    var hints by remember { mutableStateOf<List<MetaPreview>>(emptyList()) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(q) {
+        if (q.trim().length < 2) { hints = emptyList(); return@LaunchedEffect }
+        kotlinx.coroutines.delay(250)
+        hints = Suggest.of(q)
+    }
+    LaunchedEffect(hints) {
+        val imm = view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        runCatching { imm?.displayCompletions(view, hints.mapIndexed { i, m -> android.view.inputmethod.CompletionInfo(i.toLong(), i, m.name) }.toTypedArray()) }
+    }
     LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp)) {
         item {
-            BasicTextField(q, { q = it }, singleLine = true,
+            BasicTextField(q, { n ->
+                    val picked = n.length - q.length > 1 && hints.any { it.name.equals(n.trim(), true) }
+                    q = n; if (picked) run() }, singleLine = true,
                 textStyle = TextStyle(color = Palette.Text, fontSize = 18.sp), cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { run() }),
                 modifier = Modifier.fillMaxWidth(0.6f).focusRequester(field).background(Palette.Card).padding(14.dp),
                 decorationBox = { inner -> if (q.isEmpty()) Text("Search movies and series", color = Palette.TextDim, fontSize = 18.sp); inner() })
         }
-        if (results.isEmpty() && recent.isNotEmpty()) item {
+        if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
+            Text("Suggestions", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                itemsIndexed(hints, key = { i, m -> "$i:${m.id}" }) { _, m ->
+                    com.lekathedon.visionlite.home.EchoPoster(m, sub = m.releaseInfo) { nav.push(Screen.Detail(m.type, m.id, m.name)) }
+                }
+            }
+        }
+        if (results.isEmpty() && recent.isNotEmpty() && hints.isEmpty()) item {
             Text("Recent", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(recent) { t -> com.lekathedon.visionlite.ui.Button(t, { q = t; run() }) }
                 item { com.lekathedon.visionlite.ui.Button("Clear", { recent = emptyList(); prefs.recentSearches.value = "" }) }
             }
         }
-        items(results, key = { it.first }) { (title, metas) ->
+        // Index in the key: two add-ons (or one add-on's film and series catalogs) can give the same row name.
+        itemsIndexed(results, key = { i, r -> "$i:${r.first}" }) { _, (title, metas) ->
             com.lekathedon.visionlite.home.EchoRowTitle(title)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(metas, key = { it.id }) { m ->
+                itemsIndexed(metas.distinctBy { it.type + it.id }, key = { i, m -> "$i:${m.type}:${m.id}" }) { _, m ->
                     com.lekathedon.visionlite.home.EchoPoster(m) { nav.push(Screen.Detail(m.type, m.id, m.name)) }
                 }
             }
         }
     }
+}
+
+/** "Popular films · Cinemeta" / "Popular series · Cinemeta", so a film and a series catalog with one name read apart. */
+private fun searchRowName(name: String?, type: String, addon: String): String {
+    val kind = when (type) { "movie" -> "films"; "series" -> "series"; else -> type }
+    val n = name?.takeIf { it.isNotBlank() } ?: return "${kind.replaceFirstChar { it.uppercase() }} · $addon"
+    return if (n.contains(kind, true) || n.contains(type, true)) "$n · $addon" else "$n $kind · $addon"
 }
