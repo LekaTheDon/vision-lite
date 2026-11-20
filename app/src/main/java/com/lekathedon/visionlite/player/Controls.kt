@@ -439,7 +439,7 @@ private fun trackLabel(f: Format, type: Int): String {
             codecName(f.sampleMimeType)?.let { add(it) }
             when (f.channelCount) { 1 -> add("mono"); 2 -> add("stereo"); 6 -> add("5.1"); 8 -> add("7.1"); Format.NO_VALUE -> {} else -> add("${f.channelCount} ch") }
         } else {
-            if (f.selectionFlags and C.SELECTION_FLAG_FORCED != 0) add("forced")
+            if (isForcedSub(f)) add("forced · foreign lines only") else if (isSdhSub(f) && f.label?.contains("sdh", true) != true) add("SDH")
             codecName(f.sampleMimeType)?.let { add(it) }
         }
     }

@@ -189,6 +189,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     remember(s.id) { Sync.open(if (s.type == "live") "" else s.id); 0 }
     var firstFrame by remember(s.url, gen) { mutableStateOf(false) }
     val exoStats = remember(s.url, gen, felAllowed, addonSubs) { ExoStats() }
+    // True while DV7 plays on the native FEL path: seek thumbnails stay off then (they took a third hardware decoder
+    // and a second download of the remux, and the film stuttered; Vision/Arc never let thumbnails touch FEL either).
+    val felNow = remember(s.url) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val mpvView = remember(s.url, gen) {
         if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
             init(session.mpvSoftware, spdifCodecs(context), mpvBufferMb(prefs.buffer.value))
@@ -364,7 +367,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 }
             }
             override fun onTracksChanged(tracks: Tracks) {
-                if (!subsChecked && tracks.groups.isNotEmpty()) { subsChecked = true; foreignOnly(player, tracks) }
+                // Subtitles once per file, when its text tracks are known: SDH, then the normal track, never forced.
+                if (!subsChecked && tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }) { subsChecked = true; pickSubtitle(player, tracks); foreignOnly(player, tracks) }
+                felNow.set(felAllowed && current == Engine.EXO && selectedVideo(tracks)?.let { AmlFelSupport.isProfile7(it) } == true)
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
                 if (!(afr || resMatch) || current != Engine.EXO) return
                 val v = selectedVideo(tracks) ?: return
@@ -448,7 +453,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             if (skipMode != "off" || (prefs.nextPopup.value && s.type == "series")) value = Skips.find(s.type, s.id)
         }
         val thumbs = remember(s.url) {
-            if (s.type == "live" || !prefs.seekThumbs.value || !SeekThumbs.allowed(context)) null else SeekThumbs(s.url, s.headers)
+            if (s.type == "live" || !prefs.seekThumbs.value || !SeekThumbs.allowed(context)) null else SeekThumbs(s.url, s.headers) { felNow.get() }
         }
         DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
         Controls(player, s.title, canNext = s.type == "series",
@@ -526,6 +531,57 @@ private fun trackPrefs(base: androidx.media3.common.TrackSelectionParameters, id
 
 private fun iso3(code: String?): String? = code?.takeIf { it.isNotBlank() && it != "und" }
     ?.let { runCatching { java.util.Locale(it.substringBefore('-')).isO3Language }.getOrNull() ?: it }
+
+/** A forced track (only the foreign lines and signs): its flag, or "forced" in its name. */
+internal fun isForcedSub(f: androidx.media3.common.Format): Boolean =
+    f.selectionFlags and C.SELECTION_FLAG_FORCED != 0 || f.label?.contains("forced", true) == true
+
+private val SDH = Regex("(?i)(^|[^a-z])(sdh|hoh|hearing|deaf|cc)([^a-z]|$)")
+
+/** SDH (subtitles for the deaf and hard of hearing): the role flag, or SDH / CC / hearing in its name. */
+internal fun isSdhSub(f: androidx.media3.common.Format): Boolean =
+    f.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0 || f.label?.let { SDH.containsMatchIn(it) } == true
+
+/**
+ * The subtitle Lite starts with (user 2026-11-20): your first language, else your second; in it SDH first, then the
+ * normal track, the file's own before an add-on's. A forced track is never picked; with nothing else in your
+ * languages and a forced track chosen by the player, subtitles go off (the Subtitles panel still lists every track).
+ */
+@OptIn(UnstableApi::class)
+private fun pickSubtitle(player: MediaPlayer, tracks: Tracks) {
+    val p = App.instance.prefs
+    if (p.subsWhen.value == "off") return
+    val texts = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+    val wanted = langs(p.subLang.value, p.subLang2.value).mapNotNull { iso3(it) }
+    var best: Pair<Tracks.Group, Int>? = null
+    var bestScore = Int.MIN_VALUE
+    texts.forEach { g ->
+        for (i in 0 until g.length) {
+            if (!g.isTrackSupported(i)) continue
+            val f = g.getTrackFormat(i)
+            if (isForcedSub(f)) continue
+            val li = wanted.indexOf(iso3(f.language))
+            if (li < 0) continue
+            val addon = f.label?.contains("add-on") == true
+            val score = (wanted.size - li) * 100 + (if (isSdhSub(f)) 10 else 0) + (if (addon) 0 else 1)
+            if (score > bestScore) { bestScore = score; best = g to i }
+        }
+    }
+    val pick = best
+    val chosen = texts.firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
+    val b = player.trackSelectionParameters.buildUpon()
+    if (pick != null) {
+        val (g, i) = pick
+        if (g.isTrackSelected(i)) return
+        b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i))
+        android.util.Log.i("Subs", "start with ${g.getTrackFormat(i).language} ${g.getTrackFormat(i).label ?: ""}" + if (isSdhSub(g.getTrackFormat(i))) " (SDH)" else "")
+    } else if (chosen != null && isForcedSub(chosen)) {
+        b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        android.util.Log.i("Subs", "only a forced track in your languages: subtitles off")
+    } else return
+    player.trackSelectionParameters = b.build()
+}
 
 /** "Foreign audio only": once per file, no subtitles when the chosen audio is already in a subtitle language. */
 @OptIn(UnstableApi::class)

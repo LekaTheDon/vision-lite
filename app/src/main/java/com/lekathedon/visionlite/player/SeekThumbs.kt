@@ -11,9 +11,9 @@ import kotlinx.coroutines.withContext
  * Seek thumbnails, the light way (Vision has a 17k-line engine; Lite asks Android's own retriever): only while you
  * seek, one frame at the key frame nearest the spot, 320 px wide, kept per 10 s step (last 40 frames, ~10 MB at most).
  * The retriever opens the link on the first seek and is closed when the player goes. Nothing runs while you watch.
- * Not for live TV. Skipped on boxes under 3 GB of memory.
+ * Not for live TV. Skipped on boxes under 3 GB of memory, and while [off] says so (native FEL playing).
  */
-class SeekThumbs(private val url: String, private val headers: Map<String, String>) {
+class SeekThumbs(private val url: String, private val headers: Map<String, String>, private val off: () -> Boolean = { false }) {
     private var mmr: MediaMetadataRetriever? = null
     private var failed = false
     private val lock = Mutex()
@@ -25,7 +25,7 @@ class SeekThumbs(private val url: String, private val headers: Map<String, Strin
     suspend fun at(ms: Long): Bitmap? = withContext(Dispatchers.IO) {
         val key = ms / 10_000
         synchronized(cache) { cache[key] }?.let { return@withContext it }
-        if (failed) return@withContext null
+        if (failed || off()) return@withContext null
         lock.withLock {
             synchronized(cache) { cache[key] }?.let { return@withLock it }
             val r = mmr ?: runCatching { MediaMetadataRetriever().apply { setDataSource(url, headers) } }.getOrElse { failed = true; null }?.also { mmr = it }

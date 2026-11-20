@@ -77,6 +77,7 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
     val target = EpisodeCheck.targetOf(s.id)
     val order = AutoPick.order(all, s.id)
     if (order.isEmpty()) { say(if (all.any { it.playable }) "Autoplay: no link is surely this episode, pick one" else ""); return false }
+    android.util.Log.i("AutoPick", "${order.size} safe links of ${all.size}; top: " + order.take(5).mapIndexed { i, l -> "\n  ${i + 1}. ${AutoPick.describe(l)}" }.joinToString(""))
     var wrong = 0
     for (l in order.take(4)) {
         val url = l.stream.url
@@ -88,7 +89,9 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
             }
         }
         // A TorBox link that won't come (removed from TorBox meanwhile) moves on to the next pick.
+        android.util.Log.i("AutoPick", "try: ${AutoPick.describe(l)}")
         if (play(nav, s, l, replace = true, order, say)) { say(""); return true }
+        android.util.Log.i("AutoPick", "didn't start, next")
     }
     say("Autoplay: those links were another episode, pick one")
     return false

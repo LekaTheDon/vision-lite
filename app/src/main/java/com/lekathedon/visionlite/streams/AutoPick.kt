@@ -313,18 +313,53 @@ object AutoPick {
         return playable.filterIndexed { i, _ -> trusts[i] == top }
     }
 
-    /** Best link: no CAM, 4K first, then the bigger file always; SeaDex best, quality and Vision TB break ties. */
-    fun rank(pool: List<Link>): List<Link> = pool.map { l ->
-        val q = ReleaseQuality.parse(listOfNotNull(l.stream.name, l.stream.title, l.stream.description, l.fileName).joinToString(" "))
-        l to q
-    }.sortedWith(
+    private val FEL = Regex("(?i)(?<![a-z])fel(?![a-z])")
+    private val P7 = Regex("(?i)(?<![a-z0-9])(?:p7|dv7|dvp7|profile ?7|dovi ?p7|dv ?p7|dv[ ._-]?p7)(?![0-9])")
+    private val MEL = Regex("(?i)(?<![a-z])mel(?![a-z])")
+    private val UHD_BD = Regex("(?i)uhd|2160|4k")
+
+    /** On a box that plays DV7 FEL natively: 3 = names FEL, 2 = DV7 (named, or a DV UHD Blu-ray remux: those are DV7), 1 = other DV, 0 = no DV. */
+    fun dvTier(text: String, q: ReleaseQuality): Int = when {
+        q.dolbyVision != true && !P7.containsMatchIn(text) && !FEL.containsMatchIn(text) -> 0
+        FEL.containsMatchIn(text) && !MEL.containsMatchIn(text) -> 3
+        P7.containsMatchIn(text) -> 2
+        q.source == ReleaseQuality.Source.REMUX && UHD_BD.containsMatchIn(text) -> 2
+        else -> 1
+    }
+
+    /** True when this box shows DV7 FEL (This TV's DV7 = FEL and the native FEL path works). */
+    private val felBox: Boolean get() = runCatching {
+        com.lekathedon.visionlite.App.instance.prefs.dv7.value == "fel" &&
+            com.lekathedon.visionlite.player.fel.AmlFelSupport.nativeFelUsableOnce()
+    }.getOrDefault(false)
+
+    private fun textFor(l: Link) = listOfNotNull(l.stream.name, l.stream.title, l.stream.description, l.fileName).joinToString(" ")
+
+    /**
+     * Best link: no CAM, 4K first; on a FEL box DV7 FEL next (user 2026-11-20: Frankenstein autoplayed DV8 over FEL),
+     * then the bigger file always; SeaDex best, quality and Vision TB break ties.
+     */
+    fun rank(pool: List<Link>): List<Link> {
+        val fel = felBox
+        return pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }.sortedWith(
         compareBy<Pair<Link, ReleaseQuality>> { it.second.lowQuality }
             .thenByDescending { it.second.resolution == 2160 || it.first.height == 2160 }
+            .thenByDescending { if (fel) dvTier(textFor(it.first), it.second) else 0 }
             .thenByDescending { it.first.bytes }
             .thenByDescending { SeaDexBest.isBest(it.first.tb?.hash ?: it.first.stream.infoHash) }
             .thenByDescending { it.second.score() }
             .thenByDescending { it.first.tb != null }
-    ).map { it.first }
+        ).map { it.first }
+    }
+
+    /** One log line per try: what autoplay picked and why (logcat tag AutoPick). */
+    fun describe(l: Link): String {
+        val text = textFor(l)
+        val q = ReleaseQuality.parse(text)
+        val name = (l.fileName ?: l.stream.title ?: l.stream.name ?: "").lineSequence().firstOrNull().orEmpty().take(90)
+        val dv = listOf("no DV", "DV", "DV7", "DV7 FEL")[dvTier(text, q)]
+        return "${l.source} | $name | ${if (q.resolution == 2160 || l.height == 2160) "4K" else "${l.height}p"} $dv | ${"%.1f".format(l.bytes / 1e9)} GB"
+    }
 
     /** The order autoplay tries links in (the manual list keeps every row). */
     fun order(links: List<Link>, videoId: String): List<Link> {

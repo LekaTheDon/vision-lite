@@ -87,14 +87,19 @@ class ExoStats : AnalyticsListener {
     var audioDecoder: String? = null
     var rebuffers = 0; var rebufferAt = 0L
     private var wasReady = false
-    override fun onDroppedVideoFrames(t: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) { dropped += droppedFrames; droppedAt = SystemClock.elapsedRealtime() }
-    override fun onAudioUnderrun(t: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) { underruns++; underrunAt = SystemClock.elapsedRealtime() }
-    override fun onLoadError(t: AnalyticsListener.EventTime, l: LoadEventInfo, m: MediaLoadData, e: java.io.IOException, wasCanceled: Boolean) { loadErrors++ }
+    /** One log line per playback hitch, with the film position, so a stutter can be traced (logcat tag Hitch). */
+    private fun hitch(t: AnalyticsListener.EventTime, what: String) {
+        val sec = t.currentPlaybackPositionMs / 1000
+        android.util.Log.i("Hitch", "at %d:%02d:%02d %s".format(sec / 3600, sec / 60 % 60, sec % 60, what))
+    }
+    override fun onDroppedVideoFrames(t: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) { dropped += droppedFrames; droppedAt = SystemClock.elapsedRealtime(); hitch(t, "$droppedFrames frames dropped in ${elapsedMs} ms") }
+    override fun onAudioUnderrun(t: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) { underruns++; underrunAt = SystemClock.elapsedRealtime(); hitch(t, "audio ran dry (buffer ${bufferSizeMs} ms, last feed ${elapsedSinceLastFeedMs} ms ago)") }
+    override fun onLoadError(t: AnalyticsListener.EventTime, l: LoadEventInfo, m: MediaLoadData, e: java.io.IOException, wasCanceled: Boolean) { loadErrors++; if (!wasCanceled) hitch(t, "download error: ${e.javaClass.simpleName}") }
     override fun onBandwidthEstimate(t: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) { bandwidth = bitrateEstimate }
     override fun onVideoDecoderInitialized(t: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) { videoDecoder = decoderName }
     override fun onAudioDecoderInitialized(t: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) { audioDecoder = decoderName }
     override fun onPlaybackStateChanged(t: AnalyticsListener.EventTime, state: Int) {
-        if (state == Player.STATE_BUFFERING && wasReady) { rebuffers++; rebufferAt = SystemClock.elapsedRealtime() }
+        if (state == Player.STATE_BUFFERING && wasReady) { rebuffers++; rebufferAt = SystemClock.elapsedRealtime(); hitch(t, "buffering") }
         wasReady = state == Player.STATE_READY
     }
 }
