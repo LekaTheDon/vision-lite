@@ -113,7 +113,7 @@ object AnimeIds {
     private fun index(): Index = index ?: synchronized(this) { index ?: load().also { index = it } }
 
     /** Loads off the main thread ahead of the first screen that filters. */
-    suspend fun warm() = withContext(Dispatchers.IO) { index() }
+    suspend fun warm() { withContext(Dispatchers.IO) { index() } }
 
     private fun load(): Index {
         val lines = runCatching { if (file.length() > 10_000) file.readLines() else null }.getOrNull()

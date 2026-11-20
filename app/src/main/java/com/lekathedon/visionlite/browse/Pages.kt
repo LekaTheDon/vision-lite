@@ -278,7 +278,7 @@ fun Decades(nav: Nav) {
     val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
     val anime = hub == com.lekathedon.visionlite.anime.Hub.ANIME
     val year = Calendar.getInstance().get(Calendar.YEAR)
-    val decades = remember(anime) { (year / 10 * 10 downTo if (anime) 1960 else 1920 step 10).toList() }
+    val decades = remember(anime) { (year / 10 * 10 downTo (if (anime) 1960 else 1920) step 10).toList() }
     var decade by rememberSaveable { mutableStateOf(decades.first()) }
     var kind by rememberSaveable { mutableStateOf("movie") }
     Page("Decades") {
