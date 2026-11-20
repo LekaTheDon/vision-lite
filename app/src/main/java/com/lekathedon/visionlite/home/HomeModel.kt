@@ -216,7 +216,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 // Anime: the logo alone (the tile's backdrop is a Films & TV show); the service's page shows only its anime.
                 MetaPreview("svc:${s.id}", "service", s.title, null, if (hub == Hub.ANIME) null else Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))
             }
-            VisionRows.PEOPLE -> People.list.value.map { MetaPreview(it.id, "person", it.name, it.photo) }
+            VisionRows.PEOPLE -> People.list.value.filter { it.hub == hub.key }.map { MetaPreview(it.id, "person", it.name, it.photo) }
             else -> return
         }
         set(key, items)

@@ -467,14 +467,17 @@ fun PersonPage(nav: Nav, id: String, name: String) {
     var data by remember(id) { mutableStateOf<Pair<com.lekathedon.visionlite.home.People.Person?, List<MetaPreview>>?>(null) }
     LaunchedEffect(id) { data = people.titles(id) }
     val list by people.list.collectAsState()
-    val following = list.any { it.id == id }
+    // Follow puts them on this hub's Favourite people only (Anime: voice actors, directors you follow there).
+    val hubKey = com.lekathedon.visionlite.anime.Hubs.content.collectAsState().value.key
+    val following = list.any { it.id == id && it.hub == hubKey }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val d = data
-    Page(d?.first?.name?.ifBlank { null } ?: name, if (d == null) "Loading…" else "${d.second.size} titles") {
+    val mine = hubOnly(d?.second.orEmpty())
+    Page(d?.first?.name?.ifBlank { null } ?: name, if (d == null) "Loading…" else "${mine.size} titles") {
         Row(Modifier.padding(top = 10.dp)) {
             Button(if (following) "Following ✓" else "Follow", {
-                people.toggle(d?.first?.copy(name = d.first!!.name.ifBlank { name }) ?: com.lekathedon.visionlite.home.People.Person(id, name))
+                people.toggle(d?.first?.copy(name = d.first!!.name.ifBlank { name }, hub = hubKey) ?: com.lekathedon.visionlite.home.People.Person(id, name, hub = hubKey))
             }, Modifier.focusRequester(first))
         }
         val all = d?.second.orEmpty()

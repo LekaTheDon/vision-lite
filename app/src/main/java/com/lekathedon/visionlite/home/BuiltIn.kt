@@ -339,7 +339,8 @@ object Services {
  * from a title's cast. Your Vision list is taken over once if it was copied to the app's import folder.
  */
 object People {
-    @Serializable data class Person(val id: String, val name: String, val photo: String? = null)
+    /** [hub]: the hub they were followed in ("NUVIO" = Films & TV, "ANIME"); each hub's row shows only its own. */
+    @Serializable data class Person(val id: String, val name: String, val photo: String? = null, val hub: String = "NUVIO")
     private val ser = ListSerializer(Person.serializer())
     private val _list = MutableStateFlow(read())
     val list: StateFlow<List<Person>> get() = _list
@@ -354,9 +355,10 @@ object People {
         return imported
     }
 
-    fun has(id: String) = _list.value.any { it.id == id }
+    fun has(id: String, hub: String) = _list.value.any { it.id == id && it.hub == hub }
+    /** Follow / unfollow [person] in their [Person.hub]; the same person can be followed in both hubs. */
     fun toggle(person: Person) {
-        val l = if (has(person.id)) _list.value.filter { it.id != person.id } else _list.value + person
+        val l = if (has(person.id, person.hub)) _list.value.filter { !(it.id == person.id && it.hub == person.hub) } else _list.value + person
         _list.value = l; App.instance.prefs.sp.edit().putString("people", Net.json.encodeToString(ser, l)).apply()
     }
 
