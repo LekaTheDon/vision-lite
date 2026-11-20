@@ -2,6 +2,8 @@ package com.lekathedon.visionlite.recs
 
 import android.util.Log
 import com.lekathedon.visionlite.App
+import com.lekathedon.visionlite.anime.Hub
+import com.lekathedon.visionlite.anime.Hubs
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.integrations.Integrations
 import com.lekathedon.visionlite.library.Saves
@@ -52,13 +54,14 @@ object AiPicks {
     private data class Sug(val title: String, val year: Int?, val series: Boolean, val imdb: String?, val reason: String?)
 
     private val http by lazy { Net.http.newBuilder().readTimeout(90, TimeUnit.SECONDS).callTimeout(120, TimeUnit.SECONDS).build() }
-    private val lock = Mutex()
-    private val file get() = File(App.instance.filesDir, "ai_picks.json")
-    private val _picks = MutableStateFlow(read().picks)
-    val picks: StateFlow<List<Pick>> get() = _picks
-    private val _status = MutableStateFlow<String?>(null)
+    // Each hub asks for its own: Films & TV never gets anime, Anime gets only anime (own file, row and status).
+    private val locks = Hub.entries.associateWith { Mutex() }
+    private fun file(hub: Hub) = File(App.instance.filesDir, "ai_picks${hub.suffix}.json")
+    private val _picks = Hub.entries.associateWith { h -> lazy { MutableStateFlow(read(h).picks) } }
+    fun picks(hub: Hub = Hubs.now()): StateFlow<List<Pick>> = _picks.getValue(hub).value
+    private val _status = Hub.entries.associateWith { MutableStateFlow<String?>(null) }
     /** Why the row is empty / what is happening (shown on its tile). */
-    val status: StateFlow<String?> get() = _status
+    fun status(hub: Hub = Hubs.now()): StateFlow<String?> = _status.getValue(hub)
 
     fun configured() = Ai.entries.filter { it.on }
 
@@ -70,36 +73,38 @@ object AiPicks {
     fun setWeight(a: Ai, w: Double) { p.edit().putFloat("ai_w_${a.name}", w.toFloat()).apply() }
     val WEIGHTS = listOf(0.5, 1.0, 1.5, 2.0, 3.0)
 
-    private fun read(): Saved = runCatching { Net.json.decodeFromString(Saved.serializer(), file.readText()) }.getOrDefault(Saved())
+    private fun read(hub: Hub): Saved = runCatching { Net.json.decodeFromString(Saved.serializer(), file(hub).readText()) }.getOrDefault(Saved())
 
-    fun remove(id: String) { val s = read(); val k = s.copy(picks = s.picks.filter { it.imdb != id }); save(k); _picks.value = k.picks }
-    private fun save(s: Saved) { runCatching { file.writeText(Net.json.encodeToString(Saved.serializer(), s)) } }
+    fun remove(id: String, hub: Hub = Hubs.now()) { val s = read(hub); val k = s.copy(picks = s.picks.filter { it.imdb != id }); save(hub, k); _picks.getValue(hub).value.value = k.picks }
+    private fun save(hub: Hub, s: Saved) { runCatching { file(hub).writeText(Net.json.encodeToString(Saved.serializer(), s)) } }
 
-    suspend fun refreshIfDue(force: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun refreshIfDue(hub: Hub = Hubs.now(), force: Boolean = false) = withContext(Dispatchers.IO) {
+        val status = _status.getValue(hub); val picks = _picks.getValue(hub).value
         val ais = configured()
-        if (ais.isEmpty()) { _status.value = "Add a Gemini, Groq or Mistral key: Settings › Integrations › AI"; return@withContext }
+        if (ais.isEmpty()) { status.value = "Add a Gemini, Groq or Mistral key: Settings › Integrations › AI"; return@withContext }
+        val lock = locks.getValue(hub)
         if (!lock.tryLock()) return@withContext
         try {
-            val saved = read()
-            if (!force && System.currentTimeMillis() - saved.at < ROTATE_MS && saved.picks.isNotEmpty()) { _picks.value = saved.picks; return@withContext }
-            _status.value = "Asking ${ais.joinToString(", ") { it.label }}…"
+            val saved = read(hub)
+            if (!force && System.currentTimeMillis() - saved.at < ROTATE_MS && saved.picks.isNotEmpty()) { picks.value = saved.picks; return@withContext }
+            status.value = "Asking ${ais.joinToString(", ") { it.label }}…"
             val problems = HashMap<String, String>()
-            val fresh = compute(ais, saved, problems)
+            val fresh = compute(hub, ais, saved, problems)
             if (fresh.isEmpty()) {
-                _status.value = if (problems.isNotEmpty()) "No answer: " + problems.entries.joinToString(", ") { "${it.key} ${it.value}" } else "No new titles this time"
+                status.value = if (problems.isNotEmpty()) "No answer: " + problems.entries.joinToString(", ") { "${it.key} ${it.value}" } else "No new titles this time"
                 return@withContext
             }
-            _status.value = null
+            status.value = null
             val s = Saved(System.currentTimeMillis(), fresh, (saved.history + fresh.map { it.name }).distinct().takeLast(80))
-            save(s); _picks.value = fresh
+            save(hub, s); picks.value = fresh
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.w(TAG, "failed: ${e.message}"); _status.value = "Didn't work: ${e.message?.take(60)}"
+            Log.w(TAG, "failed: ${e.message}"); status.value = "Didn't work: ${e.message?.take(60)}"
         } finally { lock.unlock() }
     }
 
-    private suspend fun compute(ais: List<Ai>, saved: Saved, problems: MutableMap<String, String>): List<Pick> = coroutineScope {
-        val prompt = prompt(taste() ?: return@coroutineScope emptyList(), Recs.minImdb().takeIf { it > 0 } ?: 7f, saved.history)
+    private suspend fun compute(hub: Hub, ais: List<Ai>, saved: Saved, problems: MutableMap<String, String>): List<Pick> = coroutineScope {
+        val prompt = prompt(hub, taste(hub) ?: return@coroutineScope emptyList(), Recs.minImdb().takeIf { it > 0 } ?: 7f, saved.history)
         val boss = boss()?.takeIf { it in ais }
         class Cand(val s: Sug, var points: Double, val by: MutableList<String>)
         val merged = LinkedHashMap<String, Cand>()
@@ -120,12 +125,12 @@ object AiPicks {
         val gate = Semaphore(4)
         val resolved = ranked.map { c -> async { gate.withPermit { resolve(c.s)?.let { it to c } } } }.awaitAll().filterNotNull().distinctBy { it.first }
         val seen = Recs.seenIds()
-        val ids = resolved.map { it.first }.filter { it !in seen }
+        val ids = resolved.map { it.first }.filter { it !in seen && Hubs.keepsId(hub, it) }
         val facts = Recs.factsFor(ids)
         val min = Recs.minImdb().takeIf { it > 0 } ?: 7f
         resolved.mapNotNull { (id, c) ->
             val f = facts[id] ?: return@mapNotNull null
-            if (id in seen || (f.rating ?: 0f) < min) return@mapNotNull null
+            if (id in seen || !Hubs.keepsId(hub, id) || (f.rating ?: 0f) < min) return@mapNotNull null
             Pick(id, if (f.tv) "series" else "movie", f.name, f.year, f.rating, f.poster, f.genres, null,
                 listOfNotNull(c.s.reason, "Suggested by ${c.by.joinToString(" + ")}.").joinToString(" "), false, c.by.size)
         }.take(ROW)
@@ -148,8 +153,15 @@ object AiPicks {
     }
 
     /** Your taste in words, from Trakt (ratings, history), the Library and your verdicts. Null = nothing to learn from. */
-    private suspend fun taste(): String? {
-        val t = App.instance.trakt.taste()
+    private suspend fun taste(hub: Hub): String? {
+        val all = App.instance.trakt.taste()
+        // Only this hub's titles describe the taste it asks about.
+        fun keeps(id: String?) = id != null && Hubs.keepsId(hub, id)
+        val t = all?.let { a -> com.lekathedon.visionlite.trakt.TraktTaste(
+            movies = a.movies.filter { keeps(it.movie.ids.imdb) },
+            shows = a.shows.filter { keeps(it.show.ids.imdb) },
+            ratings = a.ratings.filter { keeps(it.movie?.ids?.imdb ?: it.show?.ids?.imdb) },
+            paused = a.paused) }
         fun name(m: com.lekathedon.visionlite.trakt.TMovie?, s: com.lekathedon.visionlite.trakt.TShow?) =
             m?.let { "${it.title}${it.year?.let { y -> " ($y)" } ?: ""}" } ?: s?.let { "${it.title}${it.year?.let { y -> " ($y)" } ?: ""} [series]" }
         val ratings = t?.ratings.orEmpty().sortedByDescending { it.ratedAt }
@@ -158,10 +170,10 @@ object AiPicks {
         val disliked = ratings.filter { it.rating in 1..4 }.mapNotNull { name(it.movie, it.show) }.take(15)
         val recent = (t?.movies.orEmpty().map { it.lastWatchedAt to name(it.movie, null) } + t?.shows.orEmpty().map { it.lastWatchedAt to name(null, it.show) })
             .sortedByDescending { it.first }.mapNotNull { it.second }.take(30)
-        val fb = Recs.feedback()
+        val fb = Recs.feedback().filter { Hubs.keepsId(hub, it.id) }
         val more = fb.filter { it.like }.map { it.name }.take(15)
         val less = fb.filter { !it.like }.map { it.name }.take(15)
-        val saved = Saves.all().map { it.name }.take(20)
+        val saved = Saves.all().filter { Hubs.keepsId(hub, it.id) }.map { it.name }.take(20)
         if (loved.isEmpty() && liked.isEmpty() && recent.isEmpty() && more.isEmpty() && saved.isEmpty()) return null
         return buildString {
             if (loved.isNotEmpty() || more.isNotEmpty()) appendLine("Loved (rated 9-10, or asked for more like it): ${(loved + more).joinToString("; ")}.")
@@ -172,8 +184,14 @@ object AiPicks {
         }
     }
 
-    private fun prompt(taste: String, min: Float, shown: List<String>) = buildString {
-        appendLine("You recommend movies and TV series to one person, from what they watch and rate on Trakt and their media app.")
+    private fun prompt(hub: Hub, taste: String, min: Float, shown: List<String>) = buildString {
+        if (hub == Hub.ANIME) {
+            appendLine("You recommend anime (Japanese anime, and Chinese or Korean animation listed on AniList/MyAnimeList) to one person, from the anime they watch and rate on Trakt and their media app.")
+            appendLine("Suggest anime only: never live-action titles, never Western animation (no Pixar, Disney, Arcane, Avatar: The Last Airbender, Castlevania).")
+        } else {
+            appendLine("You recommend movies and TV series to one person, from what they watch and rate on Trakt and their media app.")
+            appendLine("Never suggest anime: this person keeps anime in a separate section of their app.")
+        }
         append(taste)
         if (shown.isNotEmpty()) appendLine("Already suggested to them before, do not repeat: ${shown.takeLast(60).joinToString("; ")}.")
         appendLine()

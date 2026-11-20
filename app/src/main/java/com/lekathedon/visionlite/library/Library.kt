@@ -41,7 +41,9 @@ fun backdropOf(imdb: String) = "https://images.metahub.space/background/medium/$
 fun Library(nav: Nav) {
     val trakt = App.instance.trakt
     var items by remember { mutableStateOf<List<ListItem>?>(null) }
-    val saved = remember { Saves.all() }
+    // Only the hub you're in (Films & TV or Anime).
+    val hub = remember { com.lekathedon.visionlite.anime.Hubs.now() }
+    val saved = remember { Saves.all().filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.id) } }
     LaunchedEffect(Unit) { items = if (trakt.connected.value != null) trakt.watchlist() else emptyList() }
     val first = remember { FocusRequester() }
     LaunchedEffect(items) { if (saved.isNotEmpty() || !items.isNullOrEmpty()) runCatching { first.requestFocus() } }
@@ -61,8 +63,8 @@ fun Library(nav: Nav) {
             Text(when {
                 trakt.connected.value == null -> "Trakt watchlist: connect Trakt in Settings"
                 items == null -> "Trakt watchlist"
-                items!!.isEmpty() -> "Trakt watchlist is empty"
-                else -> "Trakt watchlist · ${items!!.size}"
+                else -> items!!.count { li -> (li.movie?.ids?.imdb ?: li.show?.ids?.imdb)?.let { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it) } == true }
+                    .let { n -> if (n == 0) "Trakt watchlist is empty" else "Trakt watchlist · $n" }
             }, color = Palette.Text, fontSize = if (saved.isEmpty()) 26.sp else 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = if (saved.isEmpty()) 0.dp else 16.dp, bottom = 8.dp))
         }
         val list = items.orEmpty().mapNotNull { li ->
@@ -71,7 +73,7 @@ fun Library(nav: Nav) {
                 li.show != null -> li.show.ids.imdb?.let { Triple("series", it, li.show.title) }
                 else -> null
             }
-        }
+        }.filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.second) }
         items(list, key = { it.second }) { (type, imdb, title) ->
             val mod = if (saved.isEmpty() && imdb == list.first().second) Modifier.focusRequester(first) else Modifier
             com.lekathedon.visionlite.home.EchoPoster(com.lekathedon.visionlite.addons.MetaPreview(imdb, type, title, posterOf(imdb)), mod, expand = false) {

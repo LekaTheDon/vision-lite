@@ -144,6 +144,13 @@ class Prefs(context: Context) {
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */
     val rowOrder = Text("row_order", "")
     val rowsHidden = Text("rows_hidden", "")
+    /** The Anime hub's own Home row order and hidden rows. */
+    val rowOrderAnime = Text("row_order_anime", "")
+    val rowsHiddenAnime = Text("rows_hidden_anime", "")
+    /** Home's content hub: "NUVIO" (Films & TV) or "ANIME". */
+    val contentHub = Text("content_hub", "NUVIO")
+    /** Titles moved by hand between Anime (+id) and Films & TV (-id), one per line. */
+    val animeMoves = Text("anime_moves", "")
     /** Add-on catalogs as Home rows (Vision's "Add-on rows"); off like the user's Vision. */
     val addonRows = Flag("home_addon_rows", false)
     // Library + search

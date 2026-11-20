@@ -188,13 +188,21 @@ private fun MetaPreview.logoUrl(): String? = logo ?: if (id.startsWith("tt")) "h
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun EchoHome(nav: Nav) {
-    val vm: HomeModel = viewModel()
+    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsStateWithLifecycle()
+    // Films & TV and Anime: each its own Home (rows, Continue watching, picks); the other stays as it was left.
+    androidx.compose.runtime.key(hub) { EchoHomeOf(nav, hub) }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
+    val vm = homeModel(hub)
     val rows by vm.rows.collectAsStateWithLifecycle()
     val look = LocalLook.current
     val prefs = App.instance.prefs
     val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
     val dims = remember(size) { EchoDims.of(size) }
-    val hiddenText by prefs.rowsHidden.flow.collectAsStateWithLifecycle()
+    val hiddenText by com.lekathedon.visionlite.anime.Hubs.rowsHidden(hub).flow.collectAsStateWithLifecycle()
     val exitConfirm by prefs.exitConfirm.flow.collectAsStateWithLifecycle()
     var askExit by remember { mutableStateOf(false) }
     val activity = LocalContext.current as? android.app.Activity
@@ -221,7 +229,7 @@ fun EchoHome(nav: Nav) {
         r.key !in hidden && (r.items.isNotEmpty() || !r.done ||
             (r.key == VisionRows.AI && aiOn) || ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
     }
-    val aiStatus by AiPicks.status.collectAsStateWithLifecycle()
+    val aiStatus by AiPicks.status(hub).collectAsStateWithLifecycle()
     // The phone companion's copy of Home (only while it is switched on; built off the main thread).
     val linkOn by prefs.phoneLink.flow.collectAsStateWithLifecycle()
     LaunchedEffect(linkOn, cw, rows) {
@@ -230,7 +238,7 @@ fun EchoHome(nav: Nav) {
         val list = visible.map { it.title to it.items }
         withContext(Dispatchers.Default) { com.lekathedon.visionlite.link.LinkState.publishRows(cw, list) }
     }
-    val recsBuilding by Recs.building.collectAsStateWithLifecycle()
+    val recsBuilding by Recs.building(hub).collectAsStateWithLifecycle()
     var hold by remember { mutableStateOf<Pair<Row, MetaPreview>?>(null) }
     var cwHold by remember { mutableStateOf<com.lekathedon.visionlite.trakt.Resume?>(null) }
     val scope = rememberCoroutineScope()
@@ -579,8 +587,10 @@ fun BoxScope.TopPill(
         }
         return true
     }
-    androidx.activity.compose.BackHandler(enabled = open && (choosing || (current == null && section != "NUVIO"))) {
-        if (choosing) choosing = false else prefs.appSection.value = "NUVIO"
+    // Back on Home from IPTV / YouTube / Music: to the content hub Home shows (Films & TV or Anime).
+    val contentHub by com.lekathedon.visionlite.anime.Hubs.content.collectAsStateWithLifecycle()
+    androidx.activity.compose.BackHandler(enabled = open && (choosing || (current == null && section != contentHub.key))) {
+        if (choosing) choosing = false else com.lekathedon.visionlite.anime.Hubs.setSection(contentHub.key)
         pending = "section"
     }
     val shown = open || current != null
@@ -622,7 +632,7 @@ fun BoxScope.TopPill(
                     item(k, label, selected = if (ch) k == "s:$section" else k == entryKey) {
                         if (ch) {
                             val key = k.removePrefix("s:")
-                            prefs.appSection.value = key; choosing = false
+                            com.lekathedon.visionlite.anime.Hubs.setSection(key); choosing = false
                             Sections.opensAt(key)?.let { if (current != null) nav.replace(it) else nav.push(it) } ?: run {
                                 if (current != null) nav.popToHome(); pending = Sections.pages(key).firstOrNull()?.let { "p:" + it.first } ?: "section" }
                         } else if (k != entryKey) Sections.pages(section).firstOrNull { it.first == label }?.let {
@@ -681,11 +691,17 @@ private fun ProfilePicker(onManage: () -> Unit, onDone: (com.lekathedon.visionli
     }
 }
 
-/** The hub page each menu screen is (for the pill on that page): its label, or null when it isn't one. */
-/** The hub (section key) a menu screen belongs to, or null. */
-fun hubOf(s: Screen): String? = Sections.all.firstOrNull { (key, _) -> Sections.pages(key).any { it.second == s } }?.first
+/** The hub (section key) a menu screen belongs to, or null. Films & TV and Anime share their pages: the one you're in keeps them. */
+fun hubOf(s: Screen): String? {
+    val now = App.instance.prefs.appSection.value
+    if (Sections.pages(now).any { it.second == s }) return now
+    val content = com.lekathedon.visionlite.anime.Hubs.now().key
+    if (Sections.pages(content).any { it.second == s }) return content
+    return Sections.all.firstOrNull { (key, _) -> Sections.pages(key).any { it.second == s } }?.first
+}
 
-fun hubPageOf(s: Screen): String? = Sections.all.firstNotNullOfOrNull { (key, _) -> Sections.pages(key).firstOrNull { it.second == s }?.first }
+/** The hub page each menu screen is (for the pill on that page): its label, or null when it isn't one. */
+fun hubPageOf(s: Screen): String? = hubOf(s)?.let { key -> Sections.pages(key).firstOrNull { it.second == s }?.first }
 
 @Composable
 private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
@@ -1211,8 +1227,8 @@ private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal
 
 /** Vision's sections and their pages, as far as Lite has built them (the rest join here as they arrive). */
 private object Sections {
-    val all = listOf("NUVIO" to "Nuvio", "IPTV" to "IPTV", "YOUTUBE" to "YouTube", "MUSIC" to "Music")
-    fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Nuvio"
+    val all = listOf("NUVIO" to "Films & TV", "ANIME" to "Anime", "IPTV" to "IPTV", "YOUTUBE" to "YouTube", "MUSIC" to "Music")
+    fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Films & TV"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
         "YOUTUBE" -> com.lekathedon.visionlite.youtube.YtTabs.tabs().map { (k, l) -> l to Screen.YouTube(k) }
@@ -1220,7 +1236,7 @@ private object Sections {
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search, "Genres" to Screen.Genres, "Decades" to Screen.Decades,
             "Scout" to Screen.Scout, "Library" to Screen.Library, "Calendar" to Screen.Calendar)
     }
-    /** Picking YouTube or Music opens its first tab (as Vision's do); Nuvio and IPTV stay on Home with their pages in the pill. */
+    /** Picking YouTube or Music opens its first tab (as Vision's do); Films & TV, Anime and IPTV stay on Home with their pages in the pill. */
     fun opensAt(key: String): Screen? = if (key == "YOUTUBE" || key == "MUSIC") pages(key).firstOrNull()?.second else null
 }
 
@@ -1324,9 +1340,15 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
             }
             if (picks) {
                 Choice("More like this") { Recs.moreLikeThis(m.id, tv, m.name) }
-                Choice("Not for me", removes = true) { Recs.notForMe(m.id, tv, m.name); if (row.key == VisionRows.AI) AiPicks.remove(m.id) }
+                Choice("Not for me", removes = true) { Recs.notForMe(m.id, tv, m.name); if (row.key == VisionRows.AI) AiPicks.remove(m.id, com.lekathedon.visionlite.anime.Hubs.now()) }
             }
             if (row.key == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
+            // Wrong hub: the title moves to the other one, everywhere (its IMDb id too, when the card has another id).
+            val anime = remember(m.id) { com.lekathedon.visionlite.anime.AnimeIds.isAnime(m.id) }
+            Choice(if (anime) "Move to Films & TV" else "Move to Anime", removes = true) {
+                com.lekathedon.visionlite.anime.AnimeIds.move(m.id, !anime)
+                if (!m.id.startsWith("tt")) scope.launch { imdbIdOf(m)?.takeIf { it.startsWith("tt") }?.let { com.lekathedon.visionlite.anime.AnimeIds.move(it, !anime) } }
+            }
             Choice(if (saved) "Remove from Library" else "Add to Library") {
                 scope.launch {
                     val id = imdbIdOf(m) ?: return@launch

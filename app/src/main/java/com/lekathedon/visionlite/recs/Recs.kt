@@ -2,6 +2,8 @@ package com.lekathedon.visionlite.recs
 
 import android.util.Log
 import com.lekathedon.visionlite.App
+import com.lekathedon.visionlite.anime.Hub
+import com.lekathedon.visionlite.anime.Hubs
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.library.Saves
 import kotlinx.coroutines.Dispatchers
@@ -61,13 +63,15 @@ object Recs {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     /** Rebuild in the background (keeps going when the screen that asked is left). */
-    fun rebuildNow() { scope.launch { refreshIfDue(force = true) } }
+    fun rebuildNow(hub: Hub = Hubs.now()) { scope.launch { refreshIfDue(hub, force = true) } }
 
-    private val _pool = MutableStateFlow(read("pool.json", Pool.serializer()))
-    /** The last built picks (or null before the first build). */
-    val pool: StateFlow<Pool?> get() = _pool
-    private val _building = MutableStateFlow(false)
-    val building: StateFlow<Boolean> get() = _building
+    // Each hub has its own picks, learnt only from that hub's titles (Films & TV never from anime, Anime only from anime).
+    private fun poolFile(hub: Hub) = "pool${hub.suffix}.json"
+    private val pools = Hub.entries.associateWith { h -> lazy { MutableStateFlow(read(poolFile(h), Pool.serializer())) } }
+    private val buildings = Hub.entries.associateWith { MutableStateFlow(false) }
+    /** The hub's last built picks (or null before its first build). */
+    fun pool(hub: Hub = Hubs.now()): StateFlow<Pool?> = pools.getValue(hub).value
+    fun building(hub: Hub = Hubs.now()): StateFlow<Boolean> = buildings.getValue(hub)
     private val _changed = MutableStateFlow(0)
     /** Bumps when More like this / Not for me changes, so rows redraw. */
     val changed: StateFlow<Int> get() = _changed
@@ -78,26 +82,26 @@ object Recs {
     // ---- what screens use ----
 
     /** [count] picks for now (a different slice every 12 h), without anything turned down since the build. */
-    fun forYou(count: Int = 30, now: Long = System.currentTimeMillis()): List<Pick> {
+    fun forYou(count: Int = 30, now: Long = System.currentTimeMillis(), hub: Hub = Hubs.now()): List<Pick> {
         val nope = feedback().filter { !it.like }.map { it.id }.toSet()
         val min = minImdb()
-        return RecsLogic.rotate(pool.value?.picks.orEmpty().filter { it.imdb !in nope && (it.rating == null || it.rating >= min) }, count, now)
+        return RecsLogic.rotate(pool(hub).value?.picks.orEmpty().filter { Hubs.keepsId(hub, it.imdb) }.filter { it.imdb !in nope && (it.rating == null || it.rating >= min) }, count, now)
     }
 
     /** IMDb Picks: the engine's finds IMDb rates highest, without what Vision Picks shows now. */
-    fun imdbPicks(count: Int = 30, now: Long = System.currentTimeMillis()): List<Pick> {
+    fun imdbPicks(count: Int = 30, now: Long = System.currentTimeMillis(), hub: Hub = Hubs.now()): List<Pick> {
         val nope = feedback().filter { !it.like }.map { it.imdb() }.toSet()
-        val shown = forYou(30, now).map { it.imdb }.toSet()
+        val shown = forYou(30, now, hub).map { it.imdb }.toSet()
         val min = maxOf(minImdb(), 7.5f)
-        return pool.value?.picks.orEmpty().filter { it.imdb !in nope && it.imdb !in shown && (it.rating ?: 0f) >= min }
+        return pool(hub).value?.picks.orEmpty().filter { Hubs.keepsId(hub, it.imdb) && it.imdb !in nope && it.imdb !in shown && (it.rating ?: 0f) >= min }
             .sortedWith(compareByDescending<Pick> { it.rating ?: 0f }.thenByDescending { it.sources }).take(count)
     }
     private fun Fb.imdb() = id
 
     /** "Because you watched X" rows, strongest first. */
-    fun because(): List<Because> {
+    fun because(hub: Hub = Hubs.now()): List<Because> {
         val nope = feedback().filter { !it.like }.map { it.id }.toSet()
-        return pool.value?.because.orEmpty().map { b -> b.copy(picks = b.picks.filter { it.imdb !in nope }) }
+        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = b.picks.filter { it.imdb !in nope && Hubs.keepsId(hub, it.imdb) }) }
     }
 
     @Serializable data class Fb(val id: String, val tv: Boolean, val name: String, val like: Boolean, val at: Long)
@@ -123,37 +127,40 @@ object Recs {
         val imdb = seedLookup(listOf(seed), facts)[id].orEmpty()
         val trakt = traktRelated(listOf(seed), facts, System.currentTimeMillis())
         val ex = RecsLogic.Exclusions(seen() + exclusionIds(null), emptySet())
-        val tally = RecsLogic.tally(listOf(Triple(Source.IMDB, seed, imdb)) + trakt, ex, minImdb())
+        val hub = Hubs.hubOf(id)
+        val tally = RecsLogic.tally((listOf(Triple(Source.IMDB, seed, imdb)) + trakt).map { (s, sd, l) -> Triple(s, sd, l.filter { Hubs.keepsId(hub, it.id) }) }, ex, minImdb())
         tally.values.sortedByDescending { it.score }.take(BECAUSE_ITEMS).map { simplePick(it) }
     }
 
     // ---- building ----
 
     /** Builds when due (daily, or an hour after what it learns from changed). Returns the pool now in use. */
-    suspend fun refreshIfDue(force: Boolean = false): Pool? = lock.withLock {
+    suspend fun refreshIfDue(hub: Hub = Hubs.now(), force: Boolean = false): Pool? = lock.withLock {
         withContext(Dispatchers.IO) {
-            _building.value = true
-            try { build(force) } catch (e: Exception) {
+            buildings.getValue(hub).value = true
+            try { build(hub, force) } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.w(TAG, "build failed: ${e.message}"); pool.value
-            } finally { _building.value = false }
+                Log.w(TAG, "build failed: ${e.message}"); pool(hub).value
+            } finally { buildings.getValue(hub).value = false }
         }
     }
 
-    private suspend fun build(force: Boolean): Pool? {
+    private suspend fun build(hub: Hub, force: Boolean): Pool? {
         val now = System.currentTimeMillis()
         val trakt = App.instance.trakt.taste()
-        val signals = signals(trakt, now)
+        val signals = signals(trakt, now).filter { Hubs.keepsId(hub, it.id) }
         val seeds = RecsLogic.seeds(signals)
         val min = minImdb()
         val sig = RecsLogic.signature(seeds, min)
-        if (seeds.none { it.weight > 0 }) return Pool(now, sig, version = RecsLogic.VERSION).also { save(it) }
-        if (!force && !RecsLogic.shouldRefresh(pool.value, sig, now)) return pool.value
+        if (seeds.none { it.weight > 0 }) return Pool(now, sig, version = RecsLogic.VERSION).also { save(hub, it) }
+        if (!force && !RecsLogic.shouldRefresh(pool(hub).value, sig, now)) return pool(hub).value
 
         val facts = readFacts()
         val similar = seedLookup(seeds, facts)
         val related = traktRelated(seeds.filter { it.weight > 0 }.take(TRAKT_SEEDS), facts, now)
-        val results = seeds.map { Triple(Source.IMDB, it, similar[it.id].orEmpty()) } + related
+        // Only this hub's titles can come out.
+        val results = (seeds.map { Triple(Source.IMDB, it, similar[it.id].orEmpty()) } + related)
+            .map { (s, seed, list) -> Triple(s, seed, list.filter { Hubs.keepsId(hub, it.id) }) }
 
         val names = HashSet<String>()
         trakt?.movies?.forEach { names += RecsLogic.exclusionName(it.movie.title, it.movie.year) }
@@ -183,7 +190,7 @@ object Recs {
         }.filter { it.picks.size >= 8 }
         saveFacts(facts, now)
         return Pool(now, sig, picks, because, seeds.count { it.weight > 0 }, RecsLogic.VERSION).also {
-            save(it); Log.i(TAG, "${seeds.size} seeds → ${picks.size} picks, ${because.size} because rows")
+            save(hub, it); Log.i(TAG, "${hub.label}: ${seeds.size} seeds → ${picks.size} picks, ${because.size} because rows")
         }
     }
 
@@ -368,7 +375,7 @@ object Recs {
     private fun saveFacts(facts: Map<String, Facts>, now: Long) =
         write("facts.json", factsSer, facts.values.filter { now - it.at < FACTS_MAX_AGE }.sortedByDescending { it.at }.take(FACTS_KEEP))
 
-    private fun save(pool: Pool) { _pool.value = pool; write("pool.json", Pool.serializer(), pool) }
+    private fun save(hub: Hub, pool: Pool) { pools.getValue(hub).value.value = pool; write(poolFile(hub), Pool.serializer(), pool) }
 
     private fun <T> read(name: String, ser: kotlinx.serialization.KSerializer<T>): T? =
         runCatching { Net.json.decodeFromString(ser, File(dir, name).readText()) }.getOrNull()
@@ -378,5 +385,8 @@ object Recs {
     }
 
     /** Settings → Recommendations → Start over: forgets the picks and the cached facts (keeps More like this / Not for me). */
-    fun reset() { listOf("pool.json", "facts.json", "related.json", "seen.json").forEach { File(dir, it).delete() }; _pool.value = null }
+    fun reset() {
+        (Hub.entries.map(::poolFile) + listOf("facts.json", "related.json", "seen.json")).forEach { File(dir, it).delete() }
+        Hub.entries.forEach { pools.getValue(it).value.value = null }
+    }
 }

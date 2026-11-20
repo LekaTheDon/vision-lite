@@ -291,17 +291,17 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Picks")
         row { m -> Choice("IMDb minimum", "Nothing rated lower is recommended", p.recMinImdb, ImdbMinOpts, m) }
-        row { m ->
-            val pool by com.lekathedon.visionlite.recs.Recs.pool.collectAsState()
-            val busy by com.lekathedon.visionlite.recs.Recs.building.collectAsState()
+        com.lekathedon.visionlite.anime.Hub.entries.forEach { hub -> row { m ->
+            val pool by com.lekathedon.visionlite.recs.Recs.pool(hub).collectAsState()
+            val busy by com.lekathedon.visionlite.recs.Recs.building(hub).collectAsState()
             val status = when {
                 busy -> "Building…"
                 pool == null -> "Not built yet · OK builds now"
                 pool!!.seeds == 0 -> "Nothing to learn from yet"
                 else -> "${pool!!.picks.size} picks from ${pool!!.seeds} titles · OK rebuilds"
             }
-            Link("Picks", status, m) { if (!busy) com.lekathedon.visionlite.recs.Recs.rebuildNow() }
-        }
+            Link("Picks · ${hub.label}", status, m) { if (!busy) com.lekathedon.visionlite.recs.Recs.rebuildNow(hub) }
+        } }
         row { m -> Link("Start over", "Forgets the picks; keeps More like this and Not for me", m) { com.lekathedon.visionlite.recs.Recs.reset() } }
         head("AI Picks (free tiers)")
         row { m -> ServiceRow("gemini", nav, m) }

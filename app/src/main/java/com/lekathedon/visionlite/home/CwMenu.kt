@@ -58,6 +58,11 @@ fun CwMenu(r: Resume, nav: Nav, onDrop: () -> Unit, onClose: () -> Unit) {
                 onClose(); nav.push(Screen.Detail(r.type, r.imdb, r.name))
             }, Modifier.fillMaxWidth())
             com.lekathedon.visionlite.ui.Button(if (r.type == "series") "Drop this show" else "Drop this movie", { onDrop(); onClose() }, Modifier.fillMaxWidth())
+            // Wrong hub: the title moves (and leaves this Continue watching for the other hub's).
+            val anime = com.lekathedon.visionlite.anime.AnimeIds.isAnime(r.imdb)
+            com.lekathedon.visionlite.ui.Button(if (anime) "Move to Films & TV" else "Move to Anime", {
+                com.lekathedon.visionlite.anime.AnimeIds.move(r.imdb, !anime); onClose()
+            }, Modifier.fillMaxWidth())
             com.lekathedon.visionlite.ui.Button("Cancel", { onClose() }, Modifier.fillMaxWidth())
         }
     }

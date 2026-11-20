@@ -73,7 +73,14 @@ internal var LastFocus: FocusRequester? = null
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun Home(nav: Nav) {
-    val vm: HomeModel = viewModel()
+    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsStateWithLifecycle()
+    androidx.compose.runtime.key(hub) { HomeOf(nav, hub) }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
+    val vm = homeModel(hub)
     val rows by vm.rows.collectAsStateWithLifecycle()
     val look = LocalLook.current
     val prefs = com.lekathedon.visionlite.App.instance.prefs
@@ -81,7 +88,7 @@ fun Home(nav: Nav) {
     val ratings by prefs.ratings.flow.collectAsStateWithLifecycle()
     val pl = remember(size, ratings) { when (size) { "s" -> PosterLook(100.dp, 150.dp, ratings); "l" -> PosterLook(150.dp, 225.dp, ratings); else -> PosterLook(120.dp, 180.dp, ratings) } }
     val PosterW = pl.w; val PosterH = pl.h
-    val hiddenText by prefs.rowsHidden.flow.collectAsStateWithLifecycle()
+    val hiddenText by com.lekathedon.visionlite.anime.Hubs.rowsHidden(hub).flow.collectAsStateWithLifecycle()
     val exitConfirm by prefs.exitConfirm.flow.collectAsStateWithLifecycle()
     var askExit by remember { mutableStateOf(false) }
     var cwHold by remember { mutableStateOf<com.lekathedon.visionlite.trakt.Resume?>(null) }

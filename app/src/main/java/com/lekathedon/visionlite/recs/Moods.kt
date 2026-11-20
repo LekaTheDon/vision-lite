@@ -81,36 +81,38 @@ enum class Mood(
 }
 
 object Moods {
-    private val topUp = HashMap<Mood, List<MetaPreview>>()
+    private val topUp = HashMap<Pair<Mood, com.lekathedon.visionlite.anime.Hub>, List<MetaPreview>>()
 
     /** The engine's own finds for [mood], best first (as the engine ranked them). */
-    fun fromEngine(mood: Mood): List<Pick> {
-        val pool = Recs.pool.value ?: return emptyList()
+    fun fromEngine(mood: Mood, hub: com.lekathedon.visionlite.anime.Hub = com.lekathedon.visionlite.anime.Hubs.now()): List<Pick> {
+        val pool = Recs.pool(hub).value ?: return emptyList()
         val nope = Recs.feedback().filter { !it.like }.map { it.id }.toSet()
         val min = Recs.minImdb()
         val all = (pool.picks + pool.because.flatMap { it.picks }).distinctBy { it.imdb }
-            .filter { it.imdb !in nope && (it.rating == null || it.rating >= min) }
+            .filter { it.imdb !in nope && (it.rating == null || it.rating >= min) && com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.imdb) }
         val kw = Recs.keywordsOf(all.map { it.imdb })
         return all.filter { mood.fits(it.genres, kw[it.imdb].orEmpty(), it.rating) }
     }
 
     /** More for [mood] from TMDB with Scout's filters (needs a TMDB key); nothing the engine already shows or you've seen. */
-    suspend fun discover(mood: Mood, shown: Set<String>): List<MetaPreview> {
+    suspend fun discover(mood: Mood, shown: Set<String>, hub: com.lekathedon.visionlite.anime.Hub = com.lekathedon.visionlite.anime.Hubs.now()): List<MetaPreview> {
         if (Tmdb.key() == null) return emptyList()
-        synchronized(topUp) { topUp[mood] }?.let { return it }
+        synchronized(topUp) { topUp[mood to hub] }?.let { return it }
+        // TMDB's "anime" keyword (210024) steers the ask; the anime list still decides what shows.
+        val kw = if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "&with_keywords=210024" else "&without_keywords=210024"
         val seen = Recs.seenTmdb()
         val min = Recs.minImdb()
         val list = withContext(Dispatchers.IO) {
             coroutineScope {
-                val m = async { Tmdb.items(Tmdb.get("discover/movie?sort_by=popularity.desc&${mood.tmdbMovie}"), false) }
-                val t = async { Tmdb.items(Tmdb.get("discover/tv?sort_by=popularity.desc&${notTalk(mood.tmdbTv)}"), true) }
+                val m = async { Tmdb.items(Tmdb.get("discover/movie?sort_by=popularity.desc&${mood.tmdbMovie}$kw"), false) }
+                val t = async { Tmdb.items(Tmdb.get("discover/tv?sort_by=popularity.desc&${notTalk(mood.tmdbTv)}$kw"), true) }
                 val a = m.await(); val b = t.await()
                 // Films and shows taken in turn, so neither side fills the row.
                 (0 until maxOf(a.size, b.size)).flatMap { i -> listOfNotNull(a.getOrNull(i), b.getOrNull(i)) }
             }
-        }.filter { it.id !in seen && Recs.seenName(it.name, it.releaseInfo) !in seen && it.name !in shown &&
+        }.filter { com.lekathedon.visionlite.anime.Hubs.keeps(hub, it) && it.id !in seen && Recs.seenName(it.name, it.releaseInfo) !in seen && it.name !in shown &&
             (min <= 0f || (it.imdbRating?.toFloatOrNull() ?: 10f) >= min - 0.5f) }
-        synchronized(topUp) { topUp[mood] = list }
+        synchronized(topUp) { topUp[mood to hub] = list }
         return list
     }
 
@@ -119,5 +121,6 @@ object Moods {
         else "$q&without_genres=10763,10764,10766,10767"
 
     /** Moods that have something to show (engine finds first); empty before the engine's first build. */
-    fun available(): List<Mood> = Mood.entries.filter { fromEngine(it).size >= 4 || Tmdb.key() != null }
+    fun available(hub: com.lekathedon.visionlite.anime.Hub = com.lekathedon.visionlite.anime.Hubs.now()): List<Mood> =
+        Mood.entries.filter { fromEngine(it, hub).size >= 4 || Tmdb.key() != null }
 }

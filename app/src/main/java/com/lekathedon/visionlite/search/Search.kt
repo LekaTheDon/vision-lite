@@ -90,9 +90,11 @@ fun Search(nav: Nav) {
                 textStyle = TextStyle(color = Palette.Text, fontSize = 18.sp), cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { run() }),
                 modifier = Modifier.fillMaxWidth(0.6f).focusRequester(field).background(Palette.Card).padding(14.dp),
-                decorationBox = { inner -> if (q.isEmpty()) Text("Search movies and series", color = Palette.TextDim, fontSize = 18.sp); inner() })
+                decorationBox = { inner -> if (q.isEmpty()) Text(if (com.lekathedon.visionlite.anime.Hubs.now() == com.lekathedon.visionlite.anime.Hub.ANIME) "Search anime" else "Search movies and series",
+                    color = Palette.TextDim, fontSize = 18.sp); inner() })
         }
         if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
+            val hints = com.lekathedon.visionlite.browse.hubOnly(hints)
             Text("Suggestions", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 itemsIndexed(hints, key = { i, m -> "$i:${m.id}" }) { _, m ->
@@ -108,7 +110,10 @@ fun Search(nav: Nav) {
             }
         }
         // Index in the key: two add-ons (or one add-on's film and series catalogs) can give the same row name.
-        itemsIndexed(results, key = { i, r -> "$i:${r.first}" }) { _, (title, metas) ->
+        itemsIndexed(results, key = { i, r -> "$i:${r.first}" }) { _, (title, all) ->
+            // Only the hub you're in: Anime finds anime, Films & TV everything else.
+            val metas = com.lekathedon.visionlite.browse.hubOnly(all)
+            if (metas.isEmpty()) return@itemsIndexed
             com.lekathedon.visionlite.home.EchoRowTitle(title)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 itemsIndexed(metas.distinctBy { it.type + it.id }, key = { i, m -> "$i:${m.type}:${m.id}" }) { _, m ->

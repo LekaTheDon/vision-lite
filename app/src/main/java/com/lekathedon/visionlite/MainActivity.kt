@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
                   // A hub's pages (Discover, Library, Live TV…) carry the pill on top, that page marked (Vision).
                   val hub = com.lekathedon.visionlite.home.hubPageOf(nav.current)
                   // The pill on a hub's page shows that hub, however the page was reached.
-                  androidx.compose.runtime.LaunchedEffect(nav.current) { com.lekathedon.visionlite.home.hubOf(nav.current)?.let { App.instance.prefs.appSection.value = it } }
+                  androidx.compose.runtime.LaunchedEffect(nav.current) { com.lekathedon.visionlite.home.hubOf(nav.current)?.let { com.lekathedon.visionlite.anime.Hubs.setSection(it) } }
                   Box(Modifier.fillMaxSize().padding(top = if (hub != null) 50.dp else 0.dp)) {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {

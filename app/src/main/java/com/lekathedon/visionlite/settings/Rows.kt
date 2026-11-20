@@ -31,13 +31,21 @@ import com.lekathedon.visionlite.ui.Button
 import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Palette
 
-/** Home rows: on/off, up/down, refresh. Same model as Home (activity-scoped), so changes show at once. */
+/** Home rows: on/off, up/down, refresh. Same model as Home (activity-scoped), so changes show at once. One set per hub. */
 @Composable
 fun Rows() {
-    val vm: HomeModel = viewModel()
+    var hub by remember { mutableStateOf(com.lekathedon.visionlite.anime.Hubs.now()) }
+    androidx.compose.runtime.key(hub) { RowsOf(hub) { hub = it } }
+}
+
+@Composable
+private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathedon.visionlite.anime.Hub) -> Unit) {
+    val vm = com.lekathedon.visionlite.home.homeModel(hub)
     val prefs = App.instance.prefs
+    val rowOrder = com.lekathedon.visionlite.anime.Hubs.rowOrder(hub)
+    val rowsHidden = com.lekathedon.visionlite.anime.Hubs.rowsHidden(hub)
     val rows by vm.rows.collectAsState()
-    val hiddenText by prefs.rowsHidden.flow.collectAsState()
+    val hiddenText by rowsHidden.flow.collectAsState()
     val hidden = hiddenText.split('\n').filter { it.isNotEmpty() }.toSet()
     var msg by remember { mutableStateOf("") }
     val first = remember { FocusRequester() }
@@ -47,14 +55,17 @@ fun Rows() {
         val i = keys.indexOf(key); val j = (i + by).coerceIn(0, keys.lastIndex)
         if (i < 0 || i == j) return
         keys.add(j, keys.removeAt(i))
-        prefs.rowOrder.value = keys.joinToString("\n")
+        rowOrder.value = keys.joinToString("\n")
     }
     LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp)) {
         item {
             Text("Home rows", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                com.lekathedon.visionlite.anime.Hub.entries.forEach { h -> Button(if (h == hub) "● ${h.label}" else h.label, { pick(h) }) }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button("Refresh all rows", { vm.refreshAll(); msg = "Rows will load fresh" }, Modifier.focusRequester(first))
-                Button("Reset order", { prefs.rowOrder.value = ""; prefs.rowsHidden.value = "" })
+                Button("Reset order", { rowOrder.value = ""; rowsHidden.value = "" })
                 val addonRows by prefs.addonRows.flow.collectAsState()
                 Button(if (addonRows) "Add-on rows: On" else "Add-on rows: Off", { prefs.addonRows.value = !addonRows })
                 if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp)
@@ -65,7 +76,7 @@ fun Rows() {
             Row(Modifier.padding(top = 10.dp).fillMaxWidth(0.8f).background(Palette.Card).padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(r.title + " · " + r.source, color = if (on) Palette.Text else Palette.TextDim, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                Button(if (on) "On" else "Off", { prefs.rowsHidden.value = (if (on) hidden + r.key else hidden - r.key).joinToString("\n") })
+                Button(if (on) "On" else "Off", { rowsHidden.value = (if (on) hidden + r.key else hidden - r.key).joinToString("\n") })
                 Button("Up", { move(r.key, -1) })
                 Button("Down", { move(r.key, 1) })
             }

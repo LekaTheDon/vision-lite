@@ -41,6 +41,18 @@ object VisionRows {
         SERVICES to "Streaming services", PEOPLE to "Favourite people"
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
+    /**
+     * The rows a hub's Home starts from. Films & TV leaves the anime charts out; Anime puts them right under the picks
+     * and drops the anime suffix (every row there is anime). Each row then shows only its hub's titles.
+     */
+    fun forHub(hub: com.lekathedon.visionlite.anime.Hub): List<Pair<String, String>> {
+        val animeCharts = Charts.Chart.entries.filter { it.src == Charts.Src.ANILIST || it.src == Charts.Src.IMDB_ANIME }.map { "c/${it.id}" }.toSet()
+        if (hub == com.lekathedon.visionlite.anime.Hub.FILMS) return all.filter { it.first !in animeCharts }
+        val (charts, rest) = all.partition { it.first in animeCharts }
+        val head = rest.takeWhile { it.first != SERVICES }
+        return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "") } + rest.drop(head.size)
+    }
+
     fun isPicks(key: String) = key == PICKS || key == IMDB || key == AI
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
     val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}")
@@ -98,6 +110,7 @@ suspend fun imdbIdOf(m: MetaPreview): String? {
             val q = if (m.id.startsWith("mal:")) "mal_id=${m.id.removePrefix("mal:")}" else "anilist_id=${m.id.removePrefix("anilist:")}"
             runCatching { JSONObject(Net.get("https://api.ani.zip/mappings?$q", 10))
                 .optJSONObject("mappings")?.optString("imdb_id")?.takeIf { it.startsWith("tt") } }.getOrNull()
+                ?.also { com.lekathedon.visionlite.anime.AnimeIds.learn(it) }
         } ?: m.id
         else -> m.id
     }
@@ -195,7 +208,7 @@ object Charts {
             genres = n.optJSONObject("titleGenres")?.optJSONArray("genres").objects().mapNotNull { it.optJSONObject("genre")?.optString("text") })
     }
 
-    private fun ani(d: JSONObject, alias: String): List<MetaPreview> = d.optJSONObject(alias)?.optJSONArray("media").objects().mapNotNull { m ->
+    internal fun ani(d: JSONObject, alias: String): List<MetaPreview> = d.optJSONObject(alias)?.optJSONArray("media").objects().mapNotNull { m ->
         val id = m.optLong("id").takeIf { it > 0 } ?: return@mapNotNull null
         val t = m.optJSONObject("title")
         val name = t?.optString("english")?.takeIf { it.isNotBlank() && it != "null" } ?: t?.optString("userPreferred")?.ifBlank { null } ?: return@mapNotNull null
