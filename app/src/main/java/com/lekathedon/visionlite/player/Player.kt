@@ -39,6 +39,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.ui.PlayerView
 import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.data.Net
+import com.lekathedon.visionlite.player.dv.DvRoute
 import com.lekathedon.visionlite.player.fel.AmlDvFelVideoRenderer
 import com.lekathedon.visionlite.player.fel.AmlFelSupport
 import com.lekathedon.visionlite.ui.Screen
@@ -58,8 +59,18 @@ object PlayerReturn {
  * decoders (DTS / TrueHD / anything the soundbar can't take and the box can't decode becomes PCM).
  */
 @OptIn(UnstableApi::class)
-private class Renderers(context: Context, private val fel: Boolean) : DefaultRenderersFactory(context) {
+private class Renderers(context: Context, private val fel: Boolean, private val blocked: Set<String> = emptySet()) : DefaultRenderersFactory(context) {
     init { setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
+    /** This TV › Sound: a format set to "Decode in the box" is never sent as a bitstream; FFmpeg/MediaCodec decode it. */
+    override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? {
+        val sink = super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams) ?: return null
+        if (blocked.isEmpty()) return sink
+        return object : androidx.media3.exoplayer.audio.ForwardingAudioSink(sink) {
+            override fun supportsFormat(format: androidx.media3.common.Format) = format.sampleMimeType !in blocked && super.supportsFormat(format)
+            override fun getFormatSupport(format: androidx.media3.common.Format) =
+                if (format.sampleMimeType in blocked) androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_UNSUPPORTED else super.getFormatSupport(format)
+        }
+    }
     override fun buildVideoRenderers(
         context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector, enableDecoderFallback: Boolean,
         eventHandler: Handler, eventListener: VideoRendererEventListener, allowedVideoJoiningTimeMs: Long, out: ArrayList<Renderer>
@@ -77,14 +88,42 @@ private fun spdifCodecs(context: Context): String {
         .filter { it.type == android.media.AudioDeviceInfo.TYPE_HDMI || it.type == android.media.AudioDeviceInfo.TYPE_HDMI_ARC ||
             (android.os.Build.VERSION.SDK_INT >= 31 && it.type == android.media.AudioDeviceInfo.TYPE_HDMI_EARC) }
         .flatMap { it.encodings.toList() }.toSet()
+    val p = App.instance.prefs
     return buildList {
-        if (android.media.AudioFormat.ENCODING_AC3 in enc) add("ac3")
-        if (android.media.AudioFormat.ENCODING_E_AC3 in enc) add("eac3")
-        if (android.media.AudioFormat.ENCODING_DTS in enc) add("dts")
-        if (android.media.AudioFormat.ENCODING_DTS_HD in enc) add("dts-hd")
-        if (android.media.AudioFormat.ENCODING_DOLBY_TRUEHD in enc) add("truehd")
+        if (android.media.AudioFormat.ENCODING_AC3 in enc && p.ptAc3.value) add("ac3")
+        if (android.media.AudioFormat.ENCODING_E_AC3 in enc && p.ptEac3.value) add("eac3")
+        if (android.media.AudioFormat.ENCODING_DTS in enc && p.ptDts.value) add("dts")
+        if (android.media.AudioFormat.ENCODING_DTS_HD in enc && p.ptDtshd.value) add("dts-hd")
+        if (android.media.AudioFormat.ENCODING_DOLBY_TRUEHD in enc && p.ptTruehd.value) add("truehd")
     }.joinToString(",")
 }
+
+/** ExoPlayer mime types the user set to "Decode in the box" (This TV › Sound). */
+@OptIn(UnstableApi::class)
+private fun decodedInBox(p: com.lekathedon.visionlite.data.Prefs): Set<String> = buildSet {
+    if (!p.ptAc3.value) add(androidx.media3.common.MimeTypes.AUDIO_AC3)
+    if (!p.ptEac3.value) { add(androidx.media3.common.MimeTypes.AUDIO_E_AC3); add(androidx.media3.common.MimeTypes.AUDIO_E_AC3_JOC) }
+    if (!p.ptTruehd.value) add(androidx.media3.common.MimeTypes.AUDIO_TRUEHD)
+    if (!p.ptDts.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS); add(androidx.media3.common.MimeTypes.AUDIO_DTS_EXPRESS) }
+    if (!p.ptDtshd.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS_HD); add(androidx.media3.common.MimeTypes.AUDIO_DTS_X) }
+}
+
+/** This TV › Playback buffer. Standard = media3's defaults; Large is capped at half the app's memory. */
+@OptIn(UnstableApi::class)
+private fun loadControl(choice: String): androidx.media3.exoplayer.DefaultLoadControl? {
+    val mb = 1024 * 1024
+    return when (choice) {
+        "small" -> androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000).setTargetBufferBytes(48 * mb).build()
+        "large" -> androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(50_000, 120_000, 2_500, 5_000)
+            .setTargetBufferBytes(minOf(200L * mb, Runtime.getRuntime().maxMemory() / 2).toInt()).build()
+        else -> null
+    }
+}
+
+/** MPV's read-ahead for the same choice (native memory, outside the app's Java heap). */
+private fun mpvBufferMb(choice: String) = when (choice) { "small" -> 32; "large" -> 192; else -> 64 }
 
 /**
  * Two engines, as in Vision: ExoPlayer (passthrough, DV7 native FEL, VS10, the box's video layer) and MPV (software
@@ -141,7 +180,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val exoStats = remember(s.url, gen, felAllowed, addonSubs) { ExoStats() }
     val mpvView = remember(s.url, gen) {
         if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
-            init(session.mpvSoftware, spdifCodecs(context))
+            init(session.mpvSoftware, spdifCodecs(context), mpvBufferMb(prefs.buffer.value))
             languages(OriginalLang.withIso3(OriginalLang.audioLangs(prefs.audioLang.value, prefs.audioLang2.value, s.id)), langs(prefs.subLang.value, prefs.subLang2.value).toList(), prefs.subsWhen.value == "off")
             subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value)
         }
@@ -167,20 +206,27 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         } else {
             val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
             val data = androidx.media3.datasource.DefaultDataSource.Factory(context, http)
-            val ass = if (prefs.libass.value && s.type != "live") io.github.peerless2012.ass.media.AssHandler(
+            // This TV › Dolby Vision: Vision's converter (DV7/DV5 -> 8.1 via libdovi, HDR10 base layer, HDR10+ strip) reads MKV
+            // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
+            // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
+            val dv = DvRoute.of(prefs, felAllowed)
+            val useDv = dv != null && (!prefs.libass.value || DvRoute.namedDv(s.name.ifBlank { s.title }))
+            val ass = if (prefs.libass.value && s.type != "live" && !useDv) io.github.peerless2012.ass.media.AssHandler(
                 io.github.peerless2012.ass.media.type.AssRenderType.OVERLAY_OPEN_GL,
                 io.github.peerless2012.ass.media.AssHandlerConfig(maxRenderPixels = 1920 * 1080)) else null
             assRef[0] = ass
-            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed).let { r ->
+            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed, decodedInBox(prefs)).let { r ->
                 if (ass != null) io.github.peerless2012.ass.media.factory.AssRenderersFactory(ass, r) else r }
             // MKV: the file's declared frame rate goes to the decoder (MkvFrameRate), libass reader when styled subs are on.
             val base = androidx.media3.extractor.DefaultExtractorsFactory()
-            val sources = if (ass == null) DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, null)) else {
+            val sources = if (useDv) DefaultMediaSourceFactory(data, DvRoute.factory(base, dv!!))
+            else if (ass == null) DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, null)) else {
                 val parsers = io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory(ass)
                 DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, parsers to ass)).also { it.setSubtitleParserFactory(parsers) }
             }
             ExoPlayer.Builder(context, renderers)
                 .setMediaSourceFactory(sources)
+                .apply { loadControl(prefs.buffer.value)?.let { setLoadControl(it) } }
                 .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                 .build().apply {
                     ass?.init(this)

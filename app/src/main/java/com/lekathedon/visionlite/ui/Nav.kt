@@ -39,6 +39,7 @@ sealed interface Screen {
     data object Integrations : Screen
     data object PhoneLink : Screen
     data class SignIn(val id: String) : Screen
+    data class Integration(val id: String) : Screen
 }
 
 @Stable

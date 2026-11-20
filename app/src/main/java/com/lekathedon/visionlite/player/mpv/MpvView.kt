@@ -24,9 +24,12 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     val ready get() = initialized
 
     /** [software]: decode on the CPU with gpu-next (Hi10p H.264, which no TV chip decodes in hardware). */
-    fun init(software: Boolean, spdifCodecs: String) {
+    private var bufferMb = 64
+
+    fun init(software: Boolean, spdifCodecs: String, readAheadMb: Int = 64) {
         if (initialized) return
         softwareDecode = software
+        bufferMb = readAheadMb
         spdif = spdifCodecs
         Utils.copyAssets(context)
         initialize(context.filesDir.path, context.cacheDir.path)
@@ -190,7 +193,7 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
         mpv.setOptionString("input-default-bindings", "no")
-        mpv.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
+        mpv.setOptionString("demuxer-max-bytes", "${bufferMb * 1024 * 1024}")
         mpv.setOptionString("demuxer-max-back-bytes", "${64 * 1024 * 1024}")
         mpv.setOptionString("cache", "yes")
         mpv.setOptionString("keep-open", "yes")

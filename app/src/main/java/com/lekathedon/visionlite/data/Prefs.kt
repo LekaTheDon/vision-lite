@@ -48,7 +48,7 @@ class Prefs(context: Context) {
     val autoplay = Flag("autoplay", false)
     /** IMDb ids dropped from Continue watching (hold menu), one per line; playing the title again brings it back. */
     val cwDropped = Text("cw_dropped", "")
-    /** Dolby Vision 7: "fel" = native FEL port (AM9 FEL kernel), "box" = the box's normal decoder. */
+    /** Dolby Vision 7: "fel" = native FEL port (AM9 FEL kernel), "box" = the box's normal decoder, "dv81" = converted to 8.1 (libdovi), "hdr10" = HDR10 base layer only. */
     val dv7 = Text("dv7", "box")
     /** Frame-rate matching: "off" or "always" (an old "seamless" counts as on). */
     val afr = Text("afr", "off")
@@ -57,6 +57,22 @@ class Prefs(context: Context) {
     init { if (afr.value == "seamless") afr.value = "always" }
     /** The first-start device check was answered (Use these or Not now). */
     val deviceAsked = Flag("device_asked", false)
+    /** Passthrough per format (only offered for formats the soundbar/TV reports); off = decoded in the box. */
+    val ptAc3 = Flag("pt_ac3", true)
+    val ptEac3 = Flag("pt_eac3", true)
+    val ptTruehd = Flag("pt_truehd", true)
+    val ptDts = Flag("pt_dts", true)
+    val ptDtshd = Flag("pt_dtshd", true)
+    /** Dolby Vision profile 5 converted to 8.1 (libdovi) on a TV without Dolby Vision. */
+    val dv5To81 = Flag("dv5_to_81", false)
+    /** HDR10+ data dropped (the TV shows HDR10 but not HDR10+). */
+    val stripHdr10Plus = Flag("strip_hdr10plus", false)
+    /** Playback buffer: "small", "normal" or "large" (large only offered with 3+ GB of RAM). */
+    val buffer = Text("buffer", "normal")
+    /** Let the app decide: the device check reruns when the TV or soundbar changes and applies its recommendations. */
+    val tvAuto = Flag("tv_auto", false)
+    /** The last device check's findings (JSON, DeviceCheck.Facts). */
+    val tvFacts = Text("tv_facts", "")
 
     // Playback
     /** Player engine: "auto" (Vision's Smart Auto), "exo" (ExoPlayer) or "mpv". */

@@ -58,6 +58,12 @@ class MainActivity : ComponentActivity() {
                     else { if (nav.current is Screen.Player || nav.current is Screen.YtPlay) nav.pop(); nav.push(s) }
                 }
             }
+            // Let the app decide: a new TV or soundbar since the last check gets its recommended settings by itself.
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                val n = runCatching { com.lekathedon.visionlite.device.DeviceCheck.autoUpdate(ctx) }.getOrDefault(0)
+                if (n > 0) android.widget.Toast.makeText(ctx, "New TV or soundbar: $n settings updated (Settings › This TV)", android.widget.Toast.LENGTH_LONG).show()
+            }
             // Music never plays over a video: a film, an episode, Live TV or a YouTube video pauses it.
             val top = nav.current
             androidx.compose.runtime.LaunchedEffect(top) {
@@ -73,7 +79,7 @@ class MainActivity : ComponentActivity() {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
-                        Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck()
+                        Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) })
                             // Then, once: every integration and tracker, one page each.
                             else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.integrations.Setup(nav) }
                             else saved.SaveableStateProvider("home") {
@@ -86,7 +92,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Search -> Search(nav)
                         Screen.Settings -> Settings(nav)
                         Screen.Addons -> Addons()
-                        Screen.ThisTv -> com.lekathedon.visionlite.device.ThisTv()
+                        Screen.ThisTv -> Settings(nav, start = "This TV")
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
                         Screen.LiveTv -> com.lekathedon.visionlite.iptv.LiveTv(nav)
                         Screen.Sports -> com.lekathedon.visionlite.sports.SportsScreen(nav)
@@ -110,6 +116,7 @@ class MainActivity : ComponentActivity() {
                         Screen.PhoneLink -> com.lekathedon.visionlite.link.PhoneLinkScreen()
                         Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)
                         is Screen.SignIn -> com.lekathedon.visionlite.integrations.SignInScreen(nav, s.id)
+                        is Screen.Integration -> com.lekathedon.visionlite.integrations.ServiceScreen(nav, s.id)
                     }
                   }
                   if (hub != null) {

@@ -162,6 +162,18 @@ fun IntegrationsScreen(nav: Nav) {
     }
 }
 
+/** Settings → one service, opened from the page it serves (Links, Tracking, Title pages, Recommendations). */
+@Composable
+fun ServiceScreen(nav: Nav, id: String) {
+    watchChanges()
+    val first = remember { FocusRequester() }
+    LaunchedEffect(id) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
+    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp).verticalScroll(rememberScrollState())) {
+        Text(Integrations.byId(id).group.title, color = Palette.TextDim, fontSize = 14.sp)
+        ServicePanel(Integrations.byId(id), nav, first, setup = false, next = { nav.pop() }, back = { nav.pop() })
+    }
+}
+
 /** One service: what it does here, where its key comes from, enter / check / remove, driver or helper. */
 @Composable
 private fun ServicePanel(s: Service, nav: Nav, first: FocusRequester, setup: Boolean, next: () -> Unit, back: () -> Unit) {
