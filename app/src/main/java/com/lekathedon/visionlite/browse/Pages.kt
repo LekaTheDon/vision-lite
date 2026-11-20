@@ -236,7 +236,8 @@ private fun LoadingRail(title: String, nav: Nav, load: suspend (skip: Int) -> Li
         }
     }
     LaunchedEffect(title) { more() }
-    if (hubOnly(items).isEmpty()) { Text(title, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp)); Box(Modifier.height(if (end) 0.dp else 195.dp)) }
+    // A rail that ended empty (an anime subgenre with nothing in that decade) leaves no trace.
+    if (hubOnly(items).isEmpty()) { if (!end) { Text(title, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp)); Box(Modifier.height(195.dp)) } }
     else Rail(title, items, nav, subOf = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } }, onEnd = { more() })
 }
 
@@ -245,8 +246,8 @@ private fun LoadingRail(title: String, nav: Nav, load: suspend (skip: Int) -> Li
 fun Genres(nav: Nav) {
     val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
     val anime = hub == com.lekathedon.visionlite.anime.Hub.ANIME
-    // Anime: AniList's genres and lists (all anime); Films & TV: Cinemeta's, without the anime in them.
-    val genres by produceState(emptyList<String>(), anime) { value = if (anime) com.lekathedon.visionlite.anime.AniBrowse.genres else Cinemeta.genres().filter { it != "Anime" } }
+    // Anime: WuPlay's 52 anime subgenres on AniList (all anime); Films & TV: Cinemeta's genres, without the anime in them.
+    val genres by produceState(emptyList<String>(), anime) { value = if (anime) com.lekathedon.visionlite.anime.AniBrowse.subgenres.map { it.name } else Cinemeta.genres().filter { it != "Anime" } }
     var genre by rememberSaveable { mutableStateOf<String?>(null) }
     var kind by rememberSaveable { mutableStateOf("all") }
     val g = genre ?: genres.firstOrNull()
@@ -258,10 +259,15 @@ fun Genres(nav: Nav) {
             }
             if (g != null) LazyColumn(Modifier.weight(1f).padding(start = 18.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
                 val types = if (kind == "all") listOf("movie", "series") else listOf(kind)
-                types.forEach { t ->
-                    if (anime) {
-                        item(key = "a|$g|$t|top") { LoadingRail("Popular ${typeName(t).lowercase()} · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", genre = g, skip = skip) } }
-                        item(key = "a|$g|$t|rated") { LoadingRail("Top rated ${typeName(t).lowercase()} · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page(t, "SCORE_DESC", genre = g, skip = skip) } }
+                val sub = if (anime) com.lekathedon.visionlite.anime.AniBrowse.subgenres.firstOrNull { it.name == g } else null
+                if (sub?.format != null) {
+                    // OVA / ONA are a format, not movies or shows: one pair of rails.
+                    item(key = "a|$g|top") { LoadingRail("Popular · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page("series", "POPULARITY_DESC", sub = sub, skip = skip) } }
+                    item(key = "a|$g|rated") { LoadingRail("Top rated · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page("series", "SCORE_DESC", sub = sub, skip = skip) } }
+                } else types.forEach { t ->
+                    if (sub != null) {
+                        item(key = "a|$g|$t|top") { LoadingRail("Popular ${typeName(t).lowercase()} · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", sub = sub, skip = skip) } }
+                        item(key = "a|$g|$t|rated") { LoadingRail("Top rated ${typeName(t).lowercase()} · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page(t, "SCORE_DESC", sub = sub, skip = skip) } }
                     } else {
                         item(key = "$g|$t|top") { LoadingRail("Popular ${typeName(t).lowercase()} · $g", nav) { skip -> Cinemeta.page(t, "top", g, skip) } }
                         item(key = "$g|$t|rated") { LoadingRail("Top rated ${typeName(t).lowercase()} · $g", nav) { skip -> Cinemeta.page(t, "imdbRating", g, skip) } }
@@ -287,9 +293,19 @@ fun Decades(nav: Nav) {
             LazyColumn(Modifier.width(200.dp).fillMaxHeight()) { items(decades) { d -> SideItem("${d}s", d == decade) { decade = d } } }
             LazyColumn(Modifier.weight(1f).padding(start = 18.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
                 val types = if (kind == "all") listOf("movie", "series") else listOf(kind)
-                (minOf(decade + 9, year) downTo decade).forEach { y ->
-                    types.forEach { t -> item(key = "$anime|$y|$t") { LoadingRail("$y · ${typeName(t)}", nav) { skip ->
-                        if (anime) com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", year = y, skip = skip) else Cinemeta.page(t, "year", y.toString(), skip) } } }
+                if (anime) {
+                    // Anime: the decade's most popular, then WuPlay's anime subgenres within the decade (rails load as you scroll).
+                    val to = minOf(decade + 9, year)
+                    types.forEach { t -> item(key = "a|$decade|$t") { LoadingRail("Popular ${typeName(t).lowercase()} · ${decade}s", nav) { skip ->
+                        com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", from = decade, to = to, skip = skip) } } }
+                    com.lekathedon.visionlite.anime.AniBrowse.subgenres.forEach { sub ->
+                        (if (sub.format != null) listOf("series") else types).forEach { t ->
+                            item(key = "a|$decade|${sub.name}|$t") { LoadingRail(if (sub.format != null) sub.name else "${sub.name} · ${typeName(t)}", nav) { skip ->
+                                com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", sub = sub, from = decade, to = to, skip = skip) } }
+                        }
+                    }
+                } else (minOf(decade + 9, year) downTo decade).forEach { y ->
+                    types.forEach { t -> item(key = "$anime|$y|$t") { LoadingRail("$y · ${typeName(t)}", nav) { skip -> Cinemeta.page(t, "year", y.toString(), skip) } } }
                 }
             }
         }
@@ -425,7 +441,7 @@ fun ServicePage(nav: Nav, id: String) {
     val rows = remember(s) { com.lekathedon.visionlite.home.Services.rows(s) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val first = remember { FocusRequester() }
-    Page(s.title, if (s.region == "GB") "UK" else "US") {
+    Page(s.title, when (s.region) { "GB" -> "UK"; "FR" -> "France"; "JP" -> "Japan"; else -> "US" }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
             itemsIndexed(rows, key = { _, r -> r.first }) { i, (title, load) ->
                 val items = remember(title) { androidx.compose.runtime.mutableStateListOf<MetaPreview>() }

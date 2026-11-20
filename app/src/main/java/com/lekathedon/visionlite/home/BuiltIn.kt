@@ -50,7 +50,9 @@ object VisionRows {
         if (hub == com.lekathedon.visionlite.anime.Hub.FILMS) return all.filter { it.first !in animeCharts }
         // Anime: its own Top 20 Today (AniList) in place of TMDB's, whose lists are hardly ever anime.
         val tmdbToday = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}")
-        val (charts, rest) = all.filter { it.first !in tmdbToday }.partition { it.first in animeCharts }
+        // IMDb's general charts (Top 250 Movies / TV, Most Popular) would only repeat the Top 250 Anime rows there.
+        val imdbCharts = Charts.Chart.entries.filter { it.src == Charts.Src.IMDB }.map { "c/${it.id}" }.toSet()
+        val (charts, rest) = all.filter { it.first !in tmdbToday && it.first !in imdbCharts }.partition { it.first in animeCharts }
         val head = rest.takeWhile { it.first != SERVICES }
         return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "") } + rest.drop(head.size)
     }
@@ -259,15 +261,24 @@ object Charts {
  * it the row stays away and nothing is asked.
  */
 object Services {
+    /** [anime]: an anime-only service, shown only in the Anime hub (the others only in Films & TV). [network] 0 = TMDB
+     *  has no network for it: no Originals row; [logo] = its TMDB provider logo, backdrops from its catalogue. */
     enum class S(val id: String, val title: String, val network: Int, val providers: String, val region: String = "US",
-                 val movies: Boolean = true, val series: Boolean = true, val originals: Boolean = true) {
+                 val movies: Boolean = true, val series: Boolean = true, val originals: Boolean = true,
+                 val anime: Boolean = false, val logo: String? = null) {
         NETFLIX("netflix", "Netflix", 213, "8|1796"), PRIME("prime", "Prime Video", 1024, "9|119"), DISNEY("disney", "Disney+", 2739, "337"),
         MAX("max", "HBO Max", 3186, "1899"), APPLE("apple", "Apple TV+", 2552, "350"), HULU("hulu", "Hulu", 453, "15"),
         PARAMOUNT("paramount", "Paramount+", 4330, "2303|2616|582|1853|531"), PEACOCK("peacock", "Peacock", 3353, "386|387"),
-        CRUNCHYROLL("crunchyroll", "Crunchyroll", 1112, "283"), SHUDDER("shudder", "Shudder", 2949, "99|2049", series = false),
+        SHUDDER("shudder", "Shudder", 2949, "99|2049", series = false),
         CRITERION("criterion", "The Criterion Channel", 6165, "258", series = false, originals = false), STARZ("starz", "Starz", 318, "43|1855", series = false),
         AMC("amcplus", "AMC+", 4661, "526|1854"), MGM("mgmplus", "MGM+", 6219, "34", series = false), BRITBOX("britbox", "BritBox / Acorn TV", 4025, "151|1852|87|2034", movies = false),
-        DISCOVERY("discovery", "discovery+", 4353, "520"), ITVX("itvx", "ITVX", 5871, "41|2300", region = "GB"), NOW("now", "NOW", 1063, "39", region = "GB", movies = false)
+        DISCOVERY("discovery", "discovery+", 4353, "520"), ITVX("itvx", "ITVX", 5871, "41|2300", region = "GB"), NOW("now", "NOW", 1063, "39", region = "GB", movies = false),
+        // Anime hub only (TMDB providers checked 2026-11-20: CR ~1,960 shows US, HIDIVE ~230, RetroCrush ~145, ADN ~450 FR, d Anime Store ~3,000 JP).
+        CRUNCHYROLL("crunchyroll", "Crunchyroll", 1112, "283|1968", anime = true),
+        HIDIVE("hidive", "HIDIVE", 0, "430|2390", originals = false, anime = true, logo = "/1743zXk6Hn0afaarNtp6bXVMlsT.png"),
+        RETROCRUSH("retrocrush", "RetroCrush", 0, "446|295", originals = false, anime = true, logo = "/pqXjcTVXpOVHF3IfWo9siRZkLXo.png"),
+        ADN("adn", "ADN", 0, "415|2173", region = "FR", originals = false, anime = true, logo = "/lqW5wpRdZQrAPiHv1nZo3j8t4BW.png"),
+        DANIME("danime", "d Anime Store", 0, "2494", region = "JP", originals = false, anime = true, logo = "/znUEdjHzuxK2WrNDkKS2Xgv1ooW.png")
     }
     @Serializable data class Art(val id: String, val logo: String? = null, val backdrop: String? = null)
     @Serializable private data class Saved(val day: String = "", val logosAt: Long = 0, val art: List<Art> = emptyList())
@@ -291,8 +302,9 @@ object Services {
             val fresh = coroutineScope {
                 S.entries.map { s -> async {
                     val kept = saved.art.firstOrNull { it.id == s.id }
-                    val logo = if (!logosOld && kept?.logo != null) kept.logo else Tmdb.get("network/${s.network}")?.optString("logo_path")?.ifBlank { null } ?: kept?.logo
-                    val backs = Tmdb.get("discover/tv?sort_by=popularity.desc&with_networks=${s.network}")?.optJSONArray("results").objects()
+                    val logo = s.logo ?: if (!logosOld && kept?.logo != null) kept.logo else Tmdb.get("network/${s.network}")?.optString("logo_path")?.ifBlank { null } ?: kept?.logo
+                    val backs = (if (s.network == 0) Tmdb.get("discover/tv?sort_by=popularity.desc&watch_region=${s.region}&with_watch_providers=${s.providers}")
+                        else Tmdb.get("discover/tv?sort_by=popularity.desc&with_networks=${s.network}"))?.optJSONArray("results").objects()
                         .mapNotNull { it.optString("backdrop_path").takeIf { p -> p.startsWith("/") } }
                         .ifEmpty { Tmdb.get("discover/movie?sort_by=popularity.desc&watch_region=${s.region}&with_watch_providers=${s.providers}")?.optJSONArray("results").objects()
                             .mapNotNull { it.optString("backdrop_path").takeIf { p -> p.startsWith("/") } } }
