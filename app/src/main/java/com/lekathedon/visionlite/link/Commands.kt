@@ -27,11 +27,11 @@ class Commands(private val ctx: Context) {
         "media" -> media(a)
         "watch" -> watch(a)
         "rows" -> LinkState.rows?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")).put("hubs", it.optJSONArray("hubs")) }
+            ?: err("Lite hasn't shown Home yet since it started")
         // The anime list + your moves, so the phone splits Films & TV / Anime exactly like the TV (list only when it changed).
         "anime" -> com.lekathedon.visionlite.anime.AnimeIds.let { ids ->
             ok().put("stamp", ids.stamp()).put("moves", ids.movesText()).apply { if (a.optLong("since", -1) != ids.stamp()) put("ids", ids.listText()) }
         }
-            ?: err("Lite hasn't shown Home yet since it started")
         "iptv" -> iptv(a)
         "channel" -> channel(a)
         "youtube" -> youtube(a)
