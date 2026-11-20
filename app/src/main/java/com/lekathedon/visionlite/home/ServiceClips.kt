@@ -34,10 +34,13 @@ object ServiceClips {
         "apple" to "6sX_BfDnyrg", "hulu" to "wgcvJG9K4r0", "paramount" to "qNPQqqQLnjg", "peacock" to "lTzvdIz0HIw",
         "crunchyroll" to "gvkvMo9W2-M", "shudder" to "QARljDGgO4g", "criterion" to "XRPBHT77_84", "starz" to "Ng1_uKSFi5U",
         "amcplus" to "T7D_RnhHKW8", "mgmplus" to "curutqISN9Y", "britbox" to "L5WN7f72Fvs", "discovery" to "_XiqZIHG_2o",
-        "itvx" to "moV-lWVQT5I", "now" to "6dz5Wy9rHsQ"
+        "itvx" to "moV-lWVQT5I", "now" to "6dz5Wy9rHsQ",
+        // Anime hub's services (picked 2026-11-20): "Hidive Logo" ident; Cineverse's official RetroCrush spot;
+        // d Anime Store's official 15 s ad "アニメとススメ！" (it has no logo ident of its own).
+        "hidive" to "eercartSBPc", "retrocrush" to "5jE-Me90xwI", "danime" to "1h-po7_jFvE"
     )
     /** Logos that are dark on clear on TMDB: drawn white (as Vision). */
-    val LIGHT_LOGO = setOf("apple", "peacock")
+    val LIGHT_LOGO = setOf("apple", "peacock", "hidive", "danime")
 
     data class Clip(val video: String, val audio: String?)
 

@@ -54,7 +54,8 @@ object VisionRows {
         val imdbCharts = Charts.Chart.entries.filter { it.src == Charts.Src.IMDB }.map { "c/${it.id}" }.toSet()
         val (charts, rest) = all.filter { it.first !in tmdbToday && it.first !in imdbCharts }.partition { it.first in animeCharts }
         val head = rest.takeWhile { it.first != SERVICES }
-        return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "") } + rest.drop(head.size)
+        // Named as Films & TV's (Top 250 Movies / Top 250 TV Shows): one set per hub, never a second.
+        return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "").replace("Top 250 Series", "Top 250 TV Shows") } + rest.drop(head.size)
     }
 
     fun isPicks(key: String) = key == PICKS || key == IMDB || key == AI
@@ -273,12 +274,12 @@ object Services {
         CRITERION("criterion", "The Criterion Channel", 6165, "258", series = false, originals = false), STARZ("starz", "Starz", 318, "43|1855", series = false),
         AMC("amcplus", "AMC+", 4661, "526|1854"), MGM("mgmplus", "MGM+", 6219, "34", series = false), BRITBOX("britbox", "BritBox / Acorn TV", 4025, "151|1852|87|2034", movies = false),
         DISCOVERY("discovery", "discovery+", 4353, "520"), ITVX("itvx", "ITVX", 5871, "41|2300", region = "GB"), NOW("now", "NOW", 1063, "39", region = "GB", movies = false),
-        // Anime hub only (TMDB providers checked 2026-11-20: CR ~1,960 shows US, HIDIVE ~230, RetroCrush ~145, ADN ~450 FR, d Anime Store ~3,000 JP).
+        // Anime hub only (TMDB providers checked 2026-11-20: CR ~1,960 shows US, HIDIVE ~230, RetroCrush ~145, d Anime Store ~3,000 JP).
+        // ADN (France) left out: no logo ident of its own to play on the tile. Logos: TMDB company wordmarks (HIDIVE, d Anime Store), RetroCrush's badge.
         CRUNCHYROLL("crunchyroll", "Crunchyroll", 1112, "283|1968", anime = true),
-        HIDIVE("hidive", "HIDIVE", 0, "430|2390", originals = false, anime = true, logo = "/1743zXk6Hn0afaarNtp6bXVMlsT.png"),
+        HIDIVE("hidive", "HIDIVE", 0, "430|2390", originals = false, anime = true, logo = "/q62gD079BwFpLR7QiXEgjmLXkwP.png"),
         RETROCRUSH("retrocrush", "RetroCrush", 0, "446|295", originals = false, anime = true, logo = "/pqXjcTVXpOVHF3IfWo9siRZkLXo.png"),
-        ADN("adn", "ADN", 0, "415|2173", region = "FR", originals = false, anime = true, logo = "/lqW5wpRdZQrAPiHv1nZo3j8t4BW.png"),
-        DANIME("danime", "d Anime Store", 0, "2494", region = "JP", originals = false, anime = true, logo = "/znUEdjHzuxK2WrNDkKS2Xgv1ooW.png")
+        DANIME("danime", "d Anime Store", 0, "2494", region = "JP", originals = false, anime = true, logo = "/wR7YDBvNzdJRkmxOTgJobOpUG8X.png")
     }
     @Serializable data class Art(val id: String, val logo: String? = null, val backdrop: String? = null)
     @Serializable private data class Saved(val day: String = "", val logosAt: Long = 0, val art: List<Art> = emptyList())
