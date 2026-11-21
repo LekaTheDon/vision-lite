@@ -152,6 +152,13 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         return if (name.contains(type, ignoreCase = true)) name else "$name $type"
     }
 
+    /** Home's look-ahead: starts a row below the screen loading; a row already started is left alone (no redraw). */
+    fun prefetch(key: String) {
+        val row = state.value.firstOrNull { it.key == key } ?: return
+        if (row.builtIn && key in needed) return
+        need(key)
+    }
+
     fun need(key: String) {
         val row = state.value.firstOrNull { it.key == key } ?: return
         if (row.builtIn) { if (needed.add(key)) start(row) else fill(key); return }

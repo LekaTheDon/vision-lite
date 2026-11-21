@@ -7,6 +7,7 @@ package com.lekathedon.visionlite.home
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -158,17 +159,44 @@ private val RowRegistry = HashMap<String, RowSlots>()
  * After "Not for me" / "Drop": the card is gone, so focus goes to the card now in its place (or the one before it, at the
  * row's end) in the same row, instead of falling back to the top of Home. Waits (up to ~2 s) for the row to drop it.
  */
-private suspend fun refocusRow(key: String, index: Int, old: FocusRequester?) {
+private suspend fun refocusRow(key: String, index: Int, old: FocusRequester?, tries: Int = 120): Boolean {
     old?.let { runCatching { it.requestFocus() } }
-    repeat(120) {
+    repeat(tries) {
         withFrameNanos { }
         val reqs = RowRegistry[key]?.reqs ?: return@repeat
         val target = reqs[index]?.takeIf { it !== old } ?: reqs[index - 1]?.takeIf { it !== old && reqs[index] == null }
         if (target != null && runCatching { target.requestFocus() }.isSuccess) {
             HomeFocus.row = key; HomeFocus.index[key] = if (reqs[index] === target) index else index - 1
-            return
+            return true
         }
     }
+    return false
+}
+
+/**
+ * A row still loading: a card the remote can land on (an empty, unfocusable row used to stop Down dead: "Home won't
+ * scroll"). When the titles arrive, focus moves to the row's first card; if the row turns out empty and goes away,
+ * focus goes to the next row below that has cards.
+ */
+@Composable
+private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below: () -> List<String>, scope: kotlinx.coroutines.CoroutineScope) {
+    val me = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val slots = LocalRowSlots.current
+    val shape = RoundedCornerShape(radius)
+    androidx.compose.runtime.DisposableEffect(slots) {
+        slots?.reqs?.set(0, me)
+        onDispose {
+            if (slots?.reqs?.get(0) === me) slots.reqs.remove(0)
+            if (focused) scope.launch {
+                if (refocusRow(rowKey, 0, null, tries = 30)) return@launch
+                for (k in below()) if (refocusRow(k, HomeFocus.index[k] ?: 0, null, tries = 5) || refocusRow(k, 0, null, tries = 5)) return@launch
+            }
+        }
+    }
+    LaunchedEffect(focused) { if (focused) { LastFocus = me; slots?.let { HomeFocus.row = it.key; HomeFocus.index[it.key] = 0 } } }
+    Box(Modifier.focusRequester(me).onFocusChanged { focused = it.isFocused }.focusable().size(width, height).clip(shape)
+        .background(CardBackground).then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier))
 }
 private val LocalRowSlots = androidx.compose.runtime.compositionLocalOf<RowSlots?> { null }
 private val LocalSlotIndex = androidx.compose.runtime.compositionLocalOf { -1 }
@@ -206,7 +234,6 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val exitConfirm by prefs.exitConfirm.flow.collectAsStateWithLifecycle()
     var askExit by remember { mutableStateOf(false) }
     val activity = LocalContext.current as? android.app.Activity
-    androidx.activity.compose.BackHandler(enabled = exitConfirm && !askExit) { askExit = true }
 
     // The focused card; the hero, the wash and the details line follow it after 120 ms (holding a key loads no art).
     var focused by remember { mutableStateOf<HeroEntry?>(null) }
@@ -226,7 +253,9 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val aiOn = remember(rows) { AiPicks.configured().isNotEmpty() }
     val traktOn = App.instance.trakt.connected.collectAsStateWithLifecycle().value != null
     val visible = rows.filter { r ->
-        r.key !in hidden && (r.items.isNotEmpty() || !r.done ||
+        // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
+        val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
+        r.key !in hidden && (shows || !r.done ||
             (r.key == VisionRows.AI && aiOn) || ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
     }
     val aiStatus by AiPicks.status(hub).collectAsStateWithLifecycle()
@@ -293,6 +322,32 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         }
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Rows load ahead of you: the next 3 rows under the screen are asked before you reach them, so going Down lands on
+    // titles, not on a row still loading.
+    val visibleKeys by androidx.compose.runtime.rememberUpdatedState(visible.map { it.key })
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.key }.collect { last ->
+            val keys = visibleKeys
+            val at = keys.indexOf(last)
+            if (at >= 0) keys.drop(at + 1).take(3).forEach { vm.prefetch(it) }
+        }
+    }
+    // Vision / Haven: Home opens once its rows are in (the first screens' worth), not row by row in front of you.
+    // Once per hub per app start; never longer than 8 s.
+    var ready by remember { mutableStateOf(hub in HomeReady.done) }
+    LaunchedEffect(Unit) {
+        if (ready) return@LaunchedEffect
+        val started = System.currentTimeMillis()
+        while (System.currentTimeMillis() - started < 8_000) {
+            val keys = visibleKeys.take(8)
+            keys.forEach { vm.prefetch(it) }
+            val byKey = vm.rows.value.associateBy { it.key }
+            if (keys.isNotEmpty() && keys.all { k -> byKey[k]?.let { it.done || it.items.isNotEmpty() } != false }) break
+            delay(150)
+        }
+        delay(400) // the first posters' images
+        HomeReady.done += hub; ready = true
+    }
     val heroPx = with(density) { 470.dp.toPx() }
     val art = entry?.let { enriched[it.m.id]?.background ?: it.m.wide() }
     val clockOn by App.instance.prefs.clock.flow.collectAsStateWithLifecycle()
@@ -303,14 +358,20 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val trailerLook = remember(trailersOn, delayText, sound) {
         TrailerLook(trailersOn, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound)
     }
-    var heroTrailer by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var heroTrailer by remember { mutableStateOf<Pair<String, com.lekathedon.visionlite.trailer.Trailer>?>(null) }
     LaunchedEffect(heroFocused, heroEntry?.m?.id, trailerLook) {
         heroTrailer = null
-        val id = heroEntry?.m?.id ?: return@LaunchedEffect
+        val hm = heroEntry?.m ?: return@LaunchedEffect
+        val id = hm.id
         if (!heroFocused || !trailerLook.on) return@LaunchedEffect
-        heroTrailer = trailerAfterRest(id, trailerLook.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))?.let { id to it }
+        heroTrailer = trailerAfterRest(hm, trailerLook.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))?.let { id to it }
     }
 
+    // Back on Home: first to the top (the pill), then out of the app (asking first when "Leave Vision Lite?" is on).
+    androidx.activity.compose.BackHandler(enabled = !askExit) {
+        if (!pillFocused) scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { pillHome.requestFocus() } }
+        else if (exitConfirm) askExit = true else activity?.finish()
+    }
     Box(Modifier.fillMaxSize().background(look.page)) {
         if (!look.oled) AmbientPageWash(art, Modifier.fillMaxSize())
         // The billboard's art, wall to wall, fading as the page scrolls past it (read while drawing only).
@@ -356,7 +417,10 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                     }
                     val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items
                     EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type != "service" && it.type != "person" }, lead = if (ranked) dims.rankPad else 0.dp) {
-                        if (row.items.isEmpty() && !row.done) item { Box(Modifier.size(if (ranked) dims.highlightWidth else if (wide) dims.cwWidth else dims.posterWidth, h).clip(RoundedCornerShape(dims.radius)).background(CardBackground)) }
+                        if (row.items.isEmpty() && !row.done) item(key = "loading") { Slot(0) {
+                            LoadingCard(row.key, if (ranked) dims.highlightWidth else if (wide) dims.cwWidth else dims.posterWidth, h, dims.radius,
+                                below = { visible.map { it.key }.let { k -> k.drop(k.indexOf(row.key) + 1) } }, scope = scope)
+                        } }
                         itemsIndexed(items, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
                             val onFocus = {
                                 if (m.type != "service" && m.type != "person") { focused = HeroEntry(m, null, null); heroFocused = false }
@@ -404,7 +468,22 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             else old?.let { runCatching { it.requestFocus() } }
         } }
         cwHold?.let { r -> CwMenu(r, nav, onDrop = { vm.dropContinue(r) }) { cwHold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
+        if (!ready) HomeLoading(look.page)
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
+    }
+}
+
+/** Hubs whose Home has shown its first screens this app start (the loading cover shows only before that). */
+internal object HomeReady { val done = HashSet<com.lekathedon.visionlite.anime.Hub>() }
+
+/** The cover while Home's first rows load: the page colour, the name, a small spinner. */
+@Composable
+private fun HomeLoading(page: Color) {
+    Box(Modifier.fillMaxSize().background(page), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Vision Lite", color = Color.White, fontSize = 34.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 24.dp).size(28.dp), color = Color.White, strokeWidth = 2.dp)
+        }
     }
 }
 
@@ -414,11 +493,12 @@ private val LocalTrailer = androidx.compose.runtime.staticCompositionLocalOf { T
 
 /** Waits out the trailer delay (the lookup starts a second early, so the trailer is ready on time); null for none. */
 /** [maxHeight]: the big billboard may reach 4K, opened posters stop at 1080p. */
-private suspend fun trailerAfterRest(id: String, delayMs: Long, maxHeight: Int): String? {
+private suspend fun trailerAfterRest(m: MetaPreview, delayMs: Long, maxHeight: Int): com.lekathedon.visionlite.trailer.Trailer? {
     val lead = minOf(1_000L, delayMs)
     delay(delayMs - lead)
     val started = System.currentTimeMillis()
-    val url = com.lekathedon.visionlite.trailer.Trailers.find(id, maxHeight) ?: return null
+    // Vision's order for every card, whatever its row: IMDb, then TMDB (AniList for anime), then YouTube.
+    val url = com.lekathedon.visionlite.trailer.TrailerChain.find(m, maxHeight) ?: return null
     delay((lead - (System.currentTimeMillis() - started)).coerceAtLeast(0L))
     return url
 }
@@ -908,9 +988,9 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
                 Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.wide()), dims.posterOpenWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = m.wide())
                 // The opened card plays the title's trailer once focus has rested (Vision's expanded-card target).
                 val look = LocalTrailer.current
-                var trailer by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
-                trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, look.muted, Modifier.fillMaxSize()) { trailer = null } }
+                var trailer by remember { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
+                LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
+                trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, look.muted, Modifier.fillMaxSize(), it.audio) { trailer = null } }
                 Box(Modifier.fillMaxSize().background(
                     Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
                 ))
@@ -934,9 +1014,9 @@ private fun RankedCard(rank: Int, m: MetaPreview, dims: EchoDims, modifier: Modi
                 Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.wide()), dims.highlightWidth, dims.highlightHeight, Modifier.fillMaxSize(), fallback = m.wide())
                 if (f) {
                     val look = LocalTrailer.current
-                    var trailer by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m.id, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
-                    trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, look.muted, Modifier.fillMaxSize()) { trailer = null } }
+                    var trailer by remember { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
+                    LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
+                    trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, look.muted, Modifier.fillMaxSize(), it.audio) { trailer = null } }
                 }
                 Box(Modifier.fillMaxSize().background(
                     Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
@@ -1120,11 +1200,11 @@ private fun RatingBadge() {
 // ---- The billboard's art (NetflixLegacyBackdrop): wall to wall, darkened on the left and at the bottom ----
 
 @Composable
-private fun EchoBackdrop(url: String?, trailer: String?, muted: Boolean, onEnded: () -> Unit, modifier: Modifier) {
+private fun EchoBackdrop(url: String?, trailer: com.lekathedon.visionlite.trailer.Trailer?, muted: Boolean, onEnded: () -> Unit, modifier: Modifier) {
     url ?: return
     Box(modifier.fillMaxSize()) {
         Img(url, 960.dp, 540.dp, Modifier.fillMaxSize())
-        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer, muted, Modifier.fillMaxSize(), onEnded = onEnded)
+        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer.url, muted, Modifier.fillMaxSize(), trailer.audio, onEnded = onEnded)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xE6000000), 0.35f to Color(0x80000000), 0.7f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 0.9f to Color(0xE6000000), 1f to Color.Black)))
     }

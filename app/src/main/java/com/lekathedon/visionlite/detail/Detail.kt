@@ -141,18 +141,20 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         val trailersOn by prefs.trailers.flow.collectAsState()
         val sound by prefs.trailerSound.flow.collectAsState()
         val delayS by prefs.trailerDelay.flow.collectAsState()
-        var trailer by remember(s.id) { mutableStateOf<String?>(null) }
+        var trailer by remember(s.id) { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
         var trailerNow by remember(s.id) { mutableStateOf(false) }
         LaunchedEffect(heroFocused, trailerNow, trailersOn, imdbId) {
             if (!heroFocused && !trailerNow) { trailer = null; return@LaunchedEffect }
-            if (imdbId == null || (!trailersOn && !trailerNow)) return@LaunchedEffect
+            if (!trailersOn && !trailerNow) return@LaunchedEffect
             if (!trailerNow) delay(((delayS.toDoubleOrNull() ?: 5.0) * 1000).toLong())
-            trailer = com.lekathedon.visionlite.trailer.Trailers.find(imdbId, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))
+            // Vision's order: IMDb, then TMDB, then YouTube.
+            trailer = com.lekathedon.visionlite.trailer.TrailerChain.find(com.lekathedon.visionlite.addons.MetaPreview(imdbId ?: s.id, s.type, s.name),
+                com.lekathedon.visionlite.device.Tier.trailerHeight(2160))
         }
 
         Box(Modifier.fillMaxWidth().height(460.dp)) {
             Img(backdrop, 960.dp, 540.dp, Modifier.fillMaxSize())
-            trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it, !sound, Modifier.fillMaxSize()) { trailer = null; trailerNow = false } }
+            trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xF0000000), 0.42f to Color(0x99000000), 0.75f to Color.Transparent)))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to look.page)))
         }
