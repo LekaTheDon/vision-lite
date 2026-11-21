@@ -202,6 +202,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     // True while DV7 plays on the native FEL path: seek thumbnails stay off then (they took a third hardware decoder
     // and a second download of the remux, and the film stuttered; Vision/Arc never let thumbnails touch FEL either).
     val felNow = remember(s.url) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    // HDR/Dolby Vision film on ExoPlayer: its subtitles take Vision's HDR style (restyled in the view's update).
+    var hdrVideo by remember(s.url, gen) { mutableStateOf(false) }
     val mpvView = remember(s.url, gen) {
         if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
             init(session.mpvSoftware, spdifCodecs(context), mpvBufferMb(prefs.buffer.value))
@@ -396,7 +398,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (!subsChecked && tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }) { subsChecked = true; pickSubtitle(player, tracks); foreignOnly(player, tracks) }
                 felNow.set(felAllowed && current == Engine.EXO && selectedVideo(tracks)?.let { AmlFelSupport.isProfile7(it) } == true)
                 // Vision's HDR subtitle style: white and dimmed on HDR/Dolby Vision films, the normal style otherwise.
-                if (current == Engine.EXO) selectedVideo(tracks)?.let { v -> view?.subtitleView?.let { styleSubtitles(it, EngineRules.isHdr(v)) } }
+                if (current == Engine.EXO) selectedVideo(tracks)?.let { v -> hdrVideo = EngineRules.isHdr(v) }
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
                 if (!(afr || resMatch) || current != Engine.EXO) return
                 val v = selectedVideo(tracks) ?: return
@@ -466,6 +468,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 },
                 update = { pv ->
                     pv.player = player
+                    pv.subtitleView?.let { styleSubtitles(it, hdrVideo) }
                     // libass draws in its own view inside the subtitle view, once per player.
                     val ass = assRef[0]
                     if (ass != null && pv.getTag(R_ASS) !== ass) {
