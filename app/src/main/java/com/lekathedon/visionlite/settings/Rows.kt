@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -48,6 +49,8 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathed
     val hiddenText by rowsHidden.flow.collectAsState()
     val hidden = hiddenText.split('\n').filter { it.isNotEmpty() }.toSet()
     var msg by remember { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     fun move(key: String, by: Int) {
@@ -68,8 +71,15 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathed
                 Button("Reset order", { rowOrder.value = ""; rowsHidden.value = "" })
                 val addonRows by prefs.addonRows.flow.collectAsState()
                 Button(if (addonRows) "Add-on rows: On" else "Add-on rows: Off", { prefs.addonRows.value = !addonRows })
+                Button("Add a catalog", { adding = true })
                 if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp)
             }
+            // A catalog by its link: scan the QR and paste it on the phone, or type it here.
+            if (adding) com.lekathedon.visionlite.phone.PhoneBox("Add a catalog", listOf(
+                com.lekathedon.visionlite.phone.PhoneForm.Field("List link", "trakt.tv/users/…/lists/…, mdblist.com/lists/…, imdb.com/list/ls…"),
+                com.lekathedon.visionlite.phone.PhoneForm.Field("Row name (optional)", "Its own name when empty")),
+                onSave = { v -> adding = false; scope.launch { msg = com.lekathedon.visionlite.home.ImportedLists.addLink(v[0], v.getOrElse(1) { "" }) } },
+                onCancel = { adding = false })
         }
         items(rows, key = { it.key }) { r ->
             val on = r.key !in hidden
@@ -79,6 +89,7 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathed
                 Button(if (on) "On" else "Off", { rowsHidden.value = (if (on) hidden + r.key else hidden - r.key).joinToString("\n") })
                 Button("Up", { move(r.key, -1) })
                 Button("Down", { move(r.key, 1) })
+                if (r.key.startsWith("list:")) Button("Remove", { com.lekathedon.visionlite.home.ImportedLists.remove(r.key); msg = "Removed ${r.title}" })
             }
         }
     }

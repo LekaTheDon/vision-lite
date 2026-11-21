@@ -23,7 +23,7 @@ object ImportedLists {
     data class L(val key: String, val source: String, val id: String, val name: String)
 
     fun supports(o: JSONObject): Boolean = when (o.optString("source")) {
-        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL" -> true
+        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL", "IMDB_LIST" -> true
         "IMDB" -> o.optString("remoteId") == "picks"
         else -> false
     }
@@ -56,12 +56,73 @@ object ImportedLists {
                     part("movies", "movie") + part("shows", "series")
                 }
                 "IMDB" -> Recs.imdbPicks(30).map { meta(it.imdb, it.type, it.name) }
+                "IMDB_LIST" -> imdbList(l.id).second
                 "SIMKL" -> simkl(l.id)
                 "ANILIST" -> anilist(l.id)
                 "MAL" -> mal(l.id)
                 else -> emptyList()
             }
         }.getOrDefault(emptyList())
+    }
+
+    // ---- Catalogs added on the TV by their link (Settings › Home rows › Add a catalog: QR or typed) ----
+
+    /** Adds a list from its web link as a Home row. Returns a message for the screen. */
+    suspend fun addLink(link: String, name: String): String = withContext(Dispatchers.IO) {
+        val u = link.trim().removeSuffix("/").substringBefore('?')
+        val (source, id, guess) = when {
+            "trakt.tv/users/" in u && "/lists/" in u -> {
+                val user = u.substringAfter("/users/").substringBefore('/'); val slug = u.substringAfter("/lists/").substringBefore('/')
+                Triple("TRAKT", "$user/lists/$slug", pretty(slug))
+            }
+            "mdblist.com/lists/" in u -> {
+                val parts = u.substringAfter("/lists/").split('/')
+                if (parts.size < 2) return@withContext "That MDBList link has no list in it"
+                if (App.instance.prefs.sp.getString("int_mdblist_0", "").isNullOrBlank()) return@withContext "MDBList lists need your MDBList key (Settings › Integrations)"
+                Triple("MDBLIST", "${parts[0]}/${parts[1]}", pretty(parts[1]))
+            }
+            Regex("imdb\\.com/(?:[a-z-]+/)?list/(ls\\d+)").containsMatchIn(u) -> {
+                val ls = Regex("ls\\d+").find(u)!!.value
+                Triple("IMDB_LIST", ls, runCatching { imdbList(ls).first }.getOrNull() ?: "IMDb list")
+            }
+            else -> return@withContext "Use a Trakt, MDBList or IMDb list link"
+        }
+        if (source == "TRAKT" && App.instance.trakt.connected.value == null) return@withContext "Trakt lists need Trakt connected"
+        val p = App.instance.prefs
+        val cur = runCatching { JSONArray(p.importedLists.value) }.getOrDefault(JSONArray())
+        if ((0 until cur.length()).any { cur.optJSONObject(it)?.let { o -> o.optString("source") == source && o.optString("remoteId") == id } == true })
+            return@withContext "That list is already a row"
+        cur.put(JSONObject().put("source", source).put("remoteId", id).put("name", name.ifBlank { guess }))
+        p.importedLists.value = cur.toString()
+        "Added \"${name.ifBlank { guess }}\" — it shows on Home (move it with Up/Down)"
+    }
+
+    /** Removes a list row (by its row key). */
+    fun remove(key: String) {
+        val p = App.instance.prefs
+        val cur = runCatching { JSONArray(p.importedLists.value) }.getOrDefault(JSONArray())
+        val kept = JSONArray()
+        (0 until cur.length()).mapNotNull { cur.optJSONObject(it) }.forEach { o ->
+            if ("list:" + o.optString("source").lowercase() + "." + o.optString("remoteId") != key) kept.put(o)
+        }
+        p.importedLists.value = kept.toString()
+    }
+
+    private fun pretty(slug: String) = slug.replace('-', ' ').replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+    /** A public IMDb list (keyless GraphQL): its name and up to 250 titles. */
+    private fun imdbList(ls: String): Pair<String?, List<MetaPreview>> {
+        val q = "{ list(id: \"$ls\") { name { originalText } titleListItemSearch(first: 250) { edges { node: title { id titleText { text } titleType { canHaveEpisodes } } } } } }"
+        val text = Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").header("x-imdb-client-name", "imdb-web-next-localized")
+            .header("Accept", "application/json").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType())).build())
+            .execute().use { it.body?.string().orEmpty() }
+        val l = JSONObject(text).optJSONObject("data")?.optJSONObject("list") ?: return null to emptyList()
+        val edges = l.optJSONObject("titleListItemSearch")?.optJSONArray("edges")
+        val items = (0 until (edges?.length() ?: 0)).mapNotNull { edges!!.optJSONObject(it)?.optJSONObject("node") }.mapNotNull { n ->
+            val id = n.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
+            meta(id, if (n.optJSONObject("titleType")?.optBoolean("canHaveEpisodes") == true) "series" else "movie", n.optJSONObject("titleText")?.optString("text").orEmpty())
+        }
+        return l.optJSONObject("name")?.optString("originalText")?.ifBlank { null } to items
     }
 
     private fun token(id: String) = App.instance.prefs.sp.getString("si_${id}_token", "").orEmpty()

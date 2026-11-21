@@ -47,7 +47,9 @@ object ComingUp {
     @Serializable private data class Show(
         val tvmaze: Int, val name: String = "", val image: String? = null, val status: String = "",
         val nextS: Int? = null, val nextE: Int? = null, val nextTitle: String? = null, val nextAt: Long = 0,
-        val prevS: Int? = null, val prevE: Int? = null, val prevTitle: String? = null, val prevAt: Long = 0, val readAt: Long = 0
+        val prevS: Int? = null, val prevE: Int? = null, val prevTitle: String? = null, val prevAt: Long = 0, val readAt: Long = 0,
+        /** TVmaze calls it anime (genre "Anime", or Japanese animation); null = read before this was kept. */
+        val anime: Boolean? = null
     )
 
     private val _items = MutableStateFlow<List<Item>>(emptyList())
@@ -154,10 +156,12 @@ object ComingUp {
             if (id == -2) continue
             if (id < 0) continue
             val s = shows[imdb]
+            if (s?.anime == true) com.lekathedon.visionlite.anime.AnimeIds.learn(imdb)
             val aired = s != null && s.nextAt in 1..now
-            val stale = s == null || now - s.readAt > 7 * 24 * 3600_000L
+            // A running show read before the anime check is read once more (a new anime isn't in the id list yet).
+            val stale = s == null || now - s.readAt > 7 * 24 * 3600_000L || (s.anime == null && s.status != "Ended")
             if (s != null && !aired && !stale && changed != null && id !in changed) continue
-            readShow(id)?.let { shows[imdb] = it }
+            readShow(id)?.let { shows[imdb] = it; if (it.anime == true) com.lekathedon.visionlite.anime.AnimeIds.learn(imdb) }
             delay(450)
         }
         write("tvmaze_ids.json", idSer, ids)
@@ -216,7 +220,10 @@ object ComingUp {
         fun num(e: JSONObject?, k: String) = e?.optInt(k, -1)?.takeIf { it >= 0 }
         Show(id, o.optString("name"), o.optJSONObject("image")?.optString("original")?.takeIf { it.startsWith("http") }, o.optString("status"),
             num(next, "season"), num(next, "number"), next?.optString("name"), at(next),
-            num(prev, "season"), num(prev, "number"), prev?.optString("name"), at(prev), System.currentTimeMillis())
+            num(prev, "season"), num(prev, "number"), prev?.optString("name"), at(prev), System.currentTimeMillis(),
+            // Brand-new anime (Steel Ball Run, 2026) aren't in the anime databases' id list for weeks; TVmaze tags them.
+            anime = o.optJSONArray("genres")?.let { g -> (0 until g.length()).any { g.optString(it) == "Anime" } } == true ||
+                (o.optString("type") == "Animation" && o.optString("language") == "Japanese"))
     }.getOrNull()
 
     private fun get(url: String): String = Net.http.newCall(Request.Builder().url(url).build()).execute().use { r ->

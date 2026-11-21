@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -134,13 +135,21 @@ class Trakt(private val prefs: Prefs) {
     suspend fun continueWatching(): List<Resume> = coroutineScope {
         if (!on()) return@coroutineScope emptyList()
         val paused = async { runCatching { get<List<Playback>>("sync/playback?limit=30") }.getOrDefault(emptyList()) }
+        // Every show watched in the last 90 days (up to 60), not just the newest 8: the hubs split this list, so 8 left
+        // the Anime hub with only the anime among them (user 2026-11-21). Each show's progress is asked again only
+        // when its last-watched time changed (kept in [nextCache]), so a Home refresh costs ~1 call, not 60.
+        val since = java.time.Instant.now().minus(java.time.Duration.ofDays(90)).toString()
         val shows = runCatching { get<List<Watched>>("sync/watched/shows?extended=noseasons") }.getOrDefault(emptyList())
-            .sortedByDescending { it.lastWatchedAt }.take(8)
+            .sortedByDescending { it.lastWatchedAt }.filter { it.lastWatchedAt >= since }.take(60)
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
         val next = shows.map { w ->
             async {
                 val imdb = w.show.ids.imdb ?: return@async null
-                val p = runCatching { get<Progress>("shows/${w.show.ids.trakt}/progress/watched?hidden=false&specials=false") }.getOrNull() ?: return@async null
+                val key = w.show.ids.trakt ?: return@async null
+                nextCache[key]?.takeIf { it.first == w.lastWatchedAt }?.let { return@async it.second }
+                val p = gate.withPermit { runCatching { get<Progress>("shows/$key/progress/watched?hidden=false&specials=false") }.getOrNull() } ?: return@async null
                 p.next?.let { Resume("series", imdb, w.show.title, it.season, it.number, 0f, w.lastWatchedAt) }
+                    .also { nextCache[key] = w.lastWatchedAt to it }
             }
         }.awaitAll().filterNotNull()
         val p = paused.await().filter { it.progress in 2f..92f }.mapNotNull { pb ->
@@ -154,6 +163,9 @@ class Trakt(private val prefs: Prefs) {
         val gone = dropped()
         (p + next).sortedByDescending { it.at }.distinctBy { it.imdb }.filter { it.imdb !in gone }
     }
+
+    /** Trakt show id → (its last-watched time, its next episode) from the last progress call. */
+    private val nextCache = java.util.concurrent.ConcurrentHashMap<Long, Pair<String, Resume?>>()
 
     fun dropped(): Set<String> = prefs.cwDropped.value.split('\n').filter { it.isNotBlank() }.toSet()
 
@@ -205,7 +217,8 @@ class Trakt(private val prefs: Prefs) {
 
     /** A Trakt list's films and shows by its Trakt id (yours, liked or anyone's public list). Null when Trakt is off. */
     suspend fun listItems(id: String): List<ListItem>? = if (!on()) null else
-        runCatching { get<List<ListItem>>("lists/$id/items/movie,show?limit=200") }.getOrNull()
+        // A list added by its link is "user/lists/slug" (Trakt's public path); the phone's lists use Trakt ids.
+        runCatching { get<List<ListItem>>(if ('/' in id) "users/$id/items/movie,show?limit=200" else "lists/$id/items/movie,show?limit=200") }.getOrNull()
 
     /** IMDb ids of every film and show watched (for Home's Watched titles: Dim / Hide). Null when Trakt is off. */
     suspend fun watchedIds(): Set<String>? = if (!on()) null else coroutineScope {
