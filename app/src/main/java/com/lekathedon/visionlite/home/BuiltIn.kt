@@ -2,6 +2,7 @@ package com.lekathedon.visionlite.home
 
 import android.util.Log
 import com.lekathedon.visionlite.App
+import com.lekathedon.visionlite.BuildConfig
 import com.lekathedon.visionlite.addons.MetaPreview
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.integrations.Integrations
@@ -46,7 +47,7 @@ object VisionRows {
      * and drops the anime suffix (every row there is anime). Each row then shows only its hub's titles.
      */
     fun forHub(hub: com.lekathedon.visionlite.anime.Hub): List<Pair<String, String>> {
-        val animeCharts = Charts.Chart.entries.filter { it.src == Charts.Src.ANILIST || it.src == Charts.Src.IMDB_ANIME }.map { "c/${it.id}" }.toSet()
+        val animeCharts = Charts.Chart.entries.filter { it.src in Charts.ANIME_SRCS }.map { "c/${it.id}" }.toSet()
         if (hub == com.lekathedon.visionlite.anime.Hub.FILMS) return all.filter { it.first !in animeCharts }
         // Anime: its own Top 20 Today (AniList) in place of TMDB's, whose lists are hardly ever anime.
         val tmdbToday = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}")
@@ -112,8 +113,12 @@ suspend fun openTitle(nav: Nav, m: MetaPreview) {
 suspend fun imdbIdOf(m: MetaPreview): String? {
     return when {
         m.id.startsWith("tmdb:") -> withContext(Dispatchers.IO) { Tmdb.imdbOf(m.id) }
-        m.id.startsWith("anilist:") || m.id.startsWith("mal:") -> withContext(Dispatchers.IO) {
-            val q = if (m.id.startsWith("mal:")) "mal_id=${m.id.removePrefix("mal:")}" else "anilist_id=${m.id.removePrefix("anilist:")}"
+        m.id.startsWith("anilist:") || m.id.startsWith("mal:") || m.id.startsWith("kitsu:") -> withContext(Dispatchers.IO) {
+            val q = when {
+                m.id.startsWith("mal:") -> "mal_id=${m.id.removePrefix("mal:")}"
+                m.id.startsWith("kitsu:") -> "kitsu_id=${m.id.removePrefix("kitsu:")}"
+                else -> "anilist_id=${m.id.removePrefix("anilist:")}"
+            }
             runCatching { JSONObject(Net.get("https://api.ani.zip/mappings?$q", 10))
                 .optJSONObject("mappings")?.optString("imdb_id")?.takeIf { it.startsWith("tt") } }.getOrNull()
                 ?.also { com.lekathedon.visionlite.anime.AnimeIds.learn(it) }
@@ -143,10 +148,23 @@ object Charts {
         ANIME_TODAY_SERIES("anilist.today.series", "Top 20 Anime Shows Today", "series", Src.ANILIST),
         ANIME_TODAY_MOVIES("anilist.today.movie", "Top 20 Anime Movies Today", "movie", Src.ANILIST),
         IMDB_ANIME_SERIES("imdb.anime250.series", "Top 250 Anime Series", "series", Src.IMDB_ANIME),
-        IMDB_ANIME_MOVIES("imdb.anime250.movie", "Top 250 Anime Movies", "movie", Src.IMDB_ANIME)
+        IMDB_ANIME_MOVIES("imdb.anime250.movie", "Top 250 Anime Movies", "movie", Src.IMDB_ANIME),
+        // Anime trackers (user 2026-11-21: they follow anime releases better than IMDb/TMDB). Anime hub only.
+        /** LiveChart.me's feed of episodes aired in the last 24 h, one card per show, newest first. */
+        LIVECHART_AIRED("livechart.aired", "Just Aired · LiveChart", "series", Src.LIVECHART),
+        /** AniChart = AniList's seasonal chart: what started this season, and next season's most awaited. */
+        ANICHART_NEW("anichart.new", "New This Season · AniChart", "series", Src.ANILIST),
+        ANICHART_NEXT("anichart.next", "Next Season · AniChart", "series", Src.ANILIST),
+        /** MyAnimeList (Lite's MAL app id; no sign-in): the season by members, top airing, most anticipated. */
+        MAL_SEASON("mal.season", "Popular This Season · MAL", "series", Src.MAL),
+        MAL_AIRING("mal.airing", "Top Airing · MAL", "series", Src.MAL),
+        MAL_UPCOMING("mal.upcoming", "Most Anticipated · MAL", "series", Src.MAL),
+        KITSU_TRENDING("kitsu.trending", "Trending · Kitsu", "series", Src.KITSU)
     }
-    enum class Src(val freshMs: Long) { IMDB(12 * 3600_000L), ANILIST(12 * 3600_000L), IMDB_ANIME(12 * 3600_000L), TMDB(20 * 3600_000L) }
+    enum class Src(val freshMs: Long) { IMDB(12 * 3600_000L), ANILIST(12 * 3600_000L), IMDB_ANIME(12 * 3600_000L), TMDB(20 * 3600_000L),
+        LIVECHART(3600_000L), MAL(12 * 3600_000L), KITSU(12 * 3600_000L) }
 
+    val ANIME_SRCS = setOf(Src.ANILIST, Src.IMDB_ANIME, Src.LIVECHART, Src.MAL, Src.KITSU)
     @Serializable private data class Disk(val at: Long, val rows: Map<String, List<MetaPreview>>)
     private val loaded = HashMap<Src, Disk>()
     private val locks = Src.entries.associateWith { Mutex() }
@@ -160,7 +178,7 @@ object Charts {
             var have = loaded[c.src] ?: runCatching { Net.json.decodeFromString(Disk.serializer(), file(c.src).readText()) }.getOrNull()?.also { loaded[c.src] = it }
             // A chart added since the last fetch (the Anime hub's Top 20 Today) is asked at once, not after 12 h.
             if (have == null || now - have.at > c.src.freshMs || c.id !in have.rows) {
-                val fresh = runCatching { fetch(c.src) }.onFailure { Log.w("Charts", "${c.src}: ${it.message}") }.getOrNull()
+                val fresh = runCatching { if (c.src == Src.LIVECHART) liveChart() else fetch(c.src) }.onFailure { Log.w("Charts", "${c.src}: ${it.message}") }.getOrNull()
                 if (fresh != null && fresh.values.any { it.isNotEmpty() }) {
                     have = Disk(now, fresh); loaded[c.src] = have
                     runCatching { file(c.src).writeText(Net.json.encodeToString(Disk.serializer(), have)) }
@@ -192,12 +210,83 @@ object Charts {
         }
         Src.ANILIST -> {
             val (season, year) = season(LocalDate.now())
-            post("https://graphql.anilist.co", JSONObject().put("query", ANILIST_QUERY).put("variables", JSONObject().put("season", season).put("year", year)))?.let { d ->
+            val (nextSeason, nextYear) = season(LocalDate.now().plusMonths(3))
+            post("https://graphql.anilist.co", JSONObject().put("query", ANILIST_QUERY).put("variables", JSONObject().put("season", season).put("year", year)
+                .put("nextSeason", nextSeason).put("nextYear", nextYear)))?.let { d ->
                 mapOf(Chart.ANILIST_TRENDING.id to ani(d, "trending"), Chart.ANILIST_SEASON.id to ani(d, "season"),
-                    Chart.ANIME_TODAY_SERIES.id to ani(d, "todayTv").take(20), Chart.ANIME_TODAY_MOVIES.id to ani(d, "todayMovies").take(20))
+                    Chart.ANIME_TODAY_SERIES.id to ani(d, "todayTv").take(20), Chart.ANIME_TODAY_MOVIES.id to ani(d, "todayMovies").take(20),
+                    Chart.ANICHART_NEW.id to ani(d, "fresh"), Chart.ANICHART_NEXT.id to ani(d, "next"))
             }
         }
+        Src.MAL -> if (BuildConfig.MAL_CLIENT_ID.isBlank()) null else {
+            val (season, year) = season(LocalDate.now())
+            val f = "fields=main_picture,alternative_titles,mean,media_type,start_season,genres&nsfw=false"
+            mapOf(Chart.MAL_SEASON.id to mal("anime/season/$year/${season.lowercase()}?sort=anime_num_list_users&limit=50&$f"),
+                Chart.MAL_AIRING.id to mal("anime/ranking?ranking_type=airing&limit=50&$f"),
+                Chart.MAL_UPCOMING.id to mal("anime/ranking?ranking_type=upcoming&limit=50&$f"))
+        }
+        Src.KITSU -> {
+            val d = Net.http.newCall(Request.Builder().url("https://kitsu.io/api/edge/trending/anime?limit=20").build()).execute()
+                .use { r -> if (!r.isSuccessful) throw java.io.IOException("Kitsu HTTP ${r.code}"); JSONObject(r.body?.string().orEmpty()) }
+            mapOf(Chart.KITSU_TRENDING.id to d.optJSONArray("data").objects().mapNotNull { o ->
+                val a = o.optJSONObject("attributes") ?: return@mapNotNull null
+                val name = a.optJSONObject("titles")?.optString("en")?.takeIf { it.isNotBlank() && it != "null" } ?: a.optString("canonicalTitle").ifBlank { null } ?: return@mapNotNull null
+                MetaPreview("kitsu:${o.optString("id")}", if (a.optString("subtype") == "movie") "movie" else "series", name,
+                    a.optJSONObject("posterImage")?.optString("large")?.takeIf { it.startsWith("http") },
+                    a.optJSONObject("coverImage")?.optString("large")?.takeIf { it.startsWith("http") },
+                    description = a.optString("synopsis").takeIf { it.isNotBlank() && it != "null" },
+                    releaseInfo = a.optString("startDate").take(4).takeIf { it.length == 4 },
+                    imdbRating = a.optString("averageRating").toDoubleOrNull()?.let { "%.1f".format(it / 10) })
+            })
+        }
+        Src.LIVECHART -> null
     }
+
+    private fun mal(path: String): List<MetaPreview> = Net.http.newCall(Request.Builder().url("https://api.myanimelist.net/v2/$path")
+        .header("X-MAL-CLIENT-ID", BuildConfig.MAL_CLIENT_ID).build()).execute().use { r ->
+        if (!r.isSuccessful) throw java.io.IOException("MAL HTTP ${r.code}")
+        JSONObject(r.body?.string().orEmpty()).optJSONArray("data").objects().mapNotNull { e ->
+            val n = e.optJSONObject("node") ?: return@mapNotNull null
+            val id = n.optLong("id").takeIf { it > 0 } ?: return@mapNotNull null
+            val name = n.optJSONObject("alternative_titles")?.optString("en")?.takeIf { it.isNotBlank() } ?: n.optString("title").ifBlank { null } ?: return@mapNotNull null
+            MetaPreview("mal:$id", if (n.optString("media_type") == "movie") "movie" else "series", name,
+                n.optJSONObject("main_picture")?.let { p -> p.optString("large").takeIf { it.startsWith("http") } ?: p.optString("medium").takeIf { it.startsWith("http") } },
+                releaseInfo = n.optJSONObject("start_season")?.optInt("year")?.takeIf { it > 0 }?.toString(),
+                imdbRating = n.optDouble("mean").takeIf { !it.isNaN() && it > 0 }?.let { "%.1f".format(it) },
+                genres = n.optJSONArray("genres").objects().mapNotNull { it.optString("name").ifBlank { null } })
+        }
+    }
+
+    /**
+     * LiveChart.me's "aired in the last 24 h" RSS (~20 KB): one card per show, newest first. Its ids become AniList /
+     * MAL / Kitsu ids through the anime-ids list; one AniList request then gives English titles, banners and scores.
+     */
+    private suspend fun liveChart(): Map<String, List<MetaPreview>> {
+        val xml = Net.http.newCall(Request.Builder().url("https://www.livechart.me/feeds/episodes").header("User-Agent", "Mozilla/5.0").build())
+            .execute().use { r -> if (!r.isSuccessful) throw java.io.IOException("LiveChart HTTP ${r.code}"); r.body?.string().orEmpty() }
+        data class Ep(val lc: Int, val title: String, val ep: String?, val poster: String?)
+        val seen = HashSet<Int>()
+        val eps = Regex("<item>(.*?)</item>", RegexOption.DOT_MATCHES_ALL).findAll(xml).mapNotNull { m ->
+            val b = m.groupValues[1]
+            val lc = Regex("livechart\\.me/anime/(\\d+)").find(b)?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
+            val t = Regex("<title>(.*?)</title>", RegexOption.DOT_MATCHES_ALL).find(b)?.groupValues?.get(1)?.let(::unXml) ?: return@mapNotNull null
+            val ep = Regex("\\s#(\\d+)$").find(t)?.groupValues?.get(1)
+            Ep(lc, if (ep != null) t.substringBeforeLast(" #") else t, ep, Regex("media:thumbnail url=\"([^\"]+)\"").find(b)?.groupValues?.get(1)?.replace("/small.jpg", "/large.jpg"))
+        }.filter { seen.add(it.lc) }.toList()   // the feed is newest first: keep each show's latest episode
+        val ids = com.lekathedon.visionlite.anime.AnimeIds.fromLivechart(eps.map { it.lc })
+        val aniIds = ids.values.filter { it.startsWith("anilist:") }.mapNotNull { it.removePrefix("anilist:").toLongOrNull() }
+        val ani = if (aniIds.isEmpty()) emptyMap() else runCatching {
+            post("https://graphql.anilist.co", JSONObject().put("query", "query (\$ids: [Int]) { p: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", id_in: \$ids")} } }")
+                .put("variables", JSONObject().put("ids", JSONArray(aniIds))))?.let { d -> ani(d, "p").associateBy { it.id } }
+        }.getOrNull().orEmpty()
+        return mapOf(Chart.LIVECHART_AIRED.id to eps.mapNotNull { e ->
+            val id = ids[e.lc] ?: return@mapNotNull null
+            val epInfo = e.ep?.let { "Episode $it" }
+            ani[id]?.copy(releaseInfo = epInfo ?: ani[id]?.releaseInfo) ?: MetaPreview(id, "series", e.title, e.poster, releaseInfo = epInfo)
+        })
+    }
+
+    private fun unXml(s: String) = s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim()
 
     private fun post(url: String, body: JSONObject): JSONObject? = Net.http.newCall(Request.Builder().url(url)
         .post(body.toString().toRequestBody("application/json".toMediaType())).header("Accept", "application/json")
@@ -248,7 +337,9 @@ object Charts {
         "animeTagged: advancedTitleSearch(first: 250, constraints: {$AB, keywordConstraint: {anyKeywords: [\"anime\"]}}, sort: {sortBy: USER_RATING, sortOrder: DESC}) { $SF } " +
         "animeJapan: advancedTitleSearch(first: 250, constraints: {$AB, originCountryConstraint: {anyPrimaryCountries: [\"JP\"], excludeCountries: [\"US\"]}}, sort: {sortBy: USER_RATING, sortOrder: DESC}) { $SF } }"
     private const val AF = "media(type: ANIME, sort: %s, isAdult: false%s) { id idMal format seasonYear title { english userPreferred } coverImage { extraLarge large } bannerImage genres averageScore description(asHtml: false) }"
-    private val ANILIST_QUERY = "query (\$season: MediaSeason, \$year: Int) { trending: Page(perPage: 50) { ${AF.format("TRENDING_DESC", "")} } " +
+    private val ANILIST_QUERY = "query (\$season: MediaSeason, \$year: Int, \$nextSeason: MediaSeason, \$nextYear: Int) { trending: Page(perPage: 50) { ${AF.format("TRENDING_DESC", "")} } " +
+        "fresh: Page(perPage: 50) { ${AF.format("START_DATE_DESC", ", season: \$season, seasonYear: \$year, status: RELEASING, format_in: [TV, ONA], popularity_greater: 3000")} } " +
+        "next: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", season: \$nextSeason, seasonYear: \$nextYear")} } " +
         "season: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", season: \$season, seasonYear: \$year")} } " +
         "todayTv: Page(perPage: 20) { ${AF.format("TRENDING_DESC", ", format_in: [TV, TV_SHORT, ONA]")} } " +
         "todayMovies: Page(perPage: 20) { ${AF.format("TRENDING_DESC", ", format: MOVIE")} } }"
@@ -275,11 +366,19 @@ object Services {
         AMC("amcplus", "AMC+", 4661, "526|1854"), MGM("mgmplus", "MGM+", 6219, "34", series = false), BRITBOX("britbox", "BritBox / Acorn TV", 4025, "151|1852|87|2034", movies = false),
         DISCOVERY("discovery", "discovery+", 4353, "520"), ITVX("itvx", "ITVX", 5871, "41|2300", region = "GB"), NOW("now", "NOW", 1063, "39", region = "GB", movies = false),
         // Anime hub only (TMDB providers checked 2026-11-20: CR ~1,960 shows US, HIDIVE ~230, RetroCrush ~145, d Anime Store ~3,000 JP).
-        // ADN (France) left out: no logo ident of its own to play on the tile. Logos: TMDB company wordmarks (HIDIVE, d Anime Store), RetroCrush's badge.
+        // Rule (user 2026-11-21): every genuine anime service with a TMDB catalogue is in, intro clip or not (no clip =
+        // still tile). Added: U-NEXT JP (~2,560 anime), ADN FR (455 shows/99 films), Anime Times JP (1,953/588),
+        // Toei Animation JP (322/1,561), Anime Generation IT (195/94). Left out: Animebox ES (67), Animax IN (27).
+        // Logos: TMDB company wordmarks; Anime Times / Anime Generation only have Prime Channels squares, so their name.
         CRUNCHYROLL("crunchyroll", "Crunchyroll", 1112, "283|1968", anime = true),
         HIDIVE("hidive", "HIDIVE", 0, "430|2390", originals = false, anime = true, logo = "/q62gD079BwFpLR7QiXEgjmLXkwP.png"),
         RETROCRUSH("retrocrush", "RetroCrush", 0, "446|295", originals = false, anime = true, logo = "/pqXjcTVXpOVHF3IfWo9siRZkLXo.png"),
-        DANIME("danime", "d Anime Store", 0, "2494", region = "JP", originals = false, anime = true, logo = "/wR7YDBvNzdJRkmxOTgJobOpUG8X.png")
+        DANIME("danime", "d Anime Store", 0, "2494", region = "JP", originals = false, anime = true, logo = "/wR7YDBvNzdJRkmxOTgJobOpUG8X.png"),
+        UNEXT("unext", "U-NEXT", 0, "84", region = "JP", originals = false, anime = true, logo = "/xhbd4zDn0iJ1vwj9TcSvtAFEc6w.png"),
+        ADN("adn", "ADN", 0, "415|2173", region = "FR", originals = false, anime = true, logo = "/v2P6Z98qYTgkUtMecP5OaPmv1Pa.png"),
+        ANIMETIMES("animetimes", "Anime Times", 0, "2182", region = "JP", originals = false, anime = true),
+        TOEI("toei", "Toei Animation", 0, "2519|2520", region = "JP", originals = false, anime = true, logo = "/ayE4LIqoAWotavo7xdvYngwqGML.png"),
+        ANIMEGEN("animegen", "Anime Generation", 0, "1895", region = "IT", originals = false, anime = true)
     }
     @Serializable data class Art(val id: String, val logo: String? = null, val backdrop: String? = null)
     @Serializable private data class Saved(val day: String = "", val logosAt: Long = 0, val art: List<Art> = emptyList())
@@ -303,7 +402,7 @@ object Services {
             val fresh = coroutineScope {
                 S.entries.map { s -> async {
                     val kept = saved.art.firstOrNull { it.id == s.id }
-                    val logo = s.logo ?: if (!logosOld && kept?.logo != null) kept.logo else Tmdb.get("network/${s.network}")?.optString("logo_path")?.ifBlank { null } ?: kept?.logo
+                    val logo = s.logo ?: if (s.network == 0) null else if (!logosOld && kept?.logo != null) kept.logo else Tmdb.get("network/${s.network}")?.optString("logo_path")?.ifBlank { null } ?: kept?.logo
                     val backs = (if (s.network == 0) Tmdb.get("discover/tv?sort_by=popularity.desc&watch_region=${s.region}&with_watch_providers=${s.providers}")
                         else Tmdb.get("discover/tv?sort_by=popularity.desc&with_networks=${s.network}"))?.optJSONArray("results").objects()
                         .mapNotNull { it.optString("backdrop_path").takeIf { p -> p.startsWith("/") } }

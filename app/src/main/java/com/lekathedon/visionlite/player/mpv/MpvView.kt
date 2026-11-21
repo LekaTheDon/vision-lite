@@ -103,11 +103,14 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     }
 
     /** Subtitle size (1 = normal) and look: "outline", "white" (shadow), "yellow", "box". */
-    fun subtitleStyle(scale: Double, style: String) {
+    fun subtitleStyle(scale: Double, style: String, hdr: Boolean = false) {
         if (!initialized) return
         runCatching {
             mpv.setOptionString("sub-scale", String.format(Locale.US, "%.2f", scale))
-            mpv.setOptionString("sub-color", if (style == "yellow") "#FFFFE14D" else "#FFFFFFFF")
+            // HDR/DV film: Vision's style = white, dimmed (properties so it also changes mid-file).
+            val color = if (hdr) String.format(Locale.US, "#%08X", com.lekathedon.visionlite.player.hdrSubColor(android.graphics.Color.WHITE))
+                else if (style == "yellow") "#FFFFE14D" else "#FFFFFFFF"
+            if (hdr) mpv.setPropertyString("sub-color", color) else mpv.setOptionString("sub-color", color)
             mpv.setOptionString("sub-border-style", if (style == "box") "background-box" else "outline-and-shadow")
             mpv.setOptionString("sub-border-size", if (style == "white") "0" else "2.5")
             mpv.setOptionString("sub-shadow-offset", if (style == "white") "2" else "0")

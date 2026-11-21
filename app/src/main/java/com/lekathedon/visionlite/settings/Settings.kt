@@ -95,6 +95,7 @@ private val RewindOpts = listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" t
 private val SubsWhenOpts = listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off")
 private val SubSizeOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")
 private val SubStyleOpts = listOf("outline" to "Outline", "white" to "Shadow", "yellow" to "Yellow", "box" to "Black box")
+private val SubHdrBrightOpts = listOf("30" to "Dim", "58" to "Normal (Vision)", "80" to "Bright", "100" to "Full")
 private val SortOpts = listOf("addon" to "Add-on order", "quality" to "Best quality", "biggest" to "Biggest file", "smallest" to "Smallest file")
 private val QualityOpts = listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p")
 private val SizeOpts = listOf("0" to "No limit", "5" to "5 GB", "10" to "10 GB", "20" to "20 GB", "40" to "40 GB", "80" to "80 GB")
@@ -216,6 +217,7 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Pausing")
         row { m -> Choice("Step back after pause", "Replays a few seconds when you press play again", p.rewindOnResume, RewindOpts, m) }
         head("Picture, sound and engine")
+        row { m -> Toggle("True black bars", "Bars around the film are the TV's own black, not the app's grey-ish black in HDR/DV (Vision)", p.blackBars, m) }
         row { m -> Link("This TV", "Dolby Vision, frame rate, passthrough, engine and buffer are set for this TV", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }
     }
     pages += page("Audio and subtitles", "Languages, when subtitles show, how they look", {
@@ -231,6 +233,8 @@ fun Settings(nav: Nav, start: String? = null) {
         head("How they look")
         row { m -> Choice("Size", "", p.subSize, SubSizeOpts, m) }
         row { m -> Choice("Style", "", p.subStyle, SubStyleOpts, m) }
+        row { m -> Toggle("HDR and Dolby Vision subtitles", "White and dimmed on HDR/DV films, so they don't glare (Vision)", p.subHdr, m) }
+        row { m -> Choice("HDR subtitle brightness", "", p.subHdrBright, SubHdrBrightOpts, m) }
         row { m -> Toggle("Seek thumbnails", "A picture of the spot while you seek (boxes under 3 GB skip it)", p.seekThumbs, m) }
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
     }

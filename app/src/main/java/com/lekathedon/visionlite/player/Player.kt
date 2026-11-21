@@ -218,6 +218,19 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 Hud.decoder = null
                 onLoaded = {
                     view.delays(Sync.audioMs, Sync.subMs)
+                    // Vision's HDR subtitle style on MPV: once the picture's transfer is known (PQ/HLG or a DV profile).
+                    if (prefs.subHdr.value) scope.launch {
+                        repeat(20) {
+                            val g = view.prop("video-params/gamma")
+                            val dvp = view.prop("current-tracks/video/dolby-vision-profile")
+                            if (!g.isNullOrBlank() || !dvp.isNullOrBlank()) {
+                                if (g == "pq" || g == "hlg" || !dvp.isNullOrBlank())
+                                    view.subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value, hdr = true)
+                                return@launch
+                            }
+                            kotlinx.coroutines.delay(250)
+                        }
+                    }
                     if (addonSubs) com.lekathedon.visionlite.addons.Subs.forId(s.id).forEach { sub -> view.addSubtitle(sub.url, "${sub.lang} · add-on", sub.lang) }
                     if (afr || resMatch) DisplayMatch.apply(context, view.prop("container-fps")?.toFloatOrNull() ?: 0f,
                         view.prop("width")?.toIntOrNull() ?: 0, view.prop("height")?.toIntOrNull() ?: 0, afr, resMatch)
@@ -382,6 +395,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 // Subtitles once per file, when its text tracks are known: SDH, then the normal track, never forced.
                 if (!subsChecked && tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }) { subsChecked = true; pickSubtitle(player, tracks); foreignOnly(player, tracks) }
                 felNow.set(felAllowed && current == Engine.EXO && selectedVideo(tracks)?.let { AmlFelSupport.isProfile7(it) } == true)
+                // Vision's HDR subtitle style: white and dimmed on HDR/Dolby Vision films, the normal style otherwise.
+                if (current == Engine.EXO) selectedVideo(tracks)?.let { v -> view?.subtitleView?.let { styleSubtitles(it, EngineRules.isHdr(v)) } }
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
                 if (!(afr || resMatch) || current != Engine.EXO) return
                 val v = selectedVideo(tracks) ?: return
@@ -436,9 +451,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         androidx.compose.runtime.key(gen, current) {
             if (current == Engine.MPV && mpvView != null) AndroidView(modifier = Modifier.fillMaxSize().background(Color.Black), factory = { mpvView.apply { keepScreenOn = true } })
             else AndroidView(
-                modifier = Modifier.fillMaxSize().background(Color.Black),
+                // True black bars (Vision's transparent letterbox): nothing painted around the film.
+                modifier = Modifier.fillMaxSize().then(if (prefs.blackBars.value) Modifier else Modifier.background(Color.Black)),
                 factory = { ctx ->
                     PlayerView(ctx).apply {
+                        if (prefs.blackBars.value) setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         keepScreenOn = true
                         useController = false
                         isFocusable = false
@@ -609,8 +626,23 @@ private fun foreignOnly(player: MediaPlayer, tracks: Tracks) {
 
 /** Size and look from Settings; the file's own sizes/styles are ignored so the choice always shows. */
 @OptIn(UnstableApi::class)
-private fun styleSubtitles(v: androidx.media3.ui.SubtitleView) {
+private fun styleSubtitles(v: androidx.media3.ui.SubtitleView, hdr: Boolean = false) {
     val p = App.instance.prefs
+    if (hdr && p.subHdr.value) {
+        // Vision's SubtitleStyleSettings.forVideo: the text turns white and every colour is dimmed by the HDR brightness.
+        val dim = hdrSubColor(android.graphics.Color.WHITE)
+        val k = when (p.subSize.value) { "s" -> 0.8f; "l" -> 1.25f; "xl" -> 1.5f; else -> 1f }
+        v.setApplyEmbeddedFontSizes(false)
+        v.setApplyEmbeddedStyles(false)
+        v.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * k)
+        val clear = android.graphics.Color.TRANSPARENT; val black = android.graphics.Color.BLACK
+        v.setStyle(when (p.subStyle.value) {
+            "white" -> androidx.media3.ui.CaptionStyleCompat(dim, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, black, null)
+            "box" -> androidx.media3.ui.CaptionStyleCompat(dim, 0xCC000000.toInt(), clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE, black, null)
+            else -> androidx.media3.ui.CaptionStyleCompat(dim, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE, black, null)
+        })
+        return
+    }
     val k = when (p.subSize.value) { "s" -> 0.8f; "l" -> 1.25f; "xl" -> 1.5f; else -> 1f }
     v.setApplyEmbeddedFontSizes(false)
     v.setApplyEmbeddedStyles(false)
@@ -622,6 +654,14 @@ private fun styleSubtitles(v: androidx.media3.ui.SubtitleView) {
         "box" -> androidx.media3.ui.CaptionStyleCompat(white, 0xCC000000.toInt(), clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE, black, null)
         else -> androidx.media3.ui.CaptionStyleCompat(white, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE, black, null)
     })
+}
+
+/** Vision's HDR dimming: setting 0-100 maps onto 30-100 % brightness (58 = white at ~180/255). */
+internal fun hdrSubColor(color: Int): Int {
+    val b = App.instance.prefs.subHdrBright.value.toIntOrNull()?.coerceIn(0, 100) ?: 58
+    val f = (0.7f * b + 30f) / 100f
+    val a = (color ushr 24) and 0xFF
+    return (a shl 24) or ((((color shr 16) and 0xFF) * f).toInt() shl 16) or ((((color shr 8) and 0xFF) * f).toInt() shl 8) or ((color and 0xFF) * f).toInt()
 }
 
 /** Next episode: the one after this in the series' own list; its links open (autoplay setting decides the rest). */

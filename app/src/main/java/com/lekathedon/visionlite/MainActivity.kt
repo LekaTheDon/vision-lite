@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.lekathedon.visionlite.link.LinkService.sync(this)
         val app = application as App
+        // Vision: the window paints nothing itself (the pages draw their own background), so the player can leave the
+        // bars around the film unpainted and the TV shows its true black there (True black bars).
+        window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
         setContent {
             val nav = remember { Nav() }
             val oled by app.prefs.oledBlack.flow.collectAsState()
@@ -73,7 +76,9 @@ class MainActivity : ComponentActivity() {
                 if (top is Screen.Player || top is Screen.YtPlay) com.lekathedon.visionlite.music.MusicPlayer.pause()
             }
             CompositionLocalProvider(LocalLook provides look) {
-                Box(Modifier.fillMaxSize().background(look.page)) {
+                val blackBars by app.prefs.blackBars.flow.collectAsState()
+                val clearBehind = blackBars && nav.current is Screen.Player
+                Box(Modifier.fillMaxSize().then(if (clearBehind) Modifier else Modifier.background(look.page))) {
                   // A hub's pages (Discover, Library, Live TV…) carry the pill on top, that page marked (Vision).
                   val hub = com.lekathedon.visionlite.home.hubPageOf(nav.current)
                   // The pill on a hub's page shows that hub, however the page was reached.

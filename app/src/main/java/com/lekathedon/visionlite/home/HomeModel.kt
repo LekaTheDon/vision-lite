@@ -211,7 +211,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.PICKS -> Recs.forYou(30, hub = hub).map(::meta)
             VisionRows.IMDB -> Recs.imdbPicks(30, hub = hub).map(::meta)
             VisionRows.AI -> AiPicks.picks(hub).value.map(::meta)
-            // Each hub its own services: Crunchyroll, HIDIVE, RetroCrush, ADN, d Anime Store only in Anime.
+            // Each hub its own services: the anime-only ones (Crunchyroll, HIDIVE, RetroCrush, d Anime Store, U-NEXT, ADN, Anime Times, Toei, Anime Generation) only in Anime.
             VisionRows.SERVICES -> if (!Services.on()) emptyList() else Services.S.entries.filter { it.anime == (hub == Hub.ANIME) }.map { s ->
                 val art = Services.art.value.firstOrNull { it.id == s.id }
                 MetaPreview("svc:${s.id}", "service", s.title, null, Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))

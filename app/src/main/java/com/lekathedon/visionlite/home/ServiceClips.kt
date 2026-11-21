@@ -35,12 +35,13 @@ object ServiceClips {
         "crunchyroll" to "gvkvMo9W2-M", "shudder" to "QARljDGgO4g", "criterion" to "XRPBHT77_84", "starz" to "Ng1_uKSFi5U",
         "amcplus" to "T7D_RnhHKW8", "mgmplus" to "curutqISN9Y", "britbox" to "L5WN7f72Fvs", "discovery" to "_XiqZIHG_2o",
         "itvx" to "moV-lWVQT5I", "now" to "6dz5Wy9rHsQ",
-        // Anime hub's services (picked 2026-11-20): "Hidive Logo" ident; Cineverse's official RetroCrush spot;
-        // d Anime Store's official 15 s ad "アニメとススメ！" (it has no logo ident of its own).
-        "hidive" to "eercartSBPc", "retrocrush" to "5jE-Me90xwI", "danime" to "1h-po7_jFvE"
+        // Anime hub's services (2026-11-21, frames checked): HIDIVE's clean on-screen logo (the old one was a TV filmed
+        // by a camera); Cineverse's official RetroCrush spot; d Anime Store has no ident, so its official 15 s CM
+        // (Shirobako, d Anime logo on screen; the old ad never downloaded); U-NEXT's start-up ident.
+        "hidive" to "VrMdZ0AkKPs", "retrocrush" to "5jE-Me90xwI", "danime" to "QlH2lkRFkD4", "unext" to "pmCHzEXuc9k"
     )
     /** Logos that are dark on clear on TMDB: drawn white (as Vision). */
-    val LIGHT_LOGO = setOf("apple", "peacock", "hidive", "danime")
+    val LIGHT_LOGO = setOf("apple", "peacock", "hidive", "danime", "unext", "toei")
 
     data class Clip(val video: String, val audio: String?)
 
@@ -55,6 +56,8 @@ object ServiceClips {
         if (preloadStarted) return
         preloadStarted = true
         scope.launch {
+            // Clips no longer in the list (replaced idents) leave the box.
+            dir.listFiles()?.forEach { f -> if (f.name.substringBefore('.') !in CLIPS.values) f.delete() }
             for (vid in CLIPS.values) {
                 if (local(vid) != null) continue
                 runCatching { save(vid, Yt.streams(vid, MAX_H)) }.onFailure { Log.w("ServiceClips", "$vid: ${it.message}") }

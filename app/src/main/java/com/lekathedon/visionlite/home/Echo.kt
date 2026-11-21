@@ -1320,7 +1320,7 @@ private fun RefreshCard(dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit
     }
 }
 
-/** Hold OK on a title: Picks rows get More like this / Not for me; every title gets Add to (or Remove from) Library. */
+/** Hold OK on a title: Picks rows get More like this / Not for me; every title gets Move, Turn this row off, Library. */
 @Composable
 private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.CoroutineScope, onClose: (removed: Boolean) -> Unit) {
     androidx.activity.compose.BackHandler { onClose(false) }
@@ -1348,6 +1348,11 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
             Choice(if (anime) "Move to Films & TV" else "Move to Anime", removes = true) {
                 com.lekathedon.visionlite.anime.AnimeIds.move(m.id, !anime)
                 if (!m.id.startsWith("tt")) scope.launch { imdbIdOf(m)?.takeIf { it.startsWith("tt") }?.let { com.lekathedon.visionlite.anime.AnimeIds.move(it, !anime) } }
+            }
+            // Repeat rows: one press turns the whole row off in this hub (Settings › Home rows turns it back on).
+            Choice("Turn this row off") {
+                val h = com.lekathedon.visionlite.anime.Hubs.rowsHidden(com.lekathedon.visionlite.anime.Hubs.now())
+                h.value = (h.value.split('\n').filter { it.isNotEmpty() }.toSet() + row.key).joinToString("\n")
             }
             Choice(if (saved) "Remove from Library" else "Add to Library") {
                 scope.launch {

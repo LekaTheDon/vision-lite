@@ -85,6 +85,12 @@ class Prefs(context: Context) {
     val engineBackup = Flag("engine_backup", true)
     /** Styled ASS/SSA subtitles (anime) drawn by libass on ExoPlayer, with the file's own fonts, colours and positions. */
     val libass = Flag("libass", true)
+    /** Vision's transparent letterbox: the app paints nothing around the film, so the bars are the TV's own true black
+     *  (the app's black goes grey on HDR/Dolby Vision output). Off on Fire TV, as Vision (its compositor needs the paint). */
+    val blackBars = Flag("black_bars", !android.os.Build.MANUFACTURER.orEmpty().trim().equals("Amazon", ignoreCase = true))
+    /** Vision's HDR subtitle style: on HDR/Dolby Vision films subtitles are white, dimmed to [subHdrBright] (0-100). */
+    val subHdr = Flag("sub_hdr", true)
+    val subHdrBright = Text("sub_hdr_bright", "58")
     val nextEpisode = Flag("next_episode", false)
     /** Skip intro / recap / outro / credits: "button" (OK skips), "auto", "off" (nothing asked). */
     val skipIntro = Text("skip_intro", "button")
