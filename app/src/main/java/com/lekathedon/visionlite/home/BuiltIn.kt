@@ -288,7 +288,7 @@ object Charts {
 
     private fun unXml(s: String) = s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim()
 
-    private fun post(url: String, body: JSONObject): JSONObject? = Net.http.newCall(Request.Builder().url(url)
+    internal fun post(url: String, body: JSONObject): JSONObject? = Net.http.newCall(Request.Builder().url(url)
         .post(body.toString().toRequestBody("application/json".toMediaType())).header("Accept", "application/json")
         .apply { if (url == IMDB_URL) header("x-imdb-client-name", "imdb-web-next-localized") }.build()).execute().use { r ->
         val t = r.body?.string().orEmpty()
@@ -296,7 +296,7 @@ object Charts {
         JSONObject(t).optJSONObject("data")
     }
 
-    private fun imdb(chart: JSONObject?, type: String): List<MetaPreview> = chart?.optJSONArray("edges").objects().mapNotNull { e ->
+    internal fun imdb(chart: JSONObject?, type: String): List<MetaPreview> = chart?.optJSONArray("edges").objects().mapNotNull { e ->
         val n = e.optJSONObject("node") ?: return@mapNotNull null
         val id = n.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
         MetaPreview(id, type, n.optJSONObject("titleText")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null,
@@ -323,7 +323,7 @@ object Charts {
 
     private fun season(d: LocalDate) = when (d.monthValue) { 12 -> "WINTER" to d.year + 1; 1, 2 -> "WINTER" to d.year; 3, 4, 5 -> "SPRING" to d.year; 6, 7, 8 -> "SUMMER" to d.year; else -> "FALL" to d.year }
 
-    private const val IMDB_URL = "https://api.graphql.imdb.com/"
+    internal const val IMDB_URL = "https://api.graphql.imdb.com/"
     private const val F = "edges { node { id titleText { text } releaseYear { year } ratingsSummary { aggregateRating } primaryImage { url } titleGenres { genres { genre { text } } } } }"
     private const val IMDB_QUERY = "{ popMovies: chartTitles(first: 100, chart: {chartType: MOST_POPULAR_MOVIES}) { $F } " +
         "topMovies: chartTitles(first: 250, chart: {chartType: TOP_RATED_MOVIES}) { $F } " +

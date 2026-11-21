@@ -29,7 +29,7 @@ data class Row(
 ) {
     val builtIn get() = addon == null
     /** Where it comes from, for Settings › Home rows. */
-    val source get() = addon?.manifest?.name ?: "Vision"
+    val source get() = addon?.manifest?.name ?: if (key.startsWith("rot/")) "Rotating" else "Vision"
 }
 
 /**
@@ -84,8 +84,11 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             AnimeIds.warm()
             app.addons.ensureDefaults()
             combine(app.addons.addons, rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow, com.lekathedon.visionlite.integrations.Integrations.changed) { list, _, _, _, _ -> list }
+                .combine(Rotation.rows(hub)) { list, _ -> list }
                 .collect { list -> rebuild(list) }
         }
+        // Rotating rows: the set built last time shows at once (disk); the next one builds a minute after Home shows.
+        viewModelScope.launch { runCatching { Rotation.onHome(hub) } }
         // Vision's rows follow their sources: anything new there shows on Home at once.
         viewModelScope.launch { combine(Recs.pool(hub), Recs.changed) { _, _ -> }.collect { fill(VisionRows.PICKS); fill(VisionRows.IMDB) } }
         viewModelScope.launch { AiPicks.picks(hub).collect { fill(VisionRows.AI) } }
@@ -128,13 +131,19 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             // Plex / Jellyfin: what was added last (only when signed in; asked when the row comes near).
             (if (com.lekathedon.visionlite.streams.MediaServers.plexOn() || com.lekathedon.visionlite.streams.MediaServers.jellyfinOn())
                 listOf(old[SERVER_ROW] ?: Row(SERVER_ROW, "New on your server", null, null, emptyList(), done = false)) else emptyList())
+        // Rotating rows: under your own, before the add-ons; their titles come ready (built in the background).
+        val rotating = Rotation.rows(hub).value.map { r ->
+            val key = Rotation.key(r.id)
+            raw[key] = r.items
+            Row(key, r.title, null, null, keep(r.items), done = true)
+        }
         val addons = if (!app.prefs.addonRows.value) emptyList() else list.flatMap { a ->
             a.manifest.catalogs.filter { it.isBoardRow }.map { c ->
                 val key = "${a.manifest.id}/${c.type}/${c.id}"
                 old[key] ?: Row(key, title(a, c), a, c, emptyList(), done = false)
             }
         }
-        state.value = (vision + imported + addons).withIndex().sortedBy { (i, r) -> order[r.key] ?: (order.size + i) }.map { it.value }
+        state.value = (vision + imported + rotating + addons).withIndex().sortedBy { (i, r) -> order[r.key] ?: (order.size + i) }.map { it.value }
     }
 
     private fun title(a: Addon, c: CatalogDef): String {

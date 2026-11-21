@@ -72,6 +72,13 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathed
                 val addonRows by prefs.addonRows.flow.collectAsState()
                 Button(if (addonRows) "Add-on rows: On" else "Add-on rows: Off", { prefs.addonRows.value = !addonRows })
                 Button("Add a catalog", { adding = true })
+                val rotation by prefs.rotation.flow.collectAsState()
+                Button(if (rotation) "Rotating rows: On" else "Rotating rows: Off", {
+                    prefs.rotation.value = !rotation
+                    if (rotation) { com.lekathedon.visionlite.home.Rotation.clear(); msg = "Rotating rows off" }
+                    else { scope.launch { com.lekathedon.visionlite.home.Rotation.shuffleNow(hub) }; msg = "Building a set of rotating rows…" }
+                })
+                if (rotation) Button("Shuffle now", { scope.launch { com.lekathedon.visionlite.home.Rotation.shuffleNow(hub) }; msg = "New rotating rows coming up…" })
                 if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp)
             }
             // A catalog by its link: scan the QR and paste it on the phone, or type it here.
