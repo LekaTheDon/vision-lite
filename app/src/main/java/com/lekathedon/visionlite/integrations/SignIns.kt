@@ -185,7 +185,7 @@ object SignIns {
         val b = ByteArray(16).also { SecureRandom().nextBytes(it) }
         nuvioNonce = b.joinToString("") { "%02x".format(it) }
         val body = JSONObject().put("p_device_nonce", nuvioNonce).put("p_redirect_base_url", "https://nuvio.tv/link")
-            .put("p_device_type", "tv").put("p_device_name", "Vision Lite").toString()
+            .put("p_device_type", "tv").put("p_device_name", "Nuvio Vision").toString()
         val (c, r) = call(nuvioReq("/rest/v1/rpc/start_device_login_session", body))
         val j = runCatching { org.json.JSONArray(r).getJSONObject(0) }.getOrNull()
         if (c !in 200..299 || j == null || j.optString("device_code").isBlank()) throw java.io.IOException("Nuvio $c")

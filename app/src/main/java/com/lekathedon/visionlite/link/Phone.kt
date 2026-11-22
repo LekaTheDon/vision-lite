@@ -193,7 +193,7 @@ internal class Phone(private val secret: () -> String) {
                 }
                 if (o.optString("op") == "import") {
                     require(com.lekathedon.visionlite.home.ImportedLists.supports(l)) {
-                        "Vision Lite shows Trakt lists, MDBList lists and IMDb Picks (not ${l.optString("source")} yet)"
+                        "Nuvio Vision shows Trakt lists, MDBList lists and IMDb Picks (not ${l.optString("source")} yet)"
                     }
                     kept.put(l)
                 }

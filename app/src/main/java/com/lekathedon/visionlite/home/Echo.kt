@@ -380,7 +380,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         heroTrailer = trailerAfterRest(hm, trailerLook.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))?.let { id to it }
     }
 
-    // Back on Home: first to the top (the pill), then out of the app (asking first when "Leave Vision Lite?" is on).
+    // Back on Home: first to the top (the pill), then out of the app (asking first when "Leave Nuvio Vision?" is on).
     androidx.activity.compose.BackHandler(enabled = !askExit) {
         if (!pillFocused) scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { pillHome.requestFocus() } }
         else if (exitConfirm) askExit = true else activity?.finish()
@@ -496,7 +496,7 @@ internal object HomeReady { val done = HashSet<com.lekathedon.visionlite.anime.H
 private fun HomeLoading(page: Color) {
     Box(Modifier.fillMaxSize().background(page), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Vision Lite", color = Color.White, fontSize = 34.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            com.lekathedon.visionlite.ui.VisionWordmark(64.dp)
             androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 24.dp).size(28.dp), color = Color.White, strokeWidth = 2.dp)
         }
     }

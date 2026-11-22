@@ -86,7 +86,7 @@ fun ReportScreen(nav: Nav, kind: String) {
             status = if (Send.available) {
                 status = "Sending…"
                 Send.github(Report.title(label), b.text).fold(
-                    { "Sent to the Vision Lite team. Thanks! (report ${b.id})" },
+                    { "Sent to the Nuvio Vision team. Thanks! (report ${b.id})" },
                     { "Couldn't send it (${it.message}). Open it on your phone below and send it to us." })
             } else "Report ${b.id} is ready. Open it on your phone below and send it to us."
             busy = false
@@ -151,11 +151,11 @@ fun ReportScreen(nav: Nav, kind: String) {
 }
 
 fun kindTitle(kind: String) = when (kind) {
-    "crash" -> "Vision Lite crashed"
-    "native" -> "Vision Lite crashed (in the player or a native part)"
-    "anr" -> "Vision Lite froze and Android closed it"
-    "memory" -> "Android closed Vision Lite: the box ran out of memory"
-    "killed" -> "Android closed Vision Lite while it was on screen"
+    "crash" -> "Nuvio Vision crashed"
+    "native" -> "Nuvio Vision crashed (in the player or a native part)"
+    "anr" -> "Nuvio Vision froze and Android closed it"
+    "memory" -> "Android closed Nuvio Vision: the box ran out of memory"
+    "killed" -> "Android closed Nuvio Vision while it was on screen"
     else -> "Something went wrong"
 }
 

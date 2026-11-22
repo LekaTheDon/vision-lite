@@ -42,7 +42,7 @@ fun PhoneLinkScreen() {
     Row(Modifier.fillMaxSize().background(LocalLook.current.page).padding(56.dp), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
         Column(Modifier.width(520.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Phone companion", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("Vision Lite Companion on your phone: browse, save, Play on TV, see what plays and seek. " +
+            Text("Nuvio Vision Companion on your phone: browse, save, Play on TV, see what plays and seek. " +
                 "Lite listens on your home network only while this is on (a few MB of memory, no CPU while idle).",
                 color = Palette.TextDim, fontSize = 14.sp)
             Button(if (on) "Phone companion: On" else "Phone companion: Off", {
@@ -59,7 +59,7 @@ fun PhoneLinkScreen() {
         if (on) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val name = android.net.Uri.encode(android.os.Build.MODEL)
             Qr("visionlite://pair?h=${ip.orEmpty()}&p=${Pairing.PORT}&k=$secret&n=$name", 300.dp)
-            Text("Scan with Vision Lite Companion", color = Palette.Text, fontSize = 15.sp)
+            Text("Scan with Nuvio Vision Companion", color = Palette.Text, fontSize = 15.sp)
             Text("Code ${Pairing.pretty(secret)}", color = Palette.TextDim, fontSize = 14.sp)
             Text("TV ${ip ?: "(no network)"} : ${Pairing.PORT}", color = Palette.TextDim, fontSize = 13.sp)
         }

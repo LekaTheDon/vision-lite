@@ -193,7 +193,7 @@ private fun Poster(m: MetaPreview, modifier: Modifier, onFocus: () -> Unit, onCl
 private fun TopBar(nav: Nav) {
     Row(Modifier.fillMaxWidth().height(52.dp).padding(start = Start, end = Start, top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Vision Lite", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Box(Modifier.weight(1f)) { com.lekathedon.visionlite.ui.VisionWordmark(28.dp) }
         if (com.lekathedon.visionlite.App.instance.prefs.clock.flow.collectAsStateWithLifecycle().value) Clock()
         Button("Search", { nav.push(Screen.Search) })
         Button("Library", { nav.push(Screen.Library) })
@@ -250,7 +250,7 @@ internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
     androidx.activity.compose.BackHandler { onStay() }
     Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
         Column(Modifier.background(Palette.Card).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Leave Vision Lite?", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text("Leave Nuvio Vision?", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button("Stay", onStay, Modifier.focusRequester(stay))
                 Button("Leave", onLeave)

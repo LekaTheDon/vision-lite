@@ -3,6 +3,7 @@ package com.lekathedon.visionlite.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -87,3 +88,9 @@ private fun darken(src: Bitmap): ImageBitmap {
     }
     return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
+
+/** The app's logo (Nuvio Vision wordmark, Vision's own art), [height] tall. */
+@androidx.compose.runtime.Composable
+fun VisionWordmark(height: androidx.compose.ui.unit.Dp, modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier) =
+    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.lekathedon.visionlite.R.drawable.vision_wordmark), "Nuvio Vision",
+        modifier.height(height), contentScale = androidx.compose.ui.layout.ContentScale.FillHeight)

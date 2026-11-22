@@ -47,7 +47,7 @@ object MediaServers {
     // ---- Plex sign-in: a 4-letter code at plex.tv/link ----
 
     private fun plexReq(url: String, token: String? = null) = Request.Builder().url(url).header("Accept", "application/json")
-        .header("X-Plex-Client-Identifier", clientId).header("X-Plex-Product", "Vision Lite").header("X-Plex-Device-Name", "Vision Lite TV")
+        .header("X-Plex-Client-Identifier", clientId).header("X-Plex-Product", "Nuvio Vision").header("X-Plex-Device-Name", "Nuvio Vision TV")
         .apply { token?.let { header("X-Plex-Token", it) } }
 
     class Code(val url: String, val userCode: String, val id: String, val expiresIn: Int)
@@ -97,7 +97,7 @@ object MediaServers {
 
     // ---- Jellyfin: Quick Connect ----
 
-    private fun jfAuth(token: String? = null) = "MediaBrowser Client=\"Vision Lite\", Device=\"TV\", DeviceId=\"$clientId\", Version=\"1\"" + (token?.let { ", Token=\"$it\"" } ?: "")
+    private fun jfAuth(token: String? = null) = "MediaBrowser Client=\"Nuvio Vision\", Device=\"TV\", DeviceId=\"$clientId\", Version=\"1\"" + (token?.let { ", Token=\"$it\"" } ?: "")
     fun jfAddress() = t("int_jellyfin_0").trim().trimEnd('/').let { if (it.isNotBlank() && !it.startsWith("http")) "http://$it" else it }
 
     suspend fun jfStart(): Code = withContext(Dispatchers.IO) {

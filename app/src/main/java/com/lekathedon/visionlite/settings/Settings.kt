@@ -1,6 +1,13 @@
 package com.lekathedon.visionlite.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.lekathedon.visionlite.ui.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -73,14 +80,44 @@ private val AudioLangs = listOf(Langs[0], com.lekathedon.visionlite.player.Origi
 private sealed interface Item
 private class Head(val text: String) : Item
 private class Line(val content: @Composable (Modifier) -> Unit) : Item
+/** A part that takes no focus (Overview's welcome card). */
+private class Block(val content: @Composable () -> Unit) : Item
 
 /** One settings page: its name in the rail, a plain sentence on what it holds, a one-line summary of how it is set. */
-private class Page(val name: String, val about: String, val summary: @Composable () -> String, val items: List<Item>)
+private class Page(val name: String, val about: String, val summary: @Composable () -> String, val items: List<Item>) {
+    val icon: ImageVector = PageStyle[name]?.first ?: Icons.Info
+    val tint: Color = PageStyle[name]?.second ?: Color(0xFF64748B)
+}
+
+/** Each page's icon and colour (rail tile, page header, section names), Echo style. */
+private val PageStyle by lazy { mapOf(
+    "Overview" to (Icons.Dashboard to Color(0xFF22D3EE)),
+    "Where links come from" to (Icons.Link to Color(0xFF3B82F6)),
+    "Tracking and lists" to (Icons.Bookmark to Color(0xFFEF4444)),
+    "Player" to (Icons.Play to Color(0xFF10B981)),
+    "Audio and subtitles" to (Icons.Subtitles to Color(0xFFF59E0B)),
+    "Home and look" to (Icons.Home to Color(0xFF8B5CF6)),
+    "Spoilers and trailers" to (Icons.Movie to Color(0xFFEC4899)),
+    "Title pages" to (Icons.Info to Color(0xFF06B6D4)),
+    "Recommendations" to (Icons.Star to Color(0xFFEAB308)),
+    "Live TV and more" to (Icons.LiveTv to Color(0xFFF97316)),
+    "This TV" to (Icons.Tv to Color(0xFF6366F1)),
+    "Profiles" to (Icons.People to Color(0xFF14B8A6)),
+    "About" to (Icons.Info to Color(0xFF64748B)),
+) }
+
+/** The brand's two colours (from the Nuvio Vision logo). */
+private val BrandCyan = Color(0xFF22D3EE)
+private val BrandViolet = Color(0xFF8B5CF6)
+private val Glass = Color(0x12FFFFFF)
+private val GlassEdge = Color(0x1FFFFFFF)
+private val GlassFocus = Color(0x40FFFFFF)
 
 private class PageBuilder {
     val items = mutableListOf<Item>()
     fun head(t: String) { items += Head(t) }
     fun row(c: @Composable (Modifier) -> Unit) { items += Line(c) }
+    fun block(c: @Composable () -> Unit) { items += Block(c) }
 }
 
 private fun page(name: String, about: String, summary: @Composable () -> String, build: PageBuilder.() -> Unit) =
@@ -144,6 +181,7 @@ fun Settings(nav: Nav, start: String? = null) {
         val n = toDos(nav, p).size
         if (n == 0) "All set" else "$n to do"
     }) {
+        block { Welcome(p, nav) }
         head("To do")
         row { m ->
             watchServices()
@@ -153,11 +191,17 @@ fun Settings(nav: Nav, start: String? = null) {
                 list.forEachIndexed { i, t -> Link(t.title, t.sub, if (i == 0) m else Modifier, value = "Fix") { t.go() } }
             }
         }
-        head("At a glance")
+        head("Every page")
         row { m ->
-            Column {
-                pages.drop(1).forEachIndexed { i, pg ->
-                    Link(pg.name, pg.about, if (i == 0) m else Modifier, value = pg.summary()) { picked = i + 1; jumpPane = true }
+            Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                pages.drop(1).chunked(3).forEachIndexed { r, line ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        line.forEachIndexed { c, pg ->
+                            val i = r * 3 + c
+                            PageTile(pg, if (i == 0) m else Modifier, Modifier.weight(1f)) { picked = i + 1; jumpPane = true }
+                        }
+                        repeat(3 - line.size) { Box(Modifier.weight(1f)) }
+                    }
                 }
             }
         }
@@ -403,8 +447,8 @@ fun Settings(nav: Nav, start: String? = null) {
     }
     pages += page("About", "Version, report a problem, cache, first-start setup", { "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}" }) {
         head("Help")
-        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Vision Lite team (no keys or logins)", m) { nav.push(Screen.Report()) } }
-        head("Vision Lite")
+        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Nuvio Vision team (no keys or logins)", m) { nav.push(Screen.Report()) } }
+        head("Nuvio Vision")
         row { m -> Link("Version", "", m, value = com.lekathedon.visionlite.BuildConfig.VERSION_NAME) {} }
         row { m -> Link("Clear image cache", "Frees memory and disk; posters load again", m, value = cleared) { scope.launch { cleared = clearImages() } } }
         row { m -> Link("Run the first-start setup again", "One page per service, then back to Home", m) { Integrations.setupDone.value = false; nav.pop() } }
@@ -417,23 +461,36 @@ fun Settings(nav: Nav, start: String? = null) {
     LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { groupReq[sel].requestFocus() } }
     LaunchedEffect(jumpPane) { if (jumpPane) { androidx.compose.runtime.withFrameNanos { }; runCatching { paneFirst.requestFocus() }; jumpPane = false } }
     androidx.activity.compose.BackHandler(enabled = inPane) { runCatching { groupReq[sel].requestFocus() } }
-    Row(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 48.dp, top = 36.dp, end = 48.dp)) {
-        Column(Modifier.width(280.dp).fillMaxHeight().verticalScroll(rememberScrollState())) {
-            Text("Settings", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, bottom = 14.dp))
-            pages.forEachIndexed { i, g ->
-                GroupItem(g.name, i == sel, Modifier.focusRequester(groupReq[i])
+    val g = pages[sel]
+    val oled = p.oledBlack.flow.collectAsState().value
+    val wash by androidx.compose.animation.animateColorAsState(g.tint.copy(alpha = 0.16f), androidx.compose.animation.core.tween(500), label = "wash")
+    Box(Modifier.fillMaxSize().background(if (oled) Color.Black else Color(0xFF05070D)).drawBehind {
+        if (oled) return@drawBehind
+        drawRect(Brush.radialGradient(listOf(BrandCyan.copy(alpha = 0.14f), Color.Transparent), Offset(size.width * 0.08f, 0f), size.width * 0.55f))
+        drawRect(Brush.radialGradient(listOf(BrandViolet.copy(alpha = 0.16f), Color.Transparent), Offset(size.width * 0.95f, size.height), size.width * 0.6f))
+        drawRect(Brush.radialGradient(listOf(wash, Color.Transparent), Offset(size.width * 0.7f, 0f), size.width * 0.5f))
+    }) {
+    Column(Modifier.fillMaxSize().padding(start = 48.dp, top = 28.dp, end = 48.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.lekathedon.visionlite.ui.VisionWordmark(30.dp)
+            Box(Modifier.padding(horizontal = 16.dp).size(1.dp, 22.dp).background(Color(0x40FFFFFF)))
+            Text("Settings", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Clock()
+        }
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState())) {
+            pages.forEachIndexed { i, pg ->
+                GroupItem(pg, i == sel, Modifier.focusRequester(groupReq[i])
                     .onFocusChanged { if (it.isFocused) picked = i }
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { runCatching { paneFirst.requestFocus() }; true } else false
                     }) { runCatching { paneFirst.requestFocus() } }
             }
-            Text("Changes save as you go", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 24.dp))
+            Text("Changes save as you go", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, top = 14.dp, bottom = 24.dp))
         }
-        Box(Modifier.padding(start = 24.dp).width(1.dp).fillMaxHeight().background(Color(0x22FFFFFF)))
-        val g = pages[sel]
         val firstRow = g.items.indexOfFirst { it is Line }
         LazyColumn(
-            Modifier.weight(1f).fillMaxHeight().padding(start = 28.dp)
+            Modifier.weight(1f).fillMaxHeight().padding(start = 36.dp)
                 .onFocusChanged { inPane = it.hasFocus }
                 .onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { runCatching { groupReq[sel].requestFocus() }; true } else false
@@ -441,20 +498,82 @@ fun Settings(nav: Nav, start: String? = null) {
             contentPadding = PaddingValues(bottom = 48.dp)
         ) {
             item(key = "head$sel") {
-                Column(Modifier.padding(bottom = 4.dp, top = 6.dp)) {
-                    Text(g.name, color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Text(g.about, color = Palette.TextDim, fontSize = 13.sp)
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(g, 56.dp)
+                    Column(Modifier.weight(1f).padding(start = 18.dp)) {
+                        Text(g.name, color = Palette.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        Text(g.about, color = Palette.TextDim, fontSize = 14.sp)
+                    }
+                    Text(g.summary(), color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                        modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(50)).background(g.tint.copy(alpha = 0.22f))
+                            .border(1.dp, g.tint.copy(alpha = 0.5f), RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             }
             g.items.forEachIndexed { i, it ->
                 item(key = "$sel:$i") {
                     when (it) {
-                        is Head -> Text(it.text.uppercase(), color = Palette.TextDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 4.dp, top = 22.dp, bottom = 2.dp))
+                        is Head -> Row(Modifier.padding(start = 4.dp, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(4.dp, 14.dp).clip(RoundedCornerShape(2.dp)).background(g.tint))
+                            Text(it.text.uppercase(), color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 8.dp))
+                        }
                         is Line -> it.content(if (i == firstRow) Modifier.focusRequester(paneFirst) else Modifier)
+                        is Block -> it.content()
                     }
                 }
             }
+        }
+    }
+    }
+    }
+}
+
+/** The page's icon on a rounded tile in its colour. */
+@Composable
+private fun IconTile(g: Page, size: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.3f))
+        .background(Brush.linearGradient(listOf(g.tint, g.tint.copy(alpha = 0.55f)))), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Icon(g.icon, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
+    }
+}
+
+/** The time, top right as on Home. */
+@Composable
+private fun Clock() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val fmt = remember { android.text.format.DateFormat.getTimeFormat(ctx) }
+    var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(15_000); now = fmt.format(java.util.Date()) } }
+    Text(now, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+}
+
+/** Overview's welcome card: who is watching, how many things need doing, the version. */
+@Composable
+private fun Welcome(p: Prefs, nav: Nav) {
+    watchServices()
+    com.lekathedon.visionlite.data.Profiles.version.collectAsState().value
+    val me = com.lekathedon.visionlite.data.Profiles.current()
+    val todo = toDos(nav, p).size
+    Row(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp))
+        .background(Brush.linearGradient(listOf(BrandCyan.copy(alpha = 0.16f), BrandViolet.copy(alpha = 0.16f))))
+        .border(1.dp, GlassEdge, RoundedCornerShape(18.dp)).padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+        com.lekathedon.visionlite.home.ProfileFace(me.name, me.pic, me.color, 56.dp)
+        Column(Modifier.weight(1f).padding(start = 18.dp)) {
+            Text("Hi, ${me.name.ifBlank { "there" }}", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (todo == 0) "Everything is set up" else "$todo thing${if (todo == 1) "" else "s"} to finish below", color = Palette.TextDim, fontSize = 14.sp)
+        }
+        Text("Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}", color = Palette.TextDim, fontSize = 13.sp)
+    }
+}
+
+/** Overview's tile for one page: icon, name, how it is set now. */
+@Composable
+private fun PageTile(g: Page, focus: Modifier, modifier: Modifier, onClick: () -> Unit) {
+    Focusable(onClick, modifier.then(focus).height(104.dp), shape = RoundedCornerShape(16.dp)) { f ->
+        Column(Modifier.fillMaxSize().background(if (f) GlassFocus else Glass).border(1.dp, GlassEdge, RoundedCornerShape(16.dp)).padding(14.dp)) {
+            IconTile(g, 30.dp)
+            Text(g.name, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(top = 8.dp))
+            Text(g.summary(), color = Palette.TextDim, fontSize = 12.sp, maxLines = 1)
         }
     }
 }
@@ -471,7 +590,7 @@ private fun tvWatch() {
 }
 
 @Composable
-private fun SectionHead(t: String) = Text(t.uppercase(), color = Palette.TextDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+private fun SectionHead(t: String) = Text(t.uppercase(), color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
     letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 4.dp, top = 22.dp, bottom = 2.dp))
 
 /**
@@ -506,7 +625,7 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
                 ?: "Reads the TV, box, soundbar and memory, then tests the internet (about 10 s)" }, m,
             value = if (step != null) "Checking…" else "Check") { check() }
         if (f == null) return@Column
-        Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0x0FFFFFFF)).padding(horizontal = 18.dp, vertical = 12.dp)) {
+        Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Glass).border(1.dp, GlassEdge, RoundedCornerShape(14.dp)).padding(horizontal = 18.dp, vertical = 12.dp)) {
             com.lekathedon.visionlite.device.findings(f).forEach { Text(it, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(vertical = 1.dp)) }
         }
         val diff = DeviceCheck.differing(f)
@@ -514,7 +633,7 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
             if (diff.isEmpty()) "Every setting below matches this TV" else diff.joinToString(" · ") { "${it.title}: ${it.label(it.recommended)}" }, Modifier,
             value = if (diff.isEmpty()) "✓" else "${diff.size} change${if (diff.size == 1) "" else "s"}") { note = "Used ${DeviceCheck.useRecommended(f)} recommendations" }
         val auto = p.tvAuto.value
-        Focusable({ p.tvAuto.value = !auto; if (!auto) DeviceCheck.useRecommended(f) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { foc ->
+        Focusable({ p.tvAuto.value = !auto; if (!auto) DeviceCheck.useRecommended(f) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { foc ->
             RowText("Let the app decide", "Uses the recommendations by itself, and again whenever you change TV or soundbar", null, foc, switch = auto)
         }
         DeviceCheck.choices(f).groupBy { it.section }.forEach { (section, list) ->
@@ -589,7 +708,7 @@ private fun DriverRow(g: Integrations.Group, title: String, m: Modifier) {
         else ChoiceOf(title, g.driverDoes, d?.id ?: "", able.map { it.id to it.name }, m) { id -> Integrations.setDriver(g, Integrations.byId(id)) }
         able.filter { it.id != d?.id }.forEach { s ->
             val on = Integrations.helper(s).value
-            Focusable({ Integrations.setHelper(s, !on) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
+            Focusable({ Integrations.setHelper(s, !on) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
                 RowText("Also use ${s.name}", if (on) g.helperDoes else "Off: makes no calls", null, f, switch = on)
             }
         }
@@ -597,14 +716,17 @@ private fun DriverRow(g: Integrations.Group, title: String, m: Modifier) {
 }
 
 @Composable
-private fun GroupItem(name: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Focusable(onClick, modifier.padding(vertical = 1.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
-        Text(
-            name, color = if (f) Color.Black else if (selected) Palette.Text else Palette.TextDim, fontSize = 15.sp,
-            fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
-            modifier = Modifier.fillMaxWidth().background(if (f) Color.White else if (selected) Color(0x1FFFFFFF) else Color.Transparent)
-                .padding(horizontal = 16.dp, vertical = 9.dp)
-        )
+private fun GroupItem(g: Page, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Focusable(onClick, modifier.padding(vertical = 2.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
+        Row(Modifier.fillMaxWidth().background(if (f) GlassFocus else if (selected) Color(0x1AFFFFFF) else Color.Transparent)
+            .padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconTile(g, 32.dp)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(g.name, color = if (f || selected) Palette.Text else Color(0xB3FFFFFF), fontSize = 15.sp,
+                    fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                if (f || selected) Text(g.summary(), color = Palette.TextDim, fontSize = 12.sp, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -623,18 +745,18 @@ private fun SportsSwitch(title: String, sub: String, modifier: Modifier, get: (c
                          set: (com.lekathedon.visionlite.sports.SportsSettings, Boolean) -> com.lekathedon.visionlite.sports.SportsSettings) {
     var on by remember { mutableStateOf(get(com.lekathedon.visionlite.sports.Sports.settings)) }
     Focusable({ on = !on; com.lekathedon.visionlite.sports.SportsMine.saveSettings(set(com.lekathedon.visionlite.sports.Sports.settings, on)) },
-        modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f -> RowText(title, sub, null, f, switch = on) }
+        modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f -> RowText(title, sub, null, f, switch = on) }
 }
 
 @Composable
 private fun Link(title: String, sub: String, modifier: Modifier = Modifier, value: String = "›", onClick: () -> Unit) {
-    Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f -> RowText(title, sub, value.ifEmpty { "›" }, f) }
+    Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f -> RowText(title, sub, value.ifEmpty { "›" }, f) }
 }
 
 @Composable
 private fun Toggle(title: String, sub: String, flag: Prefs.Flag, modifier: Modifier = Modifier) {
     val on by flag.flow.collectAsState()
-    Focusable({ flag.value = !on }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f -> RowText(title, sub, null, f, switch = on) }
+    Focusable({ flag.value = !on }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f -> RowText(title, sub, null, f, switch = on) }
 }
 
 @Composable
@@ -652,25 +774,26 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
     val me = remember { FocusRequester() }
     LaunchedEffect(open) { if (!open && reopened) { androidx.compose.runtime.withFrameNanos { }; runCatching { me.requestFocus() } } }
     val shown = options.firstOrNull { it.first == current }?.second ?: options.first().second
-    Focusable({ open = true; reopened = true }, modifier.focusRequester(me).padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
+    Focusable({ open = true; reopened = true }, modifier.focusRequester(me).padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
         RowText(title, sub, shown, f, hint = recommended?.takeIf { it != current }?.let { r -> "Recommended: " + (options.firstOrNull { it.first == r }?.second ?: r) })
     }
     if (open) Dialog(onDismissRequest = { open = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val reqs = remember(options) { List(options.size) { FocusRequester() } }
         val at = options.indexOfFirst { it.first == current }.coerceAtLeast(0)
         LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { reqs[at].requestFocus() } }
-        Column(Modifier.width(460.dp).clip(RoundedCornerShape(16.dp)).background(Palette.Card).padding(20.dp)) {
+        Column(Modifier.width(460.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xF20B0E17))
+            .border(1.dp, Brush.linearGradient(listOf(BrandCyan.copy(alpha = 0.6f), BrandViolet.copy(alpha = 0.6f))), RoundedCornerShape(20.dp)).padding(22.dp)) {
             Text(title, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             if (sub.isNotEmpty()) Text(sub, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
             LazyColumn(Modifier.padding(top = 10.dp).heightIn(max = 380.dp)) {
                 items(options.size) { i ->
                     val (id, name) = options[i]
-                    Focusable({ onPick(id); open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
+                    Focusable({ onPick(id); open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { f ->
+                        Row(Modifier.fillMaxWidth().background(if (f) GlassFocus else if (id == current) Glass else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, color = if (f) Color.Black else Palette.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                            if (id == recommended) Text("Recommended", color = if (f) Color(0xFF1E6B1E) else Good, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
-                            if (id == current) Text("✓", color = if (f) Color.Black else Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(name, color = Palette.Text, fontSize = 16.sp, fontWeight = if (id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                            if (id == recommended) Text("Recommended", color = Good, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+                            if (id == current) androidx.compose.material3.Icon(Icons.Check, null, tint = BrandCyan, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -682,23 +805,25 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
 /** A settings row: name and note on the left, the value (or a switch) on the right; focused = white card, dark text. */
 @Composable
 private fun RowText(title: String, sub: String, value: String?, focused: Boolean, switch: Boolean? = null, hint: String? = null) {
-    val fg = if (focused) Color.Black else Palette.Text
-    val dim = if (focused) Color(0x99000000) else Palette.TextDim
-    Row(Modifier.fillMaxWidth().background(if (focused) Color.White else Color(0x14FFFFFF)).padding(horizontal = 18.dp, vertical = 12.dp),
+    val fg = Palette.Text
+    val dim = if (focused) Color(0xD9FFFFFF) else Palette.TextDim
+    Row(Modifier.fillMaxWidth().background(if (focused) GlassFocus else Glass).border(1.dp, GlassEdge, RoundedCornerShape(14.dp))
+        .padding(horizontal = 18.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, color = fg, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             if (sub.isNotEmpty()) Text(sub, color = dim, fontSize = 12.sp, maxLines = 2)
-            if (hint != null) Text(hint, color = if (focused) Color(0xFF1E6B1E) else Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            if (hint != null) Text(hint, color = Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         if (switch != null) {
-            val track = if (switch) (if (focused) Color.Black else Color.White) else (if (focused) Color(0x33000000) else Color(0x33FFFFFF))
-            val knob = if (switch) (if (focused) Color.White else Color.Black) else (if (focused) Color.White else Color(0xFFBDBDBD))
-            Box(Modifier.padding(start = 16.dp).size(40.dp, 22.dp).clip(RoundedCornerShape(50)).background(track).padding(3.dp),
+            val track = if (switch) Brush.horizontalGradient(listOf(BrandCyan, BrandViolet)) else SolidColor(Color(0x33FFFFFF))
+            val knob = if (switch) Color.White else Color(0xFFBDBDBD)
+            Box(Modifier.padding(start = 16.dp).size(44.dp, 24.dp).clip(RoundedCornerShape(50)).background(track).padding(3.dp),
                 contentAlignment = if (switch) Alignment.CenterEnd else Alignment.CenterStart) {
-                Box(Modifier.size(16.dp).clip(RoundedCornerShape(50)).background(knob))
+                Box(Modifier.size(18.dp).clip(RoundedCornerShape(50)).background(knob))
             }
-        } else if (value != null) Text(value, color = dim, fontSize = 15.sp, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
+        } else if (value != null) Text(value, color = if (focused) Palette.Text else dim, fontSize = 15.sp, fontWeight = if (focused) FontWeight.Medium else FontWeight.Normal,
+            maxLines = 1, modifier = Modifier.padding(start = 16.dp))
     }
 }
 

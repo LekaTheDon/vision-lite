@@ -489,6 +489,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         }
         DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
         Controls(player, s.title, canNext = s.type == "series",
+            logo = s.id.substringBefore(':').takeIf { it.startsWith("tt") && s.type != "live" }?.let { "https://images.metahub.space/logo/medium/$it/img" },
+            release = s.name,
             onDelays = {
                 if (current == Engine.MPV) mpvView?.delays(Sync.audioMs, Sync.subMs)
                 else player.seekTo(player.currentPosition)

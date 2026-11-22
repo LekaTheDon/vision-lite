@@ -220,13 +220,71 @@ object Iptv {
             named.forEach { (id, name) ->
                 byName[name]?.forEach { n -> w.execSQL("UPDATE ch SET tvg=? WHERE pl=? AND n=? AND tvg IS NULL", arrayOf(id, pl, n)) }
             }
+            val copies = shareGuideWithCopies(w, pl)
             w.insertWithOnConflict("meta", null, ContentValues().apply { put("k", "guide_rev"); put("v", System.currentTimeMillis().toString()) }, SQLiteDatabase.CONFLICT_REPLACE)
             w.setTransactionSuccessful()
-            Log.i(TAG, "guide: $count shows")
+            Log.i(TAG, "guide: $count shows, $copies channel copies took a sibling's guide")
         } finally { w.endTransaction() }
     }
 
     private fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "")
+
+    /**
+     * Haven's "channel copies": a 4K / UHD / RAW / HEVC copy often has no guide id of its own (here "4K: SKY SPORTS
+     * MAIN EVENTS ᵁᴴᴰ ³⁸⁴⁰ᴾ" next to "VIP: SKY SPORTS MAIN EVENT ᴴᴰ" with skysportsmainevent.uk). A copy is the same
+     * name once the provider prefix ("4K:", "NOW:", "VIP:"), quality words and plural s are gone. A copy without shows
+     * takes a sibling's guide only when that guide id spells the same channel and its country (".uk") is the channel's
+     * own (from its "UK:" prefix or its group's); the id most copies use wins. "+1" channels stay apart. Live TV and
+     * Sports then see the match on the 4K copy too (Sports already lists 4K first). Returns how many took a guide.
+     */
+    private fun shareGuideWithCopies(w: SQLiteDatabase, pl: String): Int {
+        val shows = HashMap<String, Int>()
+        w.rawQuery("SELECT tvg, COUNT(*) FROM prog WHERE pl=? GROUP BY tvg", arrayOf(pl)).use { c -> while (c.moveToNext()) shows[c.getString(0)] = c.getInt(1) }
+        if (shows.isEmpty()) return 0
+        val fams = HashMap<String, HashMap<String, IntArray>>()   // family → guide id → [copies using it, shows]
+        val bare = ArrayList<Triple<Long, String, String?>>()        // (row n, family, country) without shows
+        w.rawQuery("SELECT n, name, grp, tvg FROM ch WHERE pl=?", arrayOf(pl)).use { c ->
+            while (c.moveToNext()) {
+                val (fam, country) = copyOf(c.getString(1), c.getString(2)) ?: continue
+                val tvg = c.getString(3); val count = tvg?.let { shows[it] } ?: 0
+                if (count > 0) fams.getOrPut(fam) { HashMap() }.getOrPut(tvg!!) { intArrayOf(0, count) }[0]++
+                else bare += Triple(c.getLong(0), fam, country)
+            }
+        }
+        var n = 0
+        for ((row, fam, country) in bare) {
+            val id = fams[fam]?.entries?.filter { (id, _) ->
+                val dot = id.lastIndexOf('.')
+                val base = if (dot > 0) id.substring(0, dot) else id
+                val suffix = if (dot > 0) id.substring(dot + 1).lowercase().let { if (it == "gb") "uk" else it }.takeIf { it.length == 2 && it.all(Char::isLetter) } else null
+                squash(base) == squash(fam) && (country == null || suffix == null || suffix == country)
+            }?.maxWithOrNull(compareBy({ it.value[0] }, { it.value[1] }))?.key ?: continue
+            w.execSQL("UPDATE ch SET tvg=? WHERE pl=? AND n=?", arrayOf(id, pl, row)); n++
+        }
+        return n
+    }
+
+    private val QUALITY_WORDS = setOf("uhd", "4k", "8k", "2160p", "3840p", "2160", "3840", "fhd", "hd", "sd", "hq", "hevc", "h265", "h264", "x265",
+        "1080p", "1080", "1080i", "720p", "720", "raw", "backup", "bk", "alt", "vip", "multi", "fps", "50fps", "60fps", "hdr", "hdr10", "dv")
+    private val COUNTRIES = ("uk us ca it es fr de pt br ar mx nl be pl ro rs hr ba si me tr gr cy al mk bg hu cz sk at ch se no dk fi ie au nz za " +
+        "ng in pk sa ae qa kw om bh eg ma dz tn jo lb iq ir il ru ua by kz cn jp kr ph id my th vn co cl pe ve ec uy py bo").split(' ').toSet()
+    private val PREFIX = Regex("^[^\\p{L}\\p{N}]*([\\p{L}\\p{N}+ ]{1,6}?)\\s*[:|]\\s*")
+    private fun nfkc(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKC).lowercase()
+    private fun country(word: String?) = word?.trim()?.let { if (it == "gb") "uk" else it }?.takeIf { it in COUNTRIES }
+    private fun squash(s: String) = nfkc(s).replace(Regex("[^a-z0-9]"), "").replace("s", "")
+
+    /** (family, country): the channel without provider prefix, quality words and plural s; null when nothing is left. */
+    internal fun copyOf(name: String, group: String?): Pair<String, String?>? {
+        var t = nfkc(name)
+        val m = PREFIX.find(t)
+        val pre = m?.groupValues?.get(1)
+        if (m != null) t = t.substring(m.range.last + 1)
+        val cc = country(pre) ?: group?.let { g -> PREFIX.find(nfkc(g))?.groupValues?.get(1) }.let(::country)
+        t = t.replace(Regex("\\+\\s?(\\d)\\b"), " plus$1 ")
+        val words = t.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() && it !in QUALITY_WORDS }
+            .map { if (it.length > 3 && it.endsWith("s")) it.dropLast(1) else it }
+        return words.joinToString(" ").takeIf { it.length >= 3 }?.let { it to cc }
+    }
 
     // ---- reading ----
 

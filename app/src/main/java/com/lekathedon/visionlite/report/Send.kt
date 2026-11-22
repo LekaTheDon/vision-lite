@@ -10,7 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 /**
- * Sends a report to the Vision Lite team as a GitHub issue in the app's own repo. The build carries an issues-only
+ * Sends a report to the Nuvio Vision team as a GitHub issue in the app's own repo. The build carries an issues-only
  * key (repo secret REPORT_TOKEN); without it the button isn't shown and the phone page (ReportServer) is the way.
  * GitHub takes ~65k characters per post: the report goes as the issue plus a few comments.
  */

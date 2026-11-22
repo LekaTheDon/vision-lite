@@ -57,7 +57,7 @@ class Commands(private val ctx: Context) {
 
     /** The player's Next episode, as its own button. */
     private fun next(): JSONObject {
-        if (LinkState.mediaJson() == null) return err("Nothing is playing in Vision Lite")
+        if (LinkState.mediaJson() == null) return err("Nothing is playing in Nuvio Vision")
         LinkState.next.trySend(Unit)
         return ok()
     }
@@ -122,7 +122,7 @@ class Commands(private val ctx: Context) {
         val i = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         if (Settings.canDrawOverlays(ctx) && runCatching { ctx.startActivity(i) }.isSuccess) return ok()
         if (Root.run("am start -n ${ctx.packageName}/.MainActivity", 6) != null) return ok()
-        return err("Android blocked opening Vision Lite (needs root once for 'draw over apps')")
+        return err("Android blocked opening Nuvio Vision (needs root once for 'draw over apps')")
     }
 
     /** Play = the title's link list, as Play from the remote does (smart autoplay picks for you only when it's on). */
@@ -217,7 +217,7 @@ class Commands(private val ctx: Context) {
                 "seekBy" -> p.seekTo(clamp(p.currentPosition + a.optLong("ms")))
                 "stop" -> LinkState.open.trySend(Screen.Home)
             }
-        } ?: return err("Nothing is playing in Vision Lite")
+        } ?: return err("Nothing is playing in Nuvio Vision")
         Thread.sleep(200)
         return ok().put("media", LinkState.mediaJson() ?: JSONObject.NULL)
     }

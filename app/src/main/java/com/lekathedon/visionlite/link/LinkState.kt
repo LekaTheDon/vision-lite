@@ -100,7 +100,7 @@ object LinkState {
         rows.forEach { (title, items) ->
             val list = items.filter { it.type == "movie" || it.type == "series" }
             if (list.isEmpty()) return@forEach
-            a.put(JSONObject().put("title", title).put("source", "Vision Lite").put("hub", hub.key).put("items", JSONArray().apply {
+            a.put(JSONObject().put("title", title).put("source", "Nuvio Vision").put("hub", hub.key).put("items", JSONArray().apply {
                 list.take(40).forEach { m ->
                     put(JSONObject().put("id", m.id).put("type", m.type).put("name", m.name).put("year", m.releaseInfo)
                         .put("poster", m.poster).put("backdrop", m.background).put("imdb", m.id.takeIf { it.startsWith("tt") }))

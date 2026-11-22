@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -95,6 +96,10 @@ internal fun Controls(
     onDelays: () -> Unit = {},
     /** Seek thumbnails for this link (null = none: live TV, small boxes, switched off). */
     thumbs: SeekThumbs? = null,
+    /** The title's styled name (logo picture), shown instead of the plain name as in Vision; null = the name. */
+    logo: String? = null,
+    /** The link's release name (file name, add-on name and details): source type, Atmos, DTS-HD MA for the badges. */
+    release: String = "",
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -235,10 +240,24 @@ internal fun Controls(
                 .background(Color.White, RoundedCornerShape(22.dp)).padding(horizontal = 22.dp, vertical = 11.dp))
         if (!visible) return@Box
 
-        // Top: title and when it ends.
+        // Top (Vision's player header): the title's logo (or name), episode, when it ends, and what is playing as badges.
         Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))).padding(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 40.dp)) {
-            Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            if (dur > 0) Text("Ends at ${endsAt(dur - pos, speed)}", color = Color(0xFFBDBDBD), fontSize = 14.sp)
+            val ep = remember(title) { EPISODE.find(title) }
+            val name = ep?.let { title.substring(0, it.range.first).trim() } ?: title
+            var logoFailed by remember(logo) { mutableStateOf(logo.isNullOrBlank()) }
+            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 340.dp, maxHeight = 72.dp),
+                alignment = Alignment.BottomStart, contentScale = androidx.compose.ui.layout.ContentScale.Fit, onError = { logoFailed = true })
+            else Text(name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            val line = listOfNotNull(ep?.let { "Season ${it.groupValues[1]} · Episode ${it.groupValues[2]}" }, if (dur > 0) "Ends at ${endsAt(dur - pos, speed)}" else null)
+            if (line.isNotEmpty()) Text(line.joinToString("   ·   "), color = Color(0xFFBDBDBD), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+            var badges by remember { mutableStateOf(emptyList<Int>()) }
+            LaunchedEffect(release) {
+                while (true) {
+                    runCatching { playing(stats()) }.getOrNull()?.let { badges = badgesFor(it, release) }
+                    delay(1_000)
+                }
+            }
+            if (badges.isNotEmpty()) BadgeRow(badges, Modifier.padding(top = 8.dp))
         }
 
         // Bottom: seek bar and buttons.
@@ -471,6 +490,8 @@ private fun codecName(mime: String?): String? = when (mime) {
 private fun bitDepth(f: androidx.media3.common.Format): Int? = f.colorInfo?.lumaBitdepth?.takeIf { it > 0 } ?: f.codecs?.lowercase()?.let { c ->
     when { c.startsWith("dvh") || c.startsWith("hvc1.2.") || c.startsWith("hev1.2.") -> 10; c.startsWith("hvc1.1.") || c.startsWith("hev1.1.") -> 8; else -> null }
 }
+
+private val EPISODE = Regex("""\s[Ss](\d+)[Ee](\d+)\b""")
 
 private fun fmtSpeed(s: Float) = if (s == 1f) "1×" else "${s.toString().trimEnd('0').trimEnd('.')}×"
 

@@ -280,7 +280,7 @@ class RecordService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel("rec", "Recordings", NotificationManager.IMPORTANCE_LOW))
         val n = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "rec") else @Suppress("DEPRECATION") Notification.Builder(this))
-            .setSmallIcon(android.R.drawable.presence_video_online).setContentTitle("Vision Lite is recording").setOngoing(true).build()
+            .setSmallIcon(android.R.drawable.presence_video_online).setContentTitle("Nuvio Vision is recording").setOngoing(true).build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(7, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else startForeground(7, n)
     }
 

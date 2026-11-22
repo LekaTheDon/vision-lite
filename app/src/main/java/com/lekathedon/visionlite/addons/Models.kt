@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Stremio add-on protocol, only the fields Vision Lite reads. Unknown fields are ignored. */
+/** Stremio add-on protocol, only the fields Nuvio Vision reads. Unknown fields are ignored. */
 @Serializable
 data class Manifest(
     val id: String,
