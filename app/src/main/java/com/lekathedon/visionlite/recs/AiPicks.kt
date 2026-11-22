@@ -57,7 +57,7 @@ object AiPicks {
     private val http by lazy { Net.http.newBuilder().readTimeout(90, TimeUnit.SECONDS).callTimeout(120, TimeUnit.SECONDS).build() }
     // Each hub asks for its own: Films & TV never gets anime, Anime gets only anime (own file, row and status).
     private val locks = Hub.entries.associateWith { Mutex() }
-    private fun file(hub: Hub) = File(App.instance.filesDir, "ai_picks${hub.suffix}.json")
+    private fun file(hub: Hub) = File(App.instance.profileDir, "ai_picks${hub.suffix}.json")
     private val _picks = Hub.entries.associateWith { h -> lazy { MutableStateFlow(read(h).picks) } }
     fun picks(hub: Hub = Hubs.now()): StateFlow<List<Pick>> = _picks.getValue(hub).value
     private val _status = Hub.entries.associateWith { MutableStateFlow<String?>(null) }

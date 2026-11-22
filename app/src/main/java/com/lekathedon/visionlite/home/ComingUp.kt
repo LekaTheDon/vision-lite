@@ -59,7 +59,7 @@ object ComingUp {
 
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val dir get() = File(App.instance.filesDir, "comingup").apply { mkdirs() }
+    private val dir get() = File(App.instance.profileDir, "comingup").apply { mkdirs() }
     private val idSer = MapSerializer(String.serializer(), Int.serializer())
     private val showSer = MapSerializer(String.serializer(), Show.serializer())
     private val itemSer = ListSerializer(Item.serializer())

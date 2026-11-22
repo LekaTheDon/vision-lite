@@ -25,7 +25,7 @@ object SportsGemini {
     private object credentials { fun read(@Suppress("UNUSED_PARAMETER") profile: Int): String? = key() }
     internal fun session(): Pair<Int, String?> = 0 to key()?.let { k ->
         java.security.MessageDigest.getInstance("SHA-256").digest(k.toByteArray()).joinToString("") { "%02x".format(it) } }
-    private val guideCache by lazy { GeminiGuideCache(File(com.lekathedon.visionlite.App.instance.filesDir, "sports")) }
+    private val guideCache by lazy { GeminiGuideCache(File(com.lekathedon.visionlite.App.instance.profileDir, "sports")) }
     private val http = OkHttpClient.Builder().callTimeout(45, TimeUnit.SECONDS).readTimeout(40, TimeUnit.SECONDS)
         .followRedirects(false).retryOnConnectionFailure(false).build()
     fun configured(): Boolean = key() != null

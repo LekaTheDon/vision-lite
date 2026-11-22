@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)
+    implementation(libs.coil.gif)
     implementation(libs.serialization.json)
     implementation(libs.zxing.core)
 }

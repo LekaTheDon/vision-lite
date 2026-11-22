@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
             var problem by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(
                 com.lekathedon.visionlite.report.Problems.lastUnseen(this@MainActivity)) }
             BackHandler(enabled = nav.canPop) { nav.pop() }
+            // Who's watching? (more than one profile) or the PIN of a locked profile, before anything else.
+            var gate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.data.Profiles.startGate()) }
             // The phone companion's requests (Play, details, a channel…): opened like a press on the remote.
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 for (s in com.lekathedon.visionlite.link.LinkState.open) {
@@ -87,7 +89,8 @@ class MainActivity : ComponentActivity() {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
-                        Screen.Home -> if (!asked) com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) })
+                        Screen.Home -> if (gate != null) com.lekathedon.visionlite.profiles.ProfileGate(atStart = true, pinOnly = gate == "pin") { gate = null }
+                            else if (!asked) com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) })
                             // Then, once: every integration and tracker, one page each.
                             else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.integrations.Setup(nav) }
                             else if (problem != null) problem?.let { pr ->
@@ -104,6 +107,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.Player -> Player(nav, s)
                         Screen.Search -> Search(nav)
                         Screen.Settings -> Settings(nav)
+                        Screen.Profiles -> Settings(nav, start = "Profiles")
+                        is Screen.ProfileEdit -> com.lekathedon.visionlite.profiles.ProfileEdit(nav, s.id)
                         Screen.Addons -> Addons()
                         Screen.ThisTv -> Settings(nav, start = "This TV")
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)

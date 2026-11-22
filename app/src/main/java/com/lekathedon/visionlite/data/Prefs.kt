@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 /** Plain shared preferences, read once at start; settings the UI watches are StateFlows. */
 class Prefs(context: Context) {
-    val sp: SharedPreferences = context.getSharedPreferences("vl", Context.MODE_PRIVATE)
+    val sp: SharedPreferences = run { Profiles.init(context); Profiles.prefs() }
     /** Every Flag and Text by key, so a change from the phone reaches the screens watching it ([setByKey]). */
     private val byKey = HashMap<String, (String) -> Unit>()
 
@@ -42,6 +42,8 @@ class Prefs(context: Context) {
             set(v) { state.value = v; sp.edit().putString(key, v).apply() }
     }
 
+    /** Who's watching? at app start when there's more than one profile (box-wide; data/Profiles.kt). */
+    val askProfile = Flag("lp_ask_start", true)
     /** Pure black page instead of the colour tint. */
     val oledBlack = Flag("oled_black", false)
     /** Play picks the best link by itself (off until autoplay is safe). */

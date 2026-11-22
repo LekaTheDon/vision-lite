@@ -45,7 +45,7 @@ object Rotation {
     @Serializable data class SetRow(val id: String, val title: String, val items: List<MetaPreview>)
     @Serializable private data class Disk(val at: Long, val rows: List<SetRow>)
 
-    private fun f(hub: Hub, slot: String) = File(App.instance.filesDir, "rotation/${hub.key}-$slot.json").apply { parentFile?.mkdirs() }
+    private fun f(hub: Hub, slot: String) = File(App.instance.profileDir, "rotation/${hub.key}-$slot.json").apply { parentFile?.mkdirs() }
     private val locks = Hub.entries.associateWith { Mutex() }
     private val states = Hub.entries.associateWith { MutableStateFlow<List<SetRow>>(emptyList()) }
     private val promoted = HashSet<Hub>()

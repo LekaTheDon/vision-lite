@@ -307,6 +307,16 @@ object SignIns {
         return out
     }
 
+    /** Nuvio's standard avatar pictures (public bucket; some are animated), for a Lite profile's picture. One call. */
+    suspend fun nuvioAvatarCatalog(): List<String> {
+        val tk = nuvioToken().ifBlank { return emptyList() }
+        val (c, r) = call(nuvioReq("/rest/v1/rpc/get_avatar_catalog", "{}", tk))
+        if (c !in 200..299) return emptyList()
+        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return emptyList()
+        return (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("storage_path")?.trim()?.trimStart('/')?.takeIf { p -> p.isNotBlank() } }
+            .map { if (it.startsWith("http")) it else "$NUVIO/storage/v1/object/public/avatars/$it" }
+    }
+
     fun cachedFaces(): List<Face> = runCatching {
         val a = org.json.JSONArray(t("si_nuvio_faces"))
         (0 until a.length()).map { a.getJSONObject(it) }.map { Face(it.optInt("i"), it.optString("n"), it.optString("c"), it.optString("p")) }

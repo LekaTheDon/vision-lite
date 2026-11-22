@@ -33,6 +33,9 @@ sealed interface Screen {
     data class YtPlay(val id: String, val title: String) : Screen
     data class Music(val tab: String = "HOME") : Screen
     data object Settings : Screen
+    /** Settings › Profiles, and one profile's page (name, picture, PIN…). */
+    data object Profiles : Screen
+    data class ProfileEdit(val id: Int) : Screen
     data object Addons : Screen
     data object ThisTv : Screen
     data object Trakt : Screen

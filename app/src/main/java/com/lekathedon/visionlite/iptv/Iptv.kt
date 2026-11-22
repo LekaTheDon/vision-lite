@@ -349,7 +349,7 @@ object Iptv {
     }
 
     private val db by lazy {
-        object : SQLiteOpenHelper(App.instance, "iptv.db", null, 2) {
+        object : SQLiteOpenHelper(App.instance, com.lekathedon.visionlite.data.Profiles.db("iptv.db"), null, 2) {
             override fun onCreate(d: SQLiteDatabase) {
                 d.execSQL("CREATE TABLE ch(pl TEXT, n INTEGER, ord INTEGER, name TEXT, grp TEXT, logo TEXT, tvg TEXT, url TEXT, hdr TEXT, " +
                     "cu_type TEXT, cu_src TEXT, cu_days INTEGER, cu_corr REAL, PRIMARY KEY(pl,n))")

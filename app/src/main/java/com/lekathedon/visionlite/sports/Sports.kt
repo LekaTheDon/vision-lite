@@ -41,7 +41,7 @@ object Sports {
     private val prefs get() = App.instance.prefs
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val feeds by lazy { SportsFeeds() }
-    private val dir by lazy { File(App.instance.filesDir, "sports").apply { mkdirs() } }
+    private val dir by lazy { File(App.instance.profileDir, "sports").apply { mkdirs() } }
     private val matcher by lazy { SportsMatcher(EpgDatabase(), File(dir, "guide").apply { mkdirs() }) }
 
     val settings: SportsSettings get() = SportsSettings.fromJson(prefs.sportsSettings.value.ifBlank { null })

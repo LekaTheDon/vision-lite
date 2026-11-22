@@ -57,7 +57,7 @@ object Recs {
     private const val FACTS_KEEP = 1500
     private const val RELATED_MAX_AGE = 30L * 86_400_000
 
-    private val dir get() = File(App.instance.filesDir, "recs").apply { mkdirs() }
+    private val dir get() = File(App.instance.profileDir, "recs").apply { mkdirs() }
     private val lock = Mutex()
     private val gate = Semaphore(2)
     private val p get() = App.instance.prefs

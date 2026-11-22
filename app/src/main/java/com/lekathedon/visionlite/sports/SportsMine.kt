@@ -74,7 +74,7 @@ object SportsMine {
     fun regionLabel(): String = Sports.settings.region.let { if (it.isBlank()) "This TV (${SportsCatalog.regionOf(Sports.settings)})" else SportsCatalog.regionName(it) }
 
     private val teamCache = HashMap<String, List<TeamInfo>>()
-    private val teamDir by lazy { java.io.File(App.instance.filesDir, "sports").apply { mkdirs() } }
+    private val teamDir by lazy { java.io.File(App.instance.profileDir, "sports").apply { mkdirs() } }
 
     /** A league's teams (Vision's): kept a week on the TV; countries are every country of any competition of that kind. */
     suspend fun teams(l: League): List<TeamInfo> = withContext(Dispatchers.IO) {

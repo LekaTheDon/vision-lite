@@ -212,7 +212,7 @@ object Vod {
     private fun loadedAt(pl: String) = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k=?", arrayOf("$pl|loaded")).use { if (it.moveToFirst()) it.getString(0).toLongOrNull() ?: 0L else 0L }
 
     private val db by lazy {
-        object : SQLiteOpenHelper(App.instance, "vod.db", null, 1) {
+        object : SQLiteOpenHelper(App.instance, com.lekathedon.visionlite.data.Profiles.db("vod.db"), null, 1) {
             override fun onCreate(d: SQLiteDatabase) {
                 d.execSQL("CREATE TABLE items(pl TEXT, kind TEXT, id TEXT, name TEXT, grp TEXT, poster TEXT, url TEXT, rating TEXT, PRIMARY KEY(pl,kind,id))")
                 d.execSQL("CREATE INDEX items_grp ON items(kind, grp)")

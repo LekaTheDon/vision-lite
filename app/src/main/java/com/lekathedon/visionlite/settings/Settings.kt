@@ -358,6 +358,49 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         row { m -> ThisTvPane(m, nav) }
     }
+    pages += page("Profiles", "Who uses this box: each profile keeps its own accounts, library, picks and settings", {
+        com.lekathedon.visionlite.data.Profiles.version.collectAsState().value
+        val all = com.lekathedon.visionlite.data.Profiles.all()
+        if (all.size == 1) "Just ${all[0].name}" else "${all.size} profiles · ${com.lekathedon.visionlite.data.Profiles.current().name} now"
+    }) {
+        head("Profiles")
+        row { m ->
+            com.lekathedon.visionlite.data.Profiles.version.collectAsState().value
+            val now = com.lekathedon.visionlite.data.Profiles.currentId()
+            Column {
+                com.lekathedon.visionlite.data.Profiles.all().forEachIndexed { i, pr ->
+                    Link(pr.name, listOfNotNull(if (pr.id == now) "In use" else null, if (pr.locked) "PIN" else null).joinToString(" · "),
+                        if (i == 0) m else Modifier) { nav.push(Screen.ProfileEdit(pr.id)) }
+                }
+            }
+        }
+        row { m -> Link("Add a profile", "Starts empty: its own sign-ins, library and settings (This TV and data keys are shared)", m, value = "+") {
+            nav.push(Screen.ProfileEdit(com.lekathedon.visionlite.data.Profiles.add("").id)) } }
+        row { m ->
+            var note by remember { mutableStateOf("") }
+            Link("Bring in Nuvio's profiles", "Your Nuvio account's profiles as Lite profiles: name, picture, and each follows its own Nuvio profile", m,
+                value = note.ifBlank { "›" }) {
+                scope.launch {
+                    note = "…"
+                    val faces = runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioFaces() }.getOrDefault(emptyList())
+                    if (faces.isEmpty()) { note = "Sign in to Nuvio first"; return@launch }
+                    val have = com.lekathedon.visionlite.data.Profiles.all().map { it.name.lowercase() }.toSet()
+                    var n = 0
+                    for (f in faces) {
+                        if (f.name.lowercase() in have) continue
+                        val pr = com.lekathedon.visionlite.data.Profiles.add(f.name, f.color.ifBlank { "#1E88E5" })
+                        com.lekathedon.visionlite.data.Profiles.putFor(pr.id, "si_nuvio_profile" to f.index.toString(), "si_nuvio_profile_name" to f.name,
+                            "si_nuvio_avatar" to f.picture, "si_nuvio_avatar_color" to f.color)
+                        if (f.picture.isNotBlank()) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.data.Profiles.setPicture(pr.id, f.picture) }
+                        n++
+                    }
+                    note = if (n == 0) "All here" else "$n added"
+                }
+            }
+        }
+        head("Start")
+        row { m -> Toggle("Ask who's watching", "At start, when there's more than one profile (a PIN is always asked)", p.askProfile, m) }
+    }
     pages += page("About", "Version, report a problem, cache, first-start setup", { "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}" }) {
         head("Help")
         row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Vision Lite team (no keys or logins)", m) { nav.push(Screen.Report()) } }

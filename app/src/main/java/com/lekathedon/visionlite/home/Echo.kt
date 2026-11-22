@@ -653,18 +653,12 @@ fun BoxScope.TopPill(
     // Coming in from the right: the pill's items are focusable before it has focus, until one takes it.
     var entering by remember { mutableStateOf(false) }
     LaunchedEffect(open) { if (open) entering = false }
-    val account = remember(open) {
-        val sp = prefs.sp
-        (sp.getString("si_nuvio_profile_name", "") ?: "").ifBlank { (sp.getString("si_nuvio_user", "") ?: "").substringBefore('@') }
-    }
-    // The profile's picture (Vision's ProfileAvatarCircle): saved link first, refreshed in the background.
-    var avatar by remember { mutableStateOf(com.lekathedon.visionlite.integrations.SignIns.nuvioAvatar() to com.lekathedon.visionlite.integrations.SignIns.nuvioAvatarColor()) }
-    LaunchedEffect(account) {
-        if (account.isBlank()) return@LaunchedEffect
-        runCatching { com.lekathedon.visionlite.integrations.SignIns.refreshNuvioAvatar() }
-        avatar = com.lekathedon.visionlite.integrations.SignIns.nuvioAvatar() to com.lekathedon.visionlite.integrations.SignIns.nuvioAvatarColor()
-    }
-    val ends = buildList { add("settings"); if (account.isNotBlank()) add("account") }
+    // The Lite profile in use (data/Profiles.kt): its name and picture (GIFs move), as Vision's ProfileAvatarCircle.
+    com.lekathedon.visionlite.data.Profiles.version.collectAsStateWithLifecycle().value
+    val me = com.lekathedon.visionlite.data.Profiles.current()
+    val account = me.name
+    val avatar = me.pic to me.color
+    val ends = listOf("settings", "account")
     // OK on the profile: Vision's "Who's watching" picker over the page.
     var picking by remember { mutableStateOf(false) }
     LaunchedEffect(enterAtEnd) { if (enterAtEnd > 0) { entering = true; pending = ends.last() } }
@@ -740,49 +734,11 @@ fun BoxScope.TopPill(
         if (pages > 1) Text("${page + 1}/$pages", color = Color(0x88FFFFFF), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
         PillDivider()
         item("settings", null) { nav.push(Screen.Settings) }
-        if (account.isNotBlank()) item("account", account, face = avatar) {
-            if (prefs.sp.getString("si_nuvio_token", "").isNullOrBlank()) nav.push(Screen.Integrations) else picking = true
-        }
+        item("account", account, face = avatar) { picking = true }
     }
-    if (picking) ProfilePicker(onManage = { picking = false; nav.push(Screen.SignIn("nuvio")) }) { f ->
-        picking = false
-        if (f != null) {
-            com.lekathedon.visionlite.integrations.SignIns.switchNuvioProfile(f)
-            avatar = f.picture to f.color
-        }
-        entering = true; pending = "account"
-    }
-}
-
-/** Vision's profile picker: every profile of the Nuvio account as its avatar circle; OK switches, Back closes. */
-@Composable
-private fun ProfilePicker(onManage: () -> Unit, onDone: (com.lekathedon.visionlite.integrations.SignIns.Face?) -> Unit) {
-    androidx.activity.compose.BackHandler { onDone(null) }
-    var faces by remember { mutableStateOf(com.lekathedon.visionlite.integrations.SignIns.cachedFaces()) }
-    LaunchedEffect(Unit) { runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioFaces() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { faces = it } }
-    val current = com.lekathedon.visionlite.integrations.SignIns.nuvioProfile()
-    val first = remember { FocusRequester() }
-    LaunchedEffect(faces.isNotEmpty()) { withFrameNanos { }; runCatching { first.requestFocus() } }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Who's watching?", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            Row(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                if (faces.isEmpty()) Text("Loading profiles…", color = Color(0xB3FFFFFF), fontSize = 15.sp)
-                faces.forEach { f ->
-                    val source = remember { MutableInteractionSource() }
-                    val focused by source.collectIsFocusedAsState()
-                    val mod = if (f.index == current || (faces.none { it.index == current } && f === faces.first())) Modifier.focusRequester(first) else Modifier
-                    Column(mod.clickable(interactionSource = source, indication = null) { onDone(f) },
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.size(104.dp).then(if (focused) Modifier.border(3.dp, Color.White, androidx.compose.foundation.shape.CircleShape) else Modifier)
-                            .padding(6.dp)) { ProfileFace(f.name, f.picture, f.color, 92.dp) }
-                        Text(f.name, color = if (focused) Color.White else Color(0xB3FFFFFF), fontSize = 15.sp,
-                            fontWeight = if (f.index == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
-                    }
-                }
-            }
-            com.lekathedon.visionlite.ui.Button("Manage profiles", onManage, Modifier.padding(top = 36.dp))
-        }
+    // OK on the profile: Who's watching? over the page; another profile restarts the app in it.
+    if (picking) com.lekathedon.visionlite.profiles.ProfileGate(atStart = false, onManage = { picking = false; nav.push(Screen.Profiles) }) {
+        picking = false; entering = true; pending = "account"
     }
 }
 
@@ -834,7 +790,7 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
 
 /** Vision's ProfileAvatarCircle: the profile's colour with its initial, the picture over it once loaded. */
 @Composable
-private fun ProfileFace(name: String, url: String, colorHex: String, size: Dp) {
+fun ProfileFace(name: String, url: String, colorHex: String, size: Dp) {
     val bg = remember(colorHex) { runCatching { Color(android.graphics.Color.parseColor(colorHex)) }.getOrDefault(Color(0xFF1E88E5)) }
     var loaded by remember(url) { mutableStateOf(false) }
     Box(Modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape).background(bg), contentAlignment = Alignment.Center) {

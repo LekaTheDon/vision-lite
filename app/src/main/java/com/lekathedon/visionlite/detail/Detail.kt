@@ -96,7 +96,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
 
     LaunchedEffect(s.id) {
         coroutineScope {
-            val m = async { runCatching { App.instance.client.meta(s.type, s.id) }.getOrNull() }
+            val m = async { runCatching { App.instance.client.meta(s.type, s.id) }.getOrNull()
+                ?: if (AnimeMeta.isAnimeId(s.id)) AnimeMeta.meta(s.id, s.type) else null }
             val t = async { imdbId?.let { Imdb.title(it) } }
             val e = async { if (imdbId != null && s.type == "series") Imdb.episodes(imdbId) else emptyList() }
             launch { traktRating = imdbId?.let { App.instance.trakt.rating(it, s.type == "series") }?.rating?.takeIf { it > 0 } }
@@ -112,7 +113,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     val name = m?.name?.ifBlank { null } ?: t?.name?.ifBlank { null } ?: s.name
     val backdrop = m?.background ?: imdbId?.let { "https://images.metahub.space/background/large/$it/img" }
     val logo = m?.logo ?: imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
-    val isSeries = s.type == "series" || t?.type == "series"
+    val isSeries = if (m != null && t == null && AnimeMeta.isAnimeId(s.id)) m.type == "series" else s.type == "series" || t?.type == "series"
     var sheet by remember(s.id) { mutableStateOf<Sheet?>(null) }
 
     Box(Modifier.fillMaxSize().background(look.page)) {
@@ -189,7 +190,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             else -> eps.firstOrNull { it.season == seasons.firstOrNull() }?.let { "Play S${it.season} E${it.episode}" } ?: "Play"
                         }
                         Button(playLabel, {
-                            if (!isSeries) nav.push(Screen.Streams(s.type, s.id, name, s.id))
+                            if (!isSeries) nav.push(Screen.Streams(s.type, if (AnimeMeta.isAnimeId(s.id)) m?.id ?: s.id else s.id, name, s.id))
                             else {
                                 val e = (next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
                                     ?: eps.firstOrNull { it.season == seasons.firstOrNull() })

@@ -283,7 +283,7 @@ object SportsRepository {
 
     // ---- "usually on" (Zero TV idea): the channel a team's last game was surely on
 
-    private val usualFile get() = File(App.instance.filesDir, "sports/usual_channels.json")
+    private val usualFile get() = File(App.instance.profileDir, "sports/usual_channels.json")
     @Volatile private var usual: MutableMap<String, String>? = null
     private fun usualMap(): MutableMap<String, String> = usual ?: java.util.concurrent.ConcurrentHashMap<String, String>().also { m ->
         runCatching { org.json.JSONObject(usualFile.readText()).let { o -> o.keys().forEach { k -> m[k] = o.getString(k) } } }
