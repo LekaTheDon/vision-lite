@@ -166,6 +166,13 @@ object BillboardRows {
     val rows = kotlinx.coroutines.flow.MutableStateFlow<List<Pair<String, String>>>(emptyList())
     fun publish(list: List<Pair<String, String>>) { if (list.isNotEmpty()) rows.value = (rows.value + list).distinctBy { it.first } }
 }
+/**
+ * The Home row whose loading card has focus (user 2026-11-22: holding Down sometimes jumped back up). The card used to
+ * vanish the moment the row's titles came in, taking focus with it, so the next Down started again from the top. Now
+ * the card stays until it has handed focus to the row's first title (or the next row, when the row came back empty).
+ */
+internal object LoadingHold { var key by androidx.compose.runtime.mutableStateOf<String?>(null) }
+
 /** Each Home row's slots by row key, so focus can go back to a row after one of its cards was removed. */
 private val RowRegistry = HashMap<String, RowSlots>()
 
@@ -193,7 +200,8 @@ private suspend fun refocusRow(key: String, index: Int, old: FocusRequester?, tr
  * focus goes to the next row below that has cards.
  */
 @Composable
-private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below: () -> List<String>, scope: kotlinx.coroutines.CoroutineScope) {
+private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below: () -> List<String>, scope: kotlinx.coroutines.CoroutineScope,
+                        ready: Boolean = false) {
     val me = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
     val slots = LocalRowSlots.current
@@ -206,13 +214,28 @@ private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below
             if (focused && slots != null && !slots.home) scope.launch {
                 repeat(30) { withFrameNanos { }; slots.reqs[0]?.let { if (runCatching { it.requestFocus() }.isSuccess) return@launch } }
             }
-            else if (focused) scope.launch {
+            else if (focused && LoadingHold.key != rowKey) scope.launch {
                 if (refocusRow(rowKey, 0, null, tries = 30)) return@launch
                 for (k in below()) if (refocusRow(k, HomeFocus.index[k] ?: 0, null, tries = 5) || refocusRow(k, 0, null, tries = 5)) return@launch
             }
         }
     }
     LaunchedEffect(focused) { if (focused) { LastFocus = me; slots?.let { if (it.home) { HomeFocus.row = it.key; HomeFocus.index[it.key] = 0 } } } }
+    // Home: hold the card while it has focus; once the titles are in, give focus to the first one, then let go.
+    LaunchedEffect(focused) {
+        if (slots?.home != true) return@LaunchedEffect
+        if (focused) LoadingHold.key = rowKey else if (LoadingHold.key == rowKey) LoadingHold.key = null
+    }
+    LaunchedEffect(ready, focused) {
+        if (!ready || !focused || slots?.home != true) return@LaunchedEffect
+        repeat(30) {
+            withFrameNanos { }
+            val first = slots.reqs[0]?.takeIf { it !== me }
+            if (first != null && runCatching { first.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
+        for (k in below()) if (refocusRow(k, HomeFocus.index[k] ?: 0, null, tries = 5) || refocusRow(k, 0, null, tries = 5)) return@LaunchedEffect
+        if (LoadingHold.key == rowKey) LoadingHold.key = null
+    }
     Box(Modifier.focusRequester(me).onFocusChanged { focused = it.isFocused }.focusable().size(width, height).clip(shape)
         .background(CardBackground).then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier))
 }
@@ -272,7 +295,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val visible = rows.filter { r ->
         // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
         val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
-        r.key !in hidden && (shows || !r.done ||
+        r.key !in hidden && (shows || !r.done || r.key == LoadingHold.key ||
             (r.key == VisionRows.PICKS && traktOn))
     }
     // The phone companion's copy of Home (only while it is switched on; built off the main thread).
@@ -356,7 +379,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.key }.collect { last ->
             val keys = visibleKeys
             val at = keys.indexOf(last)
-            if (at >= 0) keys.drop(at + 1).take(3).forEach { vm.prefetch(it) }
+            if (at >= 0) keys.drop(at + 1).take(5).forEach { vm.prefetch(it) }
         }
     }
     // Vision / Haven: Home opens once its rows are in (the first screens' worth), not row by row in front of you.
@@ -400,9 +423,12 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         else if (exitConfirm) askExit = true else activity?.finish()
     }
     Box(Modifier.fillMaxSize().background(look.page)) {
-        if (!look.oled) AmbientPageWash(art, Modifier.fillMaxSize())
+        // Below the billboard nothing of the backdrop can be seen (user 2026-11-22): it and the wash are gone from the
+        // page entirely there (no picture loaded per focused card, nothing drawn), and come back at the top.
+        val atTop by remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < heroPx } }
+        if (atTop && !look.oled) AmbientPageWash(art, Modifier.fillMaxSize())
         // The billboard's art, wall to wall, fading as the page scrolls past it (read while drawing only).
-        EchoBackdrop(art, heroTrailer?.takeIf { heroFocused && it.first == entry?.m?.id }?.second, trailerLook.muted,
+        if (atTop) EchoBackdrop(art, heroTrailer?.takeIf { heroFocused && it.first == entry?.m?.id }?.second, trailerLook.muted,
             onEnded = { heroTrailer = null }, modifier = Modifier.graphicsLayer {
             alpha = if (listState.firstVisibleItemIndex > 0) 0f
             else (1f - listState.firstVisibleItemScrollOffset / heroPx).coerceIn(0f, 1f)
@@ -442,9 +468,10 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                     }
                     val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items
                     EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type !in NotTitles }, lead = if (ranked) dims.rankPad else 0.dp) {
-                        if (row.items.isEmpty() && !row.done) item(key = "loading") { Slot(0) {
+                        if ((row.items.isEmpty() && !row.done) || LoadingHold.key == row.key) item(key = "loading") { Slot(0) {
                             LoadingCard(row.key, if (ranked) dims.highlightWidth else if (wide) dims.cwWidth else dims.posterWidth, h, dims.radius,
-                                below = { visible.map { it.key }.let { k -> k.drop(k.indexOf(row.key) + 1) } }, scope = scope)
+                                below = { visible.map { it.key }.let { k -> k.drop(k.indexOf(row.key) + 1) } }, scope = scope,
+                                ready = row.items.isNotEmpty() || row.done)
                         } }
                         itemsIndexed(items, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
                             val onFocus = {

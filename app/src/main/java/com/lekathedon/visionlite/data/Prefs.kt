@@ -196,6 +196,9 @@ class Prefs(context: Context) {
     val vodInTb = Flag("vod_in_tb", true)
     /** Fast horizontal navigation (Vision's Advanced): held Left/Right repeats every 48 ms instead of 80 ms. */
     val fastHorizontal = Flag("fast_horizontal", false)
+    /** 1080p menus (Vision's MenuDownscale, ui/MenuDownscale.kt): on; [menus1080Applied] = what Android was last told. */
+    val menus1080 = Flag("menus_1080", true)
+    val menus1080Applied = Text("menus_1080_applied", "")
     /** Screensaver (Vision's Ambient Mode): after this many idle minutes, 4K backdrops from your rows ("0" = off). */
     val screensaverMin = Text("screensaver_min", "5")
     /** Where the Home billboard takes its titles: "" = Continue watching then the first row; else a row key. */

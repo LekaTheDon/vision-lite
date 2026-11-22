@@ -50,7 +50,11 @@ fun Img(url: String?, w: Dp, h: Dp, modifier: Modifier = Modifier, scale: Conten
     val context = LocalContext.current
     val d = LocalDensity.current
     val req = remember(src, w, h, blur) {
-        with(d) { ImageRequest.Builder(context).data(src).size(w.roundToPx(), h.roundToPx())
+        // Never decoded above 1080p (the box draws at 4K: a full-screen backdrop was a 33 MB 3840x2160 bitmap per
+        // focused card while scrolling; at 1920x1080 it is a quarter of that and looks the same from the sofa).
+        val pw = with(d) { w.roundToPx() }; val ph = with(d) { h.roundToPx() }
+        val k = minOf(1f, 1920f / pw.coerceAtLeast(1), 1080f / ph.coerceAtLeast(1))
+        with(d) { ImageRequest.Builder(context).data(src).size((pw * k).toInt().coerceAtLeast(1), (ph * k).toInt().coerceAtLeast(1))
             .apply { if (blur) transformations(BlurTransformation()) }.build() }
     }
     AsyncImage(model = req, contentDescription = null, contentScale = scale, modifier = modifier,
