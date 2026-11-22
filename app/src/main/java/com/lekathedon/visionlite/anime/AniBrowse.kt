@@ -140,7 +140,7 @@ object AniBrowse {
             tiles.chunked(10).forEachIndexed { n, chunk ->
                 if (n > 0) kotlinx.coroutines.delay(2500)
                 val parts = chunk.mapIndexedNotNull { i, id -> filter(id)?.let { f ->
-                    "t$i: Page(perPage: 8) { media(type: ANIME, isAdult: false, sort: [SCORE_DESC], popularity_greater: 20000${if (f.isEmpty()) "" else ", $f"}) " +
+                    "t$i: Page(perPage: ${if (id.startsWith("decade:")) 30 else 8}) { media(type: ANIME, isAdult: false, sort: [SCORE_DESC], popularity_greater: 20000${if (f.isEmpty()) "" else ", $f"}) " +
                         "{ id format title { english userPreferred } coverImage { large extraLarge } bannerImage seasonYear averageScore genres } }" } }
                 val body = JSONObject().put("query", "{ ${parts.joinToString(" ")} }").toString().toRequestBody("application/json".toMediaType())
                 val d = runCatching {
@@ -154,7 +154,10 @@ object AniBrowse {
             val fresh = HashMap(have)
             tiles.forEach { id ->
                 val list = found[id] ?: return@forEach
-                list.firstOrNull { (it.background ?: it.poster) != null && used.add(it.id) }?.let { fresh[id] = it.background ?: it.poster!! }
+                // The 2010s / 2020s top titles are all behind genre tiles already: their decade looks further down
+                // (30 asked), and never stays blank (the best one is reused when every one is taken).
+                (list.firstOrNull { (it.background ?: it.poster) != null && used.add(it.id) } ?: list.firstOrNull { (it.background ?: it.poster) != null })
+                    ?.let { fresh[id] = it.background ?: it.poster!! }
             }
             _art.value = fresh
             if (found.isNotEmpty()) runCatching { artFile.writeText(JSONObject().put("at", System.currentTimeMillis()).put("art", JSONObject(fresh as Map<*, *>)).toString()) }

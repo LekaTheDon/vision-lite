@@ -467,9 +467,12 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                         else -> row.title
                     }
                     val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items
-                    val sm = shown?.m?.takeIf { it.type !in NotTitles }
+                    // Only a title of this row (a services / genres / people row never shows the last title's text),
+                    // and the reason only where the row name doesn't already say it (Vision Picks).
+                    val sm = shown?.m?.takeIf { (row.kind == RowKind.POSTER || row.kind == RowKind.RANKED || row.kind == RowKind.COMING) &&
+                        it.type !in NotTitles && row.items.any { x -> x.id == it.id } }
                     val picks = VisionRows.isPicks(row.key)
-                    val reason = if (sm == null) null else if (picks) sm.description else row.title.takeIf { it.startsWith("Because you") }
+                    val reason = if (sm != null && picks) sm.description else null
                     val plot = sm?.let { enriched[it.id]?.description ?: if (picks) null else it.description }?.takeIf { it.isNotBlank() }
                     EchoRow(row.key, title, dims, h, sm, lead = if (ranked) dims.rankPad else 0.dp, reason = reason, plot = plot) {
                         if ((row.items.isEmpty() && !row.done) || LoadingHold.key == row.key) item(key = "loading") { Slot(0) {
@@ -1212,8 +1215,15 @@ fun EchoRowTitle(title: String) {
 private fun cwStill(r: com.lekathedon.visionlite.trakt.Resume): String? {
     if (r.season == null) return null
     val still by androidx.compose.runtime.produceState<String?>(null, r.streamId) {
-        value = runCatching { App.instance.client.meta("series", r.imdb) }.getOrNull()?.videos
-            ?.firstOrNull { it.season == r.season && it.episode == r.episode }?.thumbnail?.takeIf { it.isNotBlank() }
+        fun pick(m: com.lekathedon.visionlite.addons.Meta?) = m?.videos?.firstOrNull { it.season == r.season && it.episode == r.episode }
+            ?.thumbnail?.takeIf { it.isNotBlank() }
+        // Anime: the first add-on answering is often an anime one with its own episode numbers (no match, so the card fell
+        // back to the poster). Cinemeta numbers episodes as Trakt does: asked only when the add-ons' answer has no still.
+        value = pick(runCatching { App.instance.client.meta("series", r.imdb) }.getOrNull())
+            ?: if (!r.imdb.startsWith("tt")) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                pick(runCatching { com.lekathedon.visionlite.data.Net.getJson<com.lekathedon.visionlite.addons.MetaResponse>(
+                    "https://v3-cinemeta.strem.io/meta/series/${r.imdb}.json", 10).meta }.getOrNull())
+            }
     }
     return still
 }

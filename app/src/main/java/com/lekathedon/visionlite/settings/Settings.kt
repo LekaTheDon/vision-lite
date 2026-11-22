@@ -311,15 +311,6 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
             listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"), m) }
         row { m -> Toggle("Fast horizontal navigation", "Held Left / Right moves quicker along the rows", p.fastHorizontal, m) }
-        row { m ->
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            val on by p.menus1080.flow.collectAsState()
-            LaunchedEffect(on) {
-                val restart = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.ui.MenuDownscale.sync() }
-                if (restart) android.widget.Toast.makeText(ctx, "Takes effect next time the app starts", android.widget.Toast.LENGTH_LONG).show()
-            }
-            Toggle("1080p menus", "Draws the app at 1080p for smooth scrolling (root). ExoPlayer video stays 4K; MPV shows at 1080p", p.menus1080, m)
-        }
         row { m -> Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm, m) }
     }
     pages += page("Spoilers and trailers", "What stays hidden, when trailers play", {
