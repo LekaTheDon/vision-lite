@@ -27,12 +27,19 @@ import org.json.JSONObject
 import java.io.File
 import java.time.LocalDate
 
-/** Vision's own Home rows, in Vision's order under Continue Watching (Moods left out on purpose, for now). */
+/**
+ * Vision's own Home rows, in Vision's order under Continue Watching. Since 0.27 the engine (Vision Picks + Scout + the
+ * AIs) also fills "Because you watched" and mood rows (Feel-good, Laugh out loud…), a different few every 12 hours;
+ * Scout and AI Picks are no longer rows or pages of their own.
+ */
 object VisionRows {
     const val COMING_UP = "v/comingup"
     const val PICKS = "v/picks"
     const val IMDB = "v/imdb"
-    const val AI = "v/ai"
+    /** "Because you watched X": two rows, which titles they follow change every 12 h. */
+    val BECAUSE = listOf("v/because1", "v/because2")
+    /** Mood rows (Feel-good, Laugh out loud, Edge of your seat…): three, a different three every 12 h. */
+    val MOODS = listOf("v/mood1", "v/mood2", "v/mood3")
     const val SERVICES = "v/services"
     const val PEOPLE = "v/people"
     /** WuPlay's Genres and Decades as rows of tiles (were their own pages before 0.26). */
@@ -41,7 +48,9 @@ object VisionRows {
 
     /** key to title, in Vision's order. */
     val all: List<Pair<String, String>> = listOf(
-        COMING_UP to "Coming up", PICKS to "Vision Picks", IMDB to "IMDb Picks", AI to "AI Picks",
+        COMING_UP to "Coming up", PICKS to "Vision Picks", IMDB to "IMDb Picks",
+        BECAUSE[0] to "Because you watched · 1", MOODS[0] to "Mood · 1", BECAUSE[1] to "Because you watched · 2",
+        MOODS[1] to "Mood · 2", MOODS[2] to "Mood · 3",
         SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades", PEOPLE to "Favourite people"
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
@@ -62,7 +71,9 @@ object VisionRows {
         return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "").replace("Top 250 Series", "Top 250 TV Shows") } + rest.drop(head.size)
     }
 
-    fun isPicks(key: String) = key == PICKS || key == IMDB || key == AI
+    fun isPicks(key: String) = key == PICKS || key == IMDB
+    /** Rows the engine fills (their titles are recommendations: Love / Like / Not for me on hold). */
+    fun isEngine(key: String) = isPicks(key) || key in BECAUSE || key in MOODS
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
     val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}",
         "c/${Charts.Chart.ANIME_TODAY_SERIES.id}", "c/${Charts.Chart.ANIME_TODAY_MOVIES.id}")
@@ -91,6 +102,7 @@ object Tmdb {
     fun items(o: JSONObject?, tv: Boolean?): List<MetaPreview> = o?.optJSONArray("results").objects().mapNotNull { r ->
         val isTv = tv ?: (r.optString("media_type") == "tv")
         val id = r.optInt("id").takeIf { it > 0 } ?: return@mapNotNull null
+        if (r.optBoolean("adult")) com.lekathedon.visionlite.recs.Adult.mark("tmdb:${if (isTv) "tv" else "movie"}:$id", true)
         MetaPreview("tmdb:${if (isTv) "tv" else "movie"}:$id", if (isTv) "series" else "movie", r.optString(if (isTv) "name" else "title").ifBlank { return@mapNotNull null },
             img(r.optString("poster_path"), "w342"), img(r.optString("backdrop_path"), "w1280"),
             description = r.optString("overview").ifBlank { null },

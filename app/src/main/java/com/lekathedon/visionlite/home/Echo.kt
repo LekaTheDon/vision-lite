@@ -95,7 +95,6 @@ import com.lekathedon.visionlite.library.backdropOf
 import com.lekathedon.visionlite.library.posterOf
 import com.lekathedon.visionlite.library.Saved
 import com.lekathedon.visionlite.library.Saves
-import com.lekathedon.visionlite.recs.AiPicks
 import com.lekathedon.visionlite.recs.Recs
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -263,15 +262,13 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     }
     LaunchedEffect(watchedMode) { runCatching { Watched.refresh() } }
     val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
-    val aiOn = remember(rows) { AiPicks.configured().isNotEmpty() }
     val traktOn = App.instance.trakt.connected.collectAsStateWithLifecycle().value != null
     val visible = rows.filter { r ->
         // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
         val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
         r.key !in hidden && (shows || !r.done ||
-            (r.key == VisionRows.AI && aiOn) || ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
+            ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
     }
-    val aiStatus by AiPicks.status(hub).collectAsStateWithLifecycle()
     // The phone companion's copy of Home (only while it is switched on; built off the main thread).
     val linkOn by prefs.phoneLink.flow.collectAsStateWithLifecycle()
     LaunchedEffect(linkOn, cw, rows) {
@@ -425,8 +422,6 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                     val ranked = row.kind == RowKind.RANKED
                     val h = if (ranked) dims.highlightHeight else if (wide) dims.cwHeight else dims.posterHeight
                     val title = when {
-                        row.key == VisionRows.AI && aiStatus != null && row.items.isEmpty() -> "${row.title} · $aiStatus"
-                        row.key == VisionRows.AI && aiStatus != null -> "${row.title} · ${aiStatus}"
                         (row.key == VisionRows.PICKS || row.key == VisionRows.IMDB) && recsBuilding -> "${row.title} · thinking…"
                         else -> row.title
                     }
@@ -1080,7 +1075,8 @@ private fun RankNumber(rank: Int, dims: EchoDims, focused: Boolean, modifier: Mo
  * (rows); grids keep it closed so cells don't jump.
  */
 @Composable
-fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = true, sub: String? = null, onHold: (() -> Unit)? = null, onClick: () -> Unit) {
+fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = true, sub: String? = null, onHoldIn: (() -> Unit)? = null, onClick: () -> Unit) {
+    val onHold = onHoldIn ?: if (TasteMenu.isTitle(m)) ({ TasteMenu.show(m) }) else null
     val prefs = App.instance.prefs
     val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
     val dims = remember(size) { EchoDims.of(size) }
@@ -1109,11 +1105,17 @@ fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = 
  */
 @Composable
 fun PageRow(
-    key: String, title: String, metas: List<MetaPreview>, loading: Boolean = false,
+    key: String, title: String, metasIn: List<MetaPreview>, loading: Boolean = false,
     sub: (MetaPreview) -> String? = { null }, firstFocus: FocusRequester? = null,
-    onHold: ((MetaPreview) -> Unit)? = null, onEnd: (() -> Unit)? = null, expand: Boolean = true,
+    onHoldIn: ((MetaPreview) -> Unit)? = null, onEnd: (() -> Unit)? = null, expand: Boolean = true,
     onClick: (MetaPreview) -> Unit
 ) {
+    // Hide adult titles (when on): checked once each, gone as soon as known.
+    val adultRev by com.lekathedon.visionlite.recs.Adult.revision.collectAsStateWithLifecycle()
+    val adultOn by App.instance.prefs.hideAdult.flow.collectAsStateWithLifecycle()
+    val metas = remember(metasIn, adultRev, adultOn) { com.lekathedon.visionlite.recs.Adult.visible(metasIn) }
+    // Every title: hold OK = Love it / Like / Not for me (the page's own hold, when it has one, comes first).
+    val onHold: ((MetaPreview) -> Unit)? = onHoldIn ?: { m: MetaPreview -> TasteMenu.show(m) }
     if (metas.isEmpty() && !loading) return
     val prefs = App.instance.prefs
     val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
@@ -1143,8 +1145,8 @@ fun PageRow(
                 val mm = remember(m) { if (m.poster.isNullOrBlank() && m.id.startsWith("tt")) m.copy(poster = posterOf(m.id)) else m }
                 Column {
                     val mod = if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier
-                    if (expand) PosterCard(mm, dims, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.let { h -> { h(m) } })
-                    else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.let { h -> { h(m) } }) {
+                    if (expand) PosterCard(mm, dims, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.takeIf { TasteMenu.isTitle(m) }?.let { h -> { h(m) } })
+                    else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.takeIf { TasteMenu.isTitle(m) }?.let { h -> { h(m) } }) {
                         val art = com.lekathedon.visionlite.poster.Posters.poster(mm.id, mm.type, mm.poster)
                         if (art.isNullOrBlank()) Fallback(mm.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = mm.poster)
                     }
@@ -1405,7 +1407,7 @@ private object Sections {
         "YOUTUBE" -> com.lekathedon.visionlite.youtube.YtTabs.tabs().map { (k, l) -> l to Screen.YouTube(k) }
         "MUSIC" -> com.lekathedon.visionlite.music.MusicTabs.all.map { (k, l) -> l to Screen.Music(k) }
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search,
-            "Scout" to Screen.Scout, "Library" to Screen.Library, "Calendar" to Screen.Calendar)
+            "Library" to Screen.Library, "Calendar" to Screen.Calendar)
     }
     /** Picking YouTube or Music opens its first tab (as Vision's do); Films & TV, Anime and IPTV stay on Home with their pages in the pill. */
     fun opensAt(key: String): Screen? = if (key == "YOUTUBE" || key == "MUSIC") pages(key).firstOrNull()?.second else null
@@ -1491,14 +1493,14 @@ private fun RefreshCard(dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit
     }
 }
 
-/** Hold OK on a title: Picks rows get More like this / Not for me; every title gets Move, Turn this row off, Library. */
+/** Hold OK on a title: Love it / Like / Not for me (the one engine behind every recommendation), Move, Turn this row off, Library. */
 @Composable
 private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.CoroutineScope, onClose: (removed: Boolean) -> Unit) {
     androidx.activity.compose.BackHandler { onClose(false) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     val tv = m.type == "series"
-    val picks = VisionRows.isPicks(row.key)
+    val verdict = remember(m.id) { Recs.verdict(m.id) }
     val saved = remember(m.id) { Saves.has(m.id) }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Column(Modifier.width(360.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(20.dp),
@@ -1509,9 +1511,11 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
                 val mod = if (!firstUsed) { firstUsed = true; Modifier.fillMaxWidth().focusRequester(first) } else Modifier.fillMaxWidth()
                 com.lekathedon.visionlite.ui.Button(label, { act(); onClose(removes) }, mod)
             }
-            if (picks) {
-                Choice("More like this") { Recs.moreLikeThis(m.id, tv, m.name) }
-                Choice("Not for me", removes = true) { Recs.notForMe(m.id, tv, m.name); if (row.key == VisionRows.AI) AiPicks.remove(m.id, com.lekathedon.visionlite.anime.Hubs.now()) }
+            if (m.type == "movie" || m.type == "series") {
+                Choice(if (verdict == "love") "Loved ✓ (undo)" else "Love it") { if (verdict == "love") Recs.forget(m.id) else Recs.love(m.id, tv, m.name) }
+                Choice(if (verdict == "like") "Liked ✓ (undo)" else "Like · more like this") { if (verdict == "like") Recs.forget(m.id) else Recs.moreLikeThis(m.id, tv, m.name) }
+                // Gone from the engine's rows at once and never recommended again; other rows (charts, services) keep it.
+                Choice("Not for me", removes = VisionRows.isEngine(row.key)) { Recs.notForMe(m.id, tv, m.name) }
             }
             if (row.key == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
             // Wrong hub: the title moves to the other one, everywhere (its IMDb id too, when the card has another id).

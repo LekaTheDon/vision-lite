@@ -287,7 +287,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> ServiceRow("tvdb", nav, m) }
         row { m -> ServiceRow("mdblist", nav, m) }
     }
-    pages += page("Recommendations", "Picks, the IMDb bar, AI Picks", {
+    pages += page("Recommendations", "Picks, Love / Not for me, adult filter, AI", {
         watchServices()
         val min = p.recMinImdb.flow.collectAsState().value
         val ai = Integrations.driver(Integrations.Group.AI)?.name
@@ -306,12 +306,19 @@ fun Settings(nav: Nav, start: String? = null) {
             }
             Link("Picks · ${hub.label}", status, m) { if (!busy) com.lekathedon.visionlite.recs.Recs.rebuildNow(hub) }
         } }
-        row { m -> Link("Start over", "Forgets the picks; keeps More like this and Not for me", m) { com.lekathedon.visionlite.recs.Recs.reset() } }
-        head("AI Picks (free tiers)")
+        row { m -> Link("Start over", "Forgets the picks; keeps Love, Like and Not for me", m) { com.lekathedon.visionlite.recs.Recs.reset() } }
+        row { m ->
+            val n = com.lekathedon.visionlite.recs.Recs.changed.collectAsState().value.let { com.lekathedon.visionlite.recs.Recs.feedback() }
+            Link("Your Love / Like / Not for me", "${n.count { it.love }} loved · ${n.count { it.like && !it.love }} liked · ${n.count { !it.like }} not for me · hold OK on any title to change", m, value = "") {}
+        }
+        head("Hide adult titles")
+        row { m -> Toggle("Hide adult titles", "Explicit films (9 Songs, softcore, porn) leave every row, page, search and pick; R-rated stays. Each title is checked once", p.hideAdult, m) }
+        head("AI (free tiers): helps every recommendation, no row of its own")
         row { m -> ServiceRow("gemini", nav, m) }
         row { m -> ServiceRow("groq", nav, m) }
         row { m -> ServiceRow("mistral", nav, m) }
         row { m -> DriverRow(Integrations.Group.AI, "Asked first", m) }
+        row { m -> AiModeRow(m) }
     }
     pages += page("Live TV and more", "IPTV playlists, sports, YouTube", {
         Iptv.version.collectAsState().value
@@ -702,6 +709,27 @@ fun Addons() {
                 Button("Up", { store.move(a.base, -1) })
                 Button("Down", { store.move(a.base, 1) })
                 Button("Remove", { store.remove(a.base) })
+            }
+        }
+    }
+}
+
+/** How the AIs agree (moved here from Scout's page): Vote, each AI by its weight (OK cycles the weights), or one Boss decides. */
+@Composable
+private fun AiModeRow(modifier: Modifier) {
+    val ai = com.lekathedon.visionlite.recs.AiPicks
+    var tick by remember { mutableStateOf(0) }
+    val on = remember(tick) { ai.configured() }
+    val boss = remember(tick) { ai.boss() }
+    if (on.isEmpty()) return
+    Column(modifier) {
+        val order = listOf<com.lekathedon.visionlite.recs.AiPicks.Ai?>(null) + on
+        Link("How the AIs decide", if (boss == null) "Vote: each AI counts by its weight" else "Boss: ${boss.label} makes the final call",
+            value = if (boss == null) "Vote" else "Boss") { ai.setBoss(order[(order.indexOf(boss) + 1) % order.size]); tick++ }
+        if (boss == null) on.forEach { a ->
+            val w = ai.weight(a)
+            Link("${a.label} weight", "OK changes it", value = "×" + if (w % 1.0 == 0.0) w.toInt().toString() else w.toString()) {
+                val ws = ai.WEIGHTS; ai.setWeight(a, ws[(ws.indexOf(w).coerceAtLeast(0) + 1) % ws.size]); tick++
             }
         }
     }

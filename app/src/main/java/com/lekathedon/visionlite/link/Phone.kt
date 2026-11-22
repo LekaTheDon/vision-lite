@@ -64,7 +64,7 @@ internal class Phone(private val secret: () -> String) {
                 })))
             .put("scoutRatings", JSONArray().apply {
                 Recs.feedback().sortedByDescending { it.at }.forEach { f ->
-                    put(JSONObject().put("id", f.id).put("rating", if (f.like) "LIKE" else "NOT_FOR_ME")
+                    put(JSONObject().put("id", f.id).put("rating", if (!f.like) "NOT_FOR_ME" else if (f.love) "LOVE" else "LIKE")
                         .put("type", if (f.tv) "series" else "movie").put("name", f.name)
                         .put("poster", if (f.id.startsWith("tt")) com.lekathedon.visionlite.library.posterOf(f.id) else JSONObject.NULL))
                 }
@@ -175,8 +175,12 @@ internal class Phone(private val secret: () -> String) {
                 val item = o.optJSONObject("item") ?: error("no title")
                 val id = item.optString("imdb").takeIf { it.startsWith("tt") } ?: error("needs an IMDb id")
                 val tv = item.optString("type") != "movie"
-                if (o.optString("verdict") == "like") Recs.moreLikeThis(id, tv, item.optString("name"))
-                else Recs.notForMe(id, tv, item.optString("name"))
+                when (o.optString("verdict")) {
+                    "love" -> Recs.love(id, tv, item.optString("name"))
+                    "like" -> Recs.moreLikeThis(id, tv, item.optString("name"))
+                    "forget" -> Recs.forget(id)
+                    else -> Recs.notForMe(id, tv, item.optString("name"))
+                }
             }
             "list" -> {
                 val l = o.optJSONObject("list") ?: error("no list")

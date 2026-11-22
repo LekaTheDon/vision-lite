@@ -176,14 +176,17 @@ private fun DiscoverOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         }
     }
     LaunchedEffect(cat?.let(::key), g) { load() }
+    val adultRev by com.lekathedon.visionlite.recs.Adult.revision.collectAsState()
+    val adultOn by App.instance.prefs.hideAdult.flow.collectAsState()
+    val shown = remember(items, adultRev, adultOn) { com.lekathedon.visionlite.recs.Adult.visible(items) }
     Page("Discover", if (all.isEmpty()) "Your add-ons have no catalogs to browse." else null) {
         Chips(types.map { it to typeName(it) }, t, Modifier.padding(top = 12.dp)) { type = it }
         Chips(cats.map { key(it) to ((it.second.name ?: it.second.id) + " · " + it.first.manifest.name) }, cat?.let(::key), Modifier.padding(top = 8.dp)) { catKey = it }
         if (genres.isNotEmpty()) Chips((if (genreRequired) emptyList() else listOf("" to "All")) + genres.map { it to it }, g ?: "", Modifier.padding(top = 8.dp)) { genre = it.ifEmpty { null } }
         LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().padding(top = 14.dp), contentPadding = PaddingValues(bottom = 40.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            itemsIndexed(items, key = { _, m -> m.id }) { i, m ->
-                if (i >= items.size - 12) LaunchedEffect(items.size) { load() }
+            itemsIndexed(shown, key = { _, m -> m.id }) { i, m ->
+                if (i >= shown.size - 12) LaunchedEffect(items.size) { load() }
                 Poster(m, nav, sub = listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null }, expand = false)
             }
             if (items.isEmpty() && !loading && cat != null) item(span = { GridItemSpan(maxLineSpan) }) { Text("Nothing here.", color = Palette.TextDim, fontSize = 15.sp) }
@@ -329,72 +332,7 @@ object BrowseTiles {
     }
 }
 
-// ---------------------------------------------------------------- Scout
-
-/** Scout: the engine's picks for you and its "because you watched" rows. Hold OK: Not for me. */
-@Composable
-fun Scout(nav: Nav) {
-    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
-    androidx.compose.runtime.key(hub) { ScoutOf(nav, hub) }
-}
-
-/** Scout for one hub: that hub's picks, moods, AI picks and "because you watched" rows. */
-@Composable
-private fun ScoutOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
-    val pool by Recs.pool(hub).collectAsState()
-    val building by Recs.building(hub).collectAsState()
-    val changed by Recs.changed.collectAsState()
-    LaunchedEffect(Unit) { runCatching { Recs.refreshIfDue(hub) } }
-    val forYou = remember(pool, changed) { Recs.forYou(40, hub = hub) }
-    val because = remember(pool, changed) { Recs.because(hub) }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(forYou.isNotEmpty()) { if (forYou.isNotEmpty()) runCatching { first.requestFocus() } }
-    fun meta(p: com.lekathedon.visionlite.recs.Pick) = MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), releaseInfo = p.year?.toString(),
-        imdbRating = p.rating?.toString(), genres = p.genres, description = p.why)
-    val note = when { building -> "Thinking…"; pool == null -> "Learns from Trakt and what you like."; else -> "Hold OK on a poster: not for me" }
-    Page("Scout", note) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
-            item {
-                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button("Refresh picks", { Recs.rebuildNow(hub) }) }
-                if (forYou.isEmpty() && !building) Text("No picks yet. Connect Trakt (Settings › Integrations) or like a few titles, then Refresh.",
-                    color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp))
-            }
-            item(key = "foryou") {
-                Rail("For you", forYou.map(::meta), nav, subOf = { it.description }, firstFocus = first,
-                    onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name) })
-            }
-            item(key = "moods") { MoodsRow(nav, pool, changed, hub) }
-            item(key = "ai") { AiRail(nav, hub) }
-            items(because, key = { it.seed }) { b ->
-                Rail("Because you watched ${b.seed}", b.picks.map(::meta), nav, subOf = { it.description },
-                    onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name) })
-            }
-        }
-    }
-}
-
-/** Scout's moods: one chip each; the chosen mood shows the engine's finds for it, then more from TMDB. */
-@Composable
-private fun MoodsRow(nav: Nav, pool: com.lekathedon.visionlite.recs.Pool?, changed: Int, hub: com.lekathedon.visionlite.anime.Hub) {
-    var mood by remember { mutableStateOf<com.lekathedon.visionlite.recs.Mood?>(null) }
-    val moods = remember(pool, changed) { com.lekathedon.visionlite.recs.Moods.available(hub) }
-    if (moods.isEmpty()) return
-    com.lekathedon.visionlite.home.EchoRowTitle("Moods")
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
-        items(moods) { m -> Button(if (m == mood) "● ${m.label}" else m.label, { mood = if (mood == m) null else m }) }
-    }
-    val m = mood ?: return
-    val engine = remember(m, pool, changed) { com.lekathedon.visionlite.recs.Moods.fromEngine(m, hub) }
-    val more by produceState(emptyList<MetaPreview>(), m, engine) {
-        value = runCatching { com.lekathedon.visionlite.recs.Moods.discover(m, engine.map { it.name }.toSet(), hub) }.getOrDefault(emptyList())
-    }
-    Text(m.why, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-    Rail("${m.label} · for you", engine.map { p -> MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), releaseInfo = p.year?.toString(),
-        imdbRating = p.rating?.toString(), genres = p.genres, description = p.why) }, nav, subOf = { it.description },
-        onHold = { x -> com.lekathedon.visionlite.recs.Recs.notForMe(x.id, x.type == "series", x.name) })
-    Rail("${m.label} · more to discover", more, nav)
-    if (engine.isEmpty() && more.isEmpty()) Text("Nothing for this mood yet. Refresh picks, or add a TMDB key for more.", color = Palette.TextDim, fontSize = 14.sp)
-}
+// Scout is no longer a page (0.27): its engine fills Home's Vision Picks, "Because you watched" and mood rows.
 
 // ---------------------------------------------------------------- Calendar
 
@@ -514,34 +452,4 @@ fun PersonPage(nav: Nav, id: String, name: String) {
             item { Rail("Series", all.filter { it.type == "series" }, nav, subOf = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }) }
         }
     }
-}
-
-/** Scout's AI Picks: the row, and how the AIs decide (Vote with weights, or one Boss). */
-@Composable
-private fun AiRail(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
-    val ai = com.lekathedon.visionlite.recs.AiPicks
-    val picks by ai.picks(hub).collectAsState()
-    val status by ai.status(hub).collectAsState()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    LaunchedEffect(Unit) { runCatching { ai.refreshIfDue(hub) } }
-    var tick by remember { mutableStateOf(0) }
-    val on = remember(tick) { ai.configured() }
-    val boss = remember(tick) { ai.boss() }
-    Text("AI Picks" + (status?.let { " · $it" } ?: ""), color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
-    if (on.isNotEmpty()) Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Button("New AI picks", { scope.launch { ai.refreshIfDue(hub, force = true) } })
-        Button(if (boss == null) "Mode: Vote" else "Mode: Boss = ${boss.label}", {
-            val order = listOf<com.lekathedon.visionlite.recs.AiPicks.Ai?>(null) + on
-            ai.setBoss(order[(order.indexOf(boss) + 1) % order.size]); tick++
-        })
-        if (boss == null) on.forEach { a ->
-            val w = ai.weight(a)
-            Button("${a.label} ×${if (w % 1.0 == 0.0) w.toInt().toString() else w.toString()}", {
-                val ws = ai.WEIGHTS; ai.setWeight(a, ws[(ws.indexOf(w).coerceAtLeast(0) + 1) % ws.size]); tick++
-            })
-        }
-    }
-    fun meta(p: com.lekathedon.visionlite.recs.Pick) = MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), releaseInfo = p.year?.toString(),
-        imdbRating = p.rating?.toString(), genres = p.genres, description = p.why)
-    Rail("", picks.map(::meta), nav, key = "ai", subOf = { it.description }, onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name); ai.remove(m.id, hub) })
 }

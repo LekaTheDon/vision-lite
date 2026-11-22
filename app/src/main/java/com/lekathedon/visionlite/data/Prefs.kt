@@ -170,6 +170,8 @@ class Prefs(context: Context) {
     /** Recommendations: IMDb minimum ("0" = off) and the More like this / Not for me marks. */
     val recMinImdb = Text("rec_min_imdb", "7")
     val recFeedback = Text("rec_feedback", "[]")
+    /** Hide adult titles: explicit films (9 Songs, softcore, porn) anywhere in the app. Off = no lookups at all. */
+    val hideAdult = Flag("hide_adult", false)
     /** Live TV: playlists (JSON; Xtream passwords stay on this TV) and favourite channels. */
     val iptvPlaylists = Text("iptv_playlists", "[]")
     val iptvFavs = Text("iptv_favs", "")

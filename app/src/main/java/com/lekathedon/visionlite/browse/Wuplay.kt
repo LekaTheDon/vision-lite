@@ -114,6 +114,9 @@ object Wuplay {
             Sort.LATEST -> q.append("&vote_count.gte=20")
             Sort.MOST_RATED -> {}
         }
+        // Hide adult titles (when on): TMDB leaves the explicit keywords out, so these titles need no check of their own.
+        val adult = com.lekathedon.visionlite.recs.Adult.tmdbWithout()
+        q.append(adult)
         val o = Tmdb.get(q.toString()) ?: return emptyList()
         val results = o.optJSONArray("results") ?: return emptyList()
         return (0 until results.length()).mapNotNull { i ->
@@ -121,7 +124,7 @@ object Wuplay {
             if (r.optString("poster_path").isBlank()) return@mapNotNull null
             val m = Tmdb.items(JSONObject().put("results", JSONArray().put(r)), tv).firstOrNull() ?: return@mapNotNull null
             Scored(m, r.optDouble("popularity", 0.0), r.optString(if (tv) "first_air_date" else "release_date"), r.optInt("vote_count"))
-        }
+        }.also { l -> if (adult.isNotEmpty()) com.lekathedon.visionlite.recs.Adult.clean(l.map { it.m.id }) }
     }
 
     // ---- tile pictures: the backdrop of each genre's / decade's most popular title (one call each, kept a week) ----

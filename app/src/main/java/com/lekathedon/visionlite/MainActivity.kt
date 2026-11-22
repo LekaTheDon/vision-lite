@@ -119,7 +119,6 @@ class MainActivity : ComponentActivity() {
                         Screen.Discover -> com.lekathedon.visionlite.browse.Discover(nav)
                         is Screen.Genre -> com.lekathedon.visionlite.browse.GenrePage(nav, s.slug)
                         is Screen.Decade -> com.lekathedon.visionlite.browse.DecadePage(nav, s.slug)
-                        Screen.Scout -> com.lekathedon.visionlite.browse.Scout(nav)
                         Screen.Calendar -> com.lekathedon.visionlite.browse.CalendarPage(nav)
                         is Screen.Service -> com.lekathedon.visionlite.browse.ServicePage(nav, s.id)
                         is Screen.Person -> com.lekathedon.visionlite.browse.PersonPage(nav, s.id, s.name)
@@ -138,6 +137,7 @@ class MainActivity : ComponentActivity() {
                   }
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).
                   com.lekathedon.visionlite.sports.SportsHost(nav)
+                  com.lekathedon.visionlite.home.TasteMenuHost()
                   if (hub != null) {
                       val pillHome = remember { androidx.compose.ui.focus.FocusRequester() }
                       var pillFocused by remember { androidx.compose.runtime.mutableStateOf(false) }

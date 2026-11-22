@@ -200,6 +200,12 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         Button(if (saved) "In Library ✓" else "Library", {
                             saved = Saves.toggle(Saved(s.type, s.id, name, m?.poster ?: t?.poster))
                         }, heroMod)
+                        // Love it / Like / Not for me: the one engine behind every recommendation.
+                        val rc by com.lekathedon.visionlite.recs.Recs.changed.collectAsState()
+                        val verdict = remember(s.id, rc) { com.lekathedon.visionlite.recs.Recs.verdict(s.id) }
+                        Button(when (verdict) { "love" -> "Loved ♥"; "like" -> "Liked 👍"; "nope" -> "Not for me ✕"; else -> "♥ Like" }, {
+                            com.lekathedon.visionlite.home.TasteMenu.show(com.lekathedon.visionlite.addons.MetaPreview(s.id, s.type, name, m?.poster ?: t?.poster))
+                        }, heroMod)
                         val sp by prefs.sequelPrequel.flow.collectAsState()
                         val cn by prefs.connections.flow.collectAsState()
                         if (sp && t != null && t.sequels.isNotEmpty()) Button("Sequel / Prequel ${t.sequels.size}", {

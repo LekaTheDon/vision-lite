@@ -71,7 +71,8 @@ data class Signal(val id: String, val tv: Boolean, val name: String, val kind: K
 enum class Kind { LIKED, NOT_FOR_ME, LOVE, LIKE, REWATCHED, STOPPED, FINISHED, WATCHING }
 
 object RecsLogic {
-    const val VERSION = 1
+    /** 2 (0.27): six "because you watched" rows, Love / Like. */
+    const val VERSION = 2
     const val SEEDS = 20
     const val NEGATIVE = 4
     const val MIN_SEEDS = 3

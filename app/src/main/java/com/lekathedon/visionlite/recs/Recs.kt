@@ -50,7 +50,8 @@ object Recs {
     private const val FACT_BATCH = 20
     private const val SIMILAR = 20
     private const val TRAKT_SEEDS = 10
-    private const val BECAUSE_ROWS = 2
+    /** "Because you watched" rows built (Home shows a few, a different few every 12 h). */
+    private const val BECAUSE_ROWS = 6
     private const val BECAUSE_ITEMS = 30
     private const val FACTS_MAX_AGE = 30L * 86_400_000
     private const val FACTS_KEEP = 1500
@@ -83,41 +84,95 @@ object Recs {
 
     /** [count] picks for now (a different slice every 12 h), without anything turned down since the build. */
     fun forYou(count: Int = 30, now: Long = System.currentTimeMillis(), hub: Hub = Hubs.now()): List<Pick> {
-        val nope = feedback().filter { !it.like }.map { it.id }.toSet()
+        val nope = nope()
         val min = minImdb()
-        return RecsLogic.rotate(pool(hub).value?.picks.orEmpty().filter { Hubs.keepsId(hub, it.imdb) }.filter { it.imdb !in nope && (it.rating == null || it.rating >= min) }, count, now)
+        val own = RecsLogic.rotate(withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) }
+            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) }, count, now)
+        return own
+    }
+
+    /**
+     * The AIs (Gemini, Groq, Mistral, when keyed) as one more source of the engine, not a row of their own: a title the
+     * engine found that an AI also named is lifted (one more source agreeing); the AI's own finds join every few places.
+     */
+    private fun withAi(picks: List<Pick>, hub: Hub): List<Pick> {
+        val ai = AiPicks.picks(hub).value
+        if (ai.isEmpty()) return picks
+        val byId = ai.associateBy { it.imdb }
+        val lifted = picks.map { p -> byId[p.imdb]?.let { a -> p.copy(sources = p.sources + 1, why = p.why ?: a.why) } ?: p }
+            .sortedByDescending { if (it.imdb in byId) 1 else 0 }.let { l -> l.filter { it.imdb in byId } + l.filter { it.imdb !in byId } }
+        val have = picks.mapTo(HashSet()) { it.imdb }
+        val extra = ai.filter { it.imdb !in have }.toMutableList()
+        if (extra.isEmpty()) return lifted
+        val out = ArrayList<Pick>(lifted.size + extra.size)
+        lifted.forEachIndexed { i, p -> out += p; if (i % 3 == 2 && extra.isNotEmpty()) out += extra.removeAt(0) }
+        out += extra
+        return out
     }
 
     /** IMDb Picks: the engine's finds IMDb rates highest, without what Vision Picks shows now. */
     fun imdbPicks(count: Int = 30, now: Long = System.currentTimeMillis(), hub: Hub = Hubs.now()): List<Pick> {
-        val nope = feedback().filter { !it.like }.map { it.imdb() }.toSet()
+        val nope = nope()
         val shown = forYou(30, now, hub).map { it.imdb }.toSet()
         val min = maxOf(minImdb(), 7.5f)
-        return pool(hub).value?.picks.orEmpty().filter { Hubs.keepsId(hub, it.imdb) && it.imdb !in nope && it.imdb !in shown && (it.rating ?: 0f) >= min }
+        return withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) && it.imdb !in nope && !Adult.hidesId(it.imdb) && it.imdb !in shown && (it.rating ?: 0f) >= min }
             .sortedWith(compareByDescending<Pick> { it.rating ?: 0f }.thenByDescending { it.sources }).take(count)
     }
-    private fun Fb.imdb() = id
 
     /** "Because you watched X" rows, strongest first. */
     fun because(hub: Hub = Hubs.now()): List<Because> {
-        val nope = feedback().filter { !it.like }.map { it.id }.toSet()
-        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = b.picks.filter { it.imdb !in nope && Hubs.keepsId(hub, it.imdb) }) }
+        val nope = nope()
+        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = b.picks.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && Hubs.keepsId(hub, it.imdb) }) }
     }
 
-    @Serializable data class Fb(val id: String, val tv: Boolean, val name: String, val like: Boolean, val at: Long)
+    /** The "because you watched" rows Home shows now: [n] of them, a different set every 12 hours. */
+    fun becauseNow(n: Int, hub: Hub = Hubs.now(), now: Long = System.currentTimeMillis()): List<Because> {
+        val all = because(hub).filter { it.picks.size >= 8 }
+        if (all.size <= n) return all
+        val slot = now / (12 * 3600_000L)
+        return all.shuffled(java.util.Random(slot * 31 + hub.ordinal)).take(n)
+    }
+
+    /** Your word on a title: [love] (steers hardest), like, or Not for me (never recommended again). [alt] = the card's other id (TMDB). */
+    @Serializable data class Fb(val id: String, val tv: Boolean, val name: String, val like: Boolean, val at: Long,
+                                val love: Boolean = false, val alt: String? = null)
 
     private val fbSer = ListSerializer(Fb.serializer())
     fun feedback(): List<Fb> = runCatching { Net.json.decodeFromString(fbSer, p.recFeedback.value) }.getOrDefault(emptyList())
 
-    /** Hold OK → "More like this": steers harder than anything watched, from the next build. */
+    /** Hold OK → "Love it": steers hardest (like a 9-10 rating), from the next build. */
+    fun love(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, true, System.currentTimeMillis(), love = true))
+    /** "Like": more like this, from the next build. */
     fun moreLikeThis(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, true, System.currentTimeMillis()))
-    /** "Not for me": gone at once, and steers away from the next build. */
+    /** "Not for me": gone at once from every recommendation (Picks, Because, Moods, AI), for good, and steers away. */
     fun notForMe(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, false, System.currentTimeMillis()))
-    fun forget(id: String) { p.recFeedback.value = Net.json.encodeToString(fbSer, feedback().filter { it.id != id }); _changed.value++ }
+    fun forget(id: String) { p.recFeedback.value = Net.json.encodeToString(fbSer, feedback().filter { it.id != id && it.alt != id }); _changed.value++ }
+
+    /** What you said about [id] ("love", "like", "nope"), or null. */
+    fun verdict(id: String): String? = feedback().firstOrNull { it.id == id || it.alt == id }?.let { if (!it.like) "nope" else if (it.love) "love" else "like" }
+
+    @Volatile private var nopeCache: Pair<String, Set<String>>? = null
+    /** Every title turned down, by each id it has (IMDb and TMDB): never recommended again. */
+    fun nope(): Set<String> {
+        val raw = p.recFeedback.value
+        nopeCache?.takeIf { it.first == raw }?.let { return it.second }
+        return feedback().filter { !it.like }.flatMap { listOfNotNull(it.id, it.alt) }.toSet().also { nopeCache = raw to it }
+    }
 
     private fun mark(f: Fb) {
-        p.recFeedback.value = Net.json.encodeToString(fbSer, (listOf(f) + feedback().filter { it.id != f.id }).take(500))
+        // A TMDB / AniList card: its IMDb id is what the engine knows titles by (the card's id is kept too).
+        val drop = setOf(f.id)
+        p.recFeedback.value = Net.json.encodeToString(fbSer, (listOf(f) + feedback().filter { it.id !in drop && it.alt !in drop }).take(5000))
         _changed.value++
+        if (!f.id.startsWith("tt")) scope.launch {
+            val imdb = runCatching { com.lekathedon.visionlite.home.imdbIdOf(com.lekathedon.visionlite.addons.MetaPreview(f.id, if (f.tv) "series" else "movie", f.name)) }
+                .getOrNull()?.takeIf { it.startsWith("tt") } ?: return@launch
+            val list = feedback().map { if (it.id == f.id) it.copy(id = imdb, alt = f.id) else it }.filter { !(it.id == imdb && it.alt == null && it.at < f.at) }
+            p.recFeedback.value = Net.json.encodeToString(fbSer, list)
+            if (!f.like) AiPicks.remove(imdb, Hubs.hubOf(imdb))
+            _changed.value++
+        }
+        if (!f.like) AiPicks.remove(f.id, Hubs.hubOf(f.id))
     }
 
     /** One title's "more like this", on demand (a details page): IMDb + Trakt for it alone, same rules. */
@@ -129,7 +184,8 @@ object Recs {
         val ex = RecsLogic.Exclusions(seen() + exclusionIds(null), emptySet())
         val hub = Hubs.hubOf(id)
         val tally = RecsLogic.tally((listOf(Triple(Source.IMDB, seed, imdb)) + trakt).map { (s, sd, l) -> Triple(s, sd, l.filter { Hubs.keepsId(hub, it.id) }) }, ex, minImdb())
-        tally.values.sortedByDescending { it.score }.take(BECAUSE_ITEMS).map { simplePick(it) }
+        val nope = nope()
+        tally.values.sortedByDescending { it.score }.map { simplePick(it) }.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) }.take(BECAUSE_ITEMS)
     }
 
     // ---- building ----
@@ -138,6 +194,8 @@ object Recs {
     suspend fun refreshIfDue(hub: Hub = Hubs.now(), force: Boolean = false): Pool? = lock.withLock {
         withContext(Dispatchers.IO) {
             buildings.getValue(hub).value = true
+            // The AIs are one of the engine's sources (their own 12-hour clock; nothing without a key).
+            if (AiPicks.configured().isNotEmpty()) scope.launch { runCatching { AiPicks.refreshIfDue(hub, force) } }
             try { build(hub, force) } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "build failed: ${e.message}"); pool(hub).value
@@ -213,7 +271,8 @@ object Recs {
             pb.show?.ids?.imdb?.let { out += Signal(it, true, pb.show.title, Kind.WATCHING, ms(pb.pausedAt)) }
         }
         Saves.all().filter { it.id.startsWith("tt") }.forEach { out += Signal(it.id.substringBefore(':'), it.type != "movie", it.name, Kind.WATCHING, 0) }
-        feedback().forEach { out += Signal(it.id, it.tv, it.name, if (it.like) Kind.LIKED else Kind.NOT_FOR_ME, it.at) }
+        // Your word weighs most: Love = the strongest signal there is (8), Like = a 9-10 rating's (6).
+        feedback().filter { it.id.startsWith("tt") }.forEach { out += Signal(it.id, it.tv, it.name, if (!it.like) Kind.NOT_FOR_ME else if (it.love) Kind.LIKED else Kind.LOVE, it.at) }
         return out
     }
 
@@ -224,7 +283,7 @@ object Recs {
         t?.ratings?.forEach { (it.movie?.ids?.imdb ?: it.show?.ids?.imdb)?.let(::add) }
         t?.paused?.forEach { (it.movie?.ids?.imdb ?: it.show?.ids?.imdb)?.let(::add) }
         Saves.all().forEach { add(it.id.substringBefore(':')) }
-        feedback().forEach { add(it.id) }
+        feedback().forEach { add(it.id); it.alt?.let(::add) }
     }
 
     private val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -270,7 +329,7 @@ object Recs {
     }
 
     /** What is never recommended (watched, rated, paused, saved, turned down), as last worked out. */
-    fun seenIds(): Set<String> = (read("seen.json", seenSer)?.toSet() ?: emptySet()) + feedback().filter { !it.like }.map { it.id } + Saves.all().map { it.id.substringBefore(':') }
+    fun seenIds(): Set<String> = (read("seen.json", seenSer)?.toSet() ?: emptySet()) + nope() + Saves.all().map { it.id.substringBefore(':') }
 
     /** Full facts for [ids], [FACT_BATCH] per request. */
     private suspend fun lookUp(ids: List<String>, facts: MutableMap<String, Facts>) = coroutineScope {
@@ -353,7 +412,7 @@ object Recs {
     private val seenSer = ListSerializer(String.serializer())
     /** Moods: TMDB ids and name|year keys of what you've seen (written by the last build), plus saved / turned down names. */
     fun seenTmdb(): Set<String> = (read("seen_tmdb.json", seenSer)?.toSet() ?: emptySet()) +
-        feedback().filter { !it.like }.map { RecsLogic.exclusionName(it.name, null) } + Saves.all().map { RecsLogic.exclusionName(it.name, null) }
+        nope() + feedback().filter { !it.like }.map { RecsLogic.exclusionName(it.name, null) } + Saves.all().map { RecsLogic.exclusionName(it.name, null) }
     fun seenName(name: String, year: String?) = RecsLogic.exclusionName(name, year?.take(4)?.toIntOrNull())
 
     /** IMDb keywords the engine already holds for these titles (facts file, no requests). */

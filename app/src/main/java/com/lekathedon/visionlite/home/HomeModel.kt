@@ -48,8 +48,11 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private val state = MutableStateFlow<List<Row>>(emptyList())
     /** Each row's items as their source gave them; the row shows only this hub's ([keep]). */
     private val raw = HashMap<String, List<MetaPreview>>()
-    private fun keep(list: List<MetaPreview>) = list.filter { Hubs.keeps(hub, it) }
+    private fun keep(list: List<MetaPreview>) = list.filter { Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.Adult.hides(it) }
     private val rowOrder get() = Hubs.rowOrder(hub)
+    private val engineKeys = listOf(VisionRows.PICKS, VisionRows.IMDB) + VisionRows.BECAUSE + VisionRows.MOODS
+    /** Mood rows' TMDB top-up, once per mood per app run (2 TMDB requests; nothing without a key). */
+    private val moodMore = HashMap<com.lekathedon.visionlite.recs.Mood, List<MetaPreview>>()
     val rows: StateFlow<List<Row>> get() = state
     private val loading = HashMap<String, Job>()
     private val needed = HashSet<String>()
@@ -90,9 +93,14 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         // Rotating rows: the set built last time shows at once (disk); the next one builds a minute after Home shows.
         viewModelScope.launch { runCatching { Rotation.onHome(hub) } }
         // Vision's rows follow their sources: anything new there shows on Home at once.
-        viewModelScope.launch { combine(Recs.pool(hub), Recs.changed) { _, _ -> }.collect { fill(VisionRows.PICKS); fill(VisionRows.IMDB) } }
-        viewModelScope.launch { AiPicks.picks(hub).collect { fill(VisionRows.AI) } }
-        viewModelScope.launch { AiPicks.status(hub).collect { fill(VisionRows.AI) } }
+        // The engine's rows (Vision Picks + Scout + the AIs): anything it learns or you say (Love / Like / Not for me) shows at once.
+        viewModelScope.launch { combine(Recs.pool(hub), Recs.changed, AiPicks.picks(hub)) { _, _, _ -> }.collect { engineKeys.forEach { fill(it) } } }
+        // Hide adult titles: a title found out to be adult leaves every row at once.
+        viewModelScope.launch {
+            combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow) { a, b -> a to b }.collect {
+                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it)) } ?: r }
+            }
+        }
         viewModelScope.launch { ComingUp.items.collect { fill(VisionRows.COMING_UP) } }
         viewModelScope.launch { Services.art.collect { fill(VisionRows.SERVICES) } }
         viewModelScope.launch { People.list.collect { fill(VisionRows.PEOPLE) } }
@@ -179,20 +187,15 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     }
 
     /** The Refresh tile at the end of a Picks row. */
-    fun refreshPicks(key: String) {
-        when (key) {
-            VisionRows.AI -> viewModelScope.launch { AiPicks.refreshIfDue(hub, force = true) }
-            else -> Recs.rebuildNow(hub)
-        }
-    }
+    fun refreshPicks(@Suppress("UNUSED_PARAMETER") key: String) = Recs.rebuildNow(hub)
+
 
     /** A Vision row's first look: its source is asked to refresh when due (each keeps its own clock). */
     private fun start(row: Row) {
         val key = row.key
         when (key) {
             VisionRows.COMING_UP -> ComingUp.onHome()
-            VisionRows.PICKS, VisionRows.IMDB -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
-            VisionRows.AI -> viewModelScope.launch { runCatching { AiPicks.refreshIfDue(hub) } }
+            VisionRows.PICKS, VisionRows.IMDB, in VisionRows.BECAUSE, in VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             VisionRows.PEOPLE -> {}
             // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
@@ -234,7 +237,25 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             }
             VisionRows.PICKS -> Recs.forYou(30, hub = hub).map(::meta)
             VisionRows.IMDB -> Recs.imdbPicks(30, hub = hub).map(::meta)
-            VisionRows.AI -> AiPicks.picks(hub).value.map(::meta)
+            in VisionRows.BECAUSE -> {
+                val b = Recs.becauseNow(VisionRows.BECAUSE.size, hub).getOrNull(VisionRows.BECAUSE.indexOf(key))
+                set(key, b?.picks.orEmpty().map(::meta), b?.let { "Because you watched ${it.seed}" }); return
+            }
+            in VisionRows.MOODS -> {
+                val mood = com.lekathedon.visionlite.recs.Moods.forHomeNow(VisionRows.MOODS.size, hub).getOrNull(VisionRows.MOODS.indexOf(key))
+                if (mood == null) { set(key, emptyList()); return }
+                val own = com.lekathedon.visionlite.recs.Moods.engineMetas(mood, hub)
+                val nope = Recs.nope()
+                val more = moodMore[mood]?.filter { it.id !in nope }
+                set(key, (own + more.orEmpty()).distinctBy { it.name.lowercase() + it.releaseInfo }.take(40), mood.label)
+                if (more == null && !loading.containsKey(key)) loading[key] = viewModelScope.launch {
+                    val got = runCatching { com.lekathedon.visionlite.recs.Moods.discover(mood, own.map { it.name }.toSet(), hub) }.getOrDefault(emptyList())
+                    moodMore[mood] = got
+                    loading.remove(key)
+                    if (got.isNotEmpty()) fill(key)
+                }
+                return
+            }
             // Each hub its own services: the anime-only ones (Crunchyroll, HIDIVE, RetroCrush, d Anime Store, U-NEXT, ADN, Anime Times, Toei, Anime Generation) only in Anime.
             VisionRows.SERVICES -> if (!Services.on()) emptyList() else Services.S.entries.filter { it.anime == (hub == Hub.ANIME) }.map { s ->
                 val art = Services.art.value.firstOrNull { it.id == s.id }
@@ -252,10 +273,10 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         set(key, items)
     }
 
-    private fun set(key: String, items: List<MetaPreview>) {
+    private fun set(key: String, items: List<MetaPreview>, title: String? = null) {
         raw[key] = items
         val kept = keep(items)
-        state.value = state.value.map { r -> if (r.key == key) r.copy(items = kept, done = true) else r }
+        state.value = state.value.map { r -> if (r.key == key) r.copy(items = kept, done = true, title = title ?: r.title) else r }
     }
 
     private fun meta(p: Pick) = MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), backdropOf(p.imdb),
