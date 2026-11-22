@@ -23,8 +23,8 @@ sealed interface Screen {
     data object Vod : Screen
     data object Recordings : Screen
     data object Discover : Screen
-    data object Genres : Screen
-    data object Decades : Screen
+    data class Genre(val slug: String) : Screen
+    data class Decade(val slug: String) : Screen
     data object Scout : Screen
     data object Calendar : Screen
     data class Service(val id: String) : Screen

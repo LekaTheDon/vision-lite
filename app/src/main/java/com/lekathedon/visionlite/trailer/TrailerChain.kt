@@ -69,7 +69,10 @@ object TrailerChain {
         return t.optString("id").takeIf { t.optString("site") == "youtube" && it.length == 11 }
     }
 
-    /** TMDB's best YouTube trailer: official Trailer first, then any Trailer, then a Teaser. Needs your TMDB key. */
+    /**
+     * TMDB's best YouTube trailer, from the title's own videos: an official Trailer in English first (the main one, not a
+     * "final"/character/review one), then any official Trailer, then an official Teaser. Unofficial uploads are left out.
+     */
     private fun tmdbTrailer(imdb: String?, m: MetaPreview): String? {
         if (Tmdb.key() == null) return null
         val (kind, id) = when {
@@ -83,16 +86,42 @@ object TrailerChain {
         if (kind == null || id == null) return null
         val v = Tmdb.get("$kind/$id/videos?language=en-US")?.optJSONArray("results") ?: return null
         val all = (0 until v.length()).mapNotNull { v.optJSONObject(it) }.filter { it.optString("site") == "YouTube" && it.optString("key").length == 11 }
-        val pick = all.firstOrNull { it.optString("type") == "Trailer" && it.optBoolean("official") }
-            ?: all.firstOrNull { it.optString("type") == "Trailer" } ?: all.firstOrNull { it.optString("type") == "Teaser" }
+        val off = all.filter { it.optBoolean("official") }
+        val bad = Regex("(?i)review|reaction|explained|breakdown|recap|featurette|interview|behind|clip|spot")
+        val trailers = off.filter { it.optString("type") == "Trailer" && !bad.containsMatchIn(it.optString("name")) }
+        val pick = trailers.sortedBy { it.optString("published_at") }.firstOrNull { Regex("(?i)official|trailer ?#?1\\b|main").containsMatchIn(it.optString("name")) }
+            ?: trailers.minByOrNull { it.optString("published_at").ifBlank { "9" } }
+            ?: off.firstOrNull { it.optString("type") == "Teaser" && !bad.containsMatchIn(it.optString("name")) }
         return pick?.optString("key")
     }
 
-    /** YouTube's first video for "<title> <year> official trailer" (anime: "… anime trailer"). */
+    /**
+     * YouTube search for "<title> <year> official trailer" (anime: "… anime trailer"), as the last resort, and only a
+     * video that is plainly this title's trailer: its name holds the whole title and the word trailer (or teaser /
+     * PV), and none of review, reaction, explained, recap, breakdown, ending, interview, fan-made, concept… A search
+     * that finds none gives no trailer: better the still than someone else's video (the review of "Prawo bestii").
+     */
     private suspend fun search(m: MetaPreview): String? {
         if (m.name.isBlank()) return null
         val anime = !m.id.startsWith("tt") && !m.id.startsWith("tmdb:")
-        val q = listOfNotNull(m.name, m.releaseInfo?.take(4), if (anime) "anime trailer" else "official trailer").joinToString(" ")
-        return Yt.search(q).flatMap { it.items }.firstOrNull { it.videoId?.length == 11 }?.videoId
+        val year = m.releaseInfo?.take(4)
+        val q = listOfNotNull(m.name, year, if (anime) "anime trailer" else "official trailer").joinToString(" ")
+        val want = norm(m.name)
+        if (want.length < 2) return null
+        return Yt.search(q).flatMap { it.items }.filter { it.videoId?.length == 11 }.take(8).firstOrNull { v ->
+            val t = norm(v.title)
+            val padded = " $t "
+            // The title's own words don't count against it (a film called "The Review").
+            val rest = padded.replace(" $want ", " ")
+            " $want " in padded && TRAILER_WORD.containsMatchIn(rest) && !NOT_TRAILER.containsMatchIn(rest) &&
+                // Another year in the name is another film of that name (a remake, the original).
+                (year == null || YEAR.findAll(rest).none { it.value != year })
+        }?.videoId
     }
+
+    private fun norm(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
+        .lowercase().replace('&', ' ').replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+    private val TRAILER_WORD = Regex("\\b(trailer|teaser|pv|zwiastun|trailer oficial|bande annonce|tráiler|fragman|tráiler oficial)\\b")
+    private val NOT_TRAILER = Regex("\\b(review|reviews|reaction|reacts|explained|explain|recap|breakdown|ending|interview|fan made|fanmade|concept|parody|analysis|theory|theories|easter eggs|things you missed|comparison|honest|pitch meeting|clip|behind the scenes|featurette|commentary|podcast|unboxing|ai generated)\\b")
+    private val YEAR = Regex("\\b(19|20)\\d{2}\\b")
 }

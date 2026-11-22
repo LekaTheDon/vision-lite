@@ -151,7 +151,16 @@ internal object HomeFocus {
 }
 
 /** A card's place in its row, for [EchoCard] to register its focus requester ([RowSlots]). */
-private class RowSlots(val key: String) { val reqs = HashMap<Int, FocusRequester>() }
+private class RowSlots(val key: String, val home: Boolean = true) {
+    val reqs = HashMap<Int, FocusRequester>()
+    /** A page row's card last focused (Home keeps its own in [HomeFocus]). */
+    var last: Int
+        get() = PageFocus.index[key] ?: 0
+        set(v) { PageFocus.index[key] = v }
+}
+
+/** The card last focused in each row of the other pages (by page + row), so going back up lands where you were. */
+internal object PageFocus { val index = HashMap<String, Int>() }
 /** Each Home row's slots by row key, so focus can go back to a row after one of its cards was removed. */
 private val RowRegistry = HashMap<String, RowSlots>()
 
@@ -188,13 +197,17 @@ private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below
         slots?.reqs?.set(0, me)
         onDispose {
             if (slots?.reqs?.get(0) === me) slots.reqs.remove(0)
-            if (focused) scope.launch {
+            // A page row (not Home): its first card takes focus once the titles are in.
+            if (focused && slots != null && !slots.home) scope.launch {
+                repeat(30) { withFrameNanos { }; slots.reqs[0]?.let { if (runCatching { it.requestFocus() }.isSuccess) return@launch } }
+            }
+            else if (focused) scope.launch {
                 if (refocusRow(rowKey, 0, null, tries = 30)) return@launch
                 for (k in below()) if (refocusRow(k, HomeFocus.index[k] ?: 0, null, tries = 5) || refocusRow(k, 0, null, tries = 5)) return@launch
             }
         }
     }
-    LaunchedEffect(focused) { if (focused) { LastFocus = me; slots?.let { HomeFocus.row = it.key; HomeFocus.index[it.key] = 0 } } }
+    LaunchedEffect(focused) { if (focused) { LastFocus = me; slots?.let { if (it.home) { HomeFocus.row = it.key; HomeFocus.index[it.key] = 0 } } } }
     Box(Modifier.focusRequester(me).onFocusChanged { focused = it.isFocused }.focusable().size(width, height).clip(shape)
         .background(CardBackground).then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier))
 }
@@ -274,6 +287,8 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     fun open(m: MetaPreview) {
         when (m.type) {
             "service" -> nav.push(Screen.Service(m.id.removePrefix("svc:")))
+            "genre" -> nav.push(Screen.Genre(m.id.removePrefix("genre:")))
+            "decade" -> nav.push(Screen.Decade(m.id.removePrefix("decade:")))
             "person" -> nav.push(Screen.Person(m.id, m.name))
             else -> if (m.id.startsWith("tt")) nav.push(Screen.Detail(m.type, m.id, m.name)) else scope.launch { openTitle(nav, m) }
         }
@@ -406,7 +421,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                 }
                 items(visible, key = { it.key }) { row ->
                     LaunchedEffect(row.key) { vm.need(row.key) }
-                    val wide = row.kind == RowKind.COMING || row.kind == RowKind.SERVICES
+                    val wide = row.kind == RowKind.COMING || row.kind == RowKind.SERVICES || row.kind == RowKind.TILES
                     val ranked = row.kind == RowKind.RANKED
                     val h = if (ranked) dims.highlightHeight else if (wide) dims.cwHeight else dims.posterHeight
                     val title = when {
@@ -416,21 +431,22 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                         else -> row.title
                     }
                     val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items
-                    EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type != "service" && it.type != "person" }, lead = if (ranked) dims.rankPad else 0.dp) {
+                    EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type !in NotTitles }, lead = if (ranked) dims.rankPad else 0.dp) {
                         if (row.items.isEmpty() && !row.done) item(key = "loading") { Slot(0) {
                             LoadingCard(row.key, if (ranked) dims.highlightWidth else if (wide) dims.cwWidth else dims.posterWidth, h, dims.radius,
                                 below = { visible.map { it.key }.let { k -> k.drop(k.indexOf(row.key) + 1) } }, scope = scope)
                         } }
                         itemsIndexed(items, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
                             val onFocus = {
-                                if (m.type != "service" && m.type != "person") { focused = HeroEntry(m, null, null); heroFocused = false }
+                                if (m.type !in NotTitles) { focused = HeroEntry(m, null, null); heroFocused = false }
                                 if (i >= items.size - 6) vm.more(row.key)
                             }
-                            val onHold: (() -> Unit)? = if (m.type == "service" || m.type == "person") null else ({ hold = row to m })
+                            val onHold: (() -> Unit)? = if (m.type in NotTitles) null else ({ hold = row to m })
                             when (row.kind) {
                                 RowKind.COMING -> ComingCard(m, dims, onFocus, onHold) { open(m) }
                                 RowKind.SERVICES -> ServiceCard(m, dims, onFocus) { open(m) }
                                 RowKind.PEOPLE -> PersonCard(m, dims, onFocus) { open(m) }
+                                RowKind.TILES -> BrowseTile(m.id, m.name, m.background, dims, Modifier, onFocus) { open(m) }
                                 RowKind.RANKED -> RankedCard(i + 1, m, dims,
                                     if (watchedMode == "dim" && m.id in watched) Modifier.graphicsLayer { alpha = 0.4f } else Modifier,
                                     onFocus = onFocus, onClick = { open(m) }, onHold = onHold)
@@ -472,6 +488,9 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
+
+/** Cards that aren't a title (no billboard, details line or hold menu). */
+private val NotTitles = setOf("service", "person", "genre", "decade")
 
 /** Hubs whose Home has shown its first screens this app start (the loading cover shows only before that). */
 internal object HomeReady { val done = HashSet<com.lekathedon.visionlite.anime.Hub>() }
@@ -955,7 +974,7 @@ private fun EchoCard(
     LaunchedEffect(focused) {
         if (focused) {
             LastFocus = me
-            if (slots != null && slot >= 0) { HomeFocus.row = slots.key; HomeFocus.index[slots.key] = slot }
+            if (slots != null && slot >= 0) { if (slots.home) { HomeFocus.row = slots.key; HomeFocus.index[slots.key] = slot } else slots.last = slot }
             onFocus()
         }
     }
@@ -1082,6 +1101,78 @@ fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = 
             modifier = Modifier.width(dims.posterWidth).padding(top = 6.dp))
     }
 }
+
+/**
+ * Home's row for every other page (services, genres, decades, people, Scout, Search, Library…): the opened card always
+ * rests on the left (the row snaps to it, as on Home), Up / Down come back to the card you left, a row still loading
+ * keeps a card you can land on, and Right on the last card stays put. [key] must be unique on the page and stable.
+ */
+@Composable
+fun PageRow(
+    key: String, title: String, metas: List<MetaPreview>, loading: Boolean = false,
+    sub: (MetaPreview) -> String? = { null }, firstFocus: FocusRequester? = null,
+    onHold: ((MetaPreview) -> Unit)? = null, onEnd: (() -> Unit)? = null, expand: Boolean = true,
+    onClick: (MetaPreview) -> Unit
+) {
+    if (metas.isEmpty() && !loading) return
+    val prefs = App.instance.prefs
+    val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
+    val dims = remember(size) { EchoDims.of(size) }
+    val trailersOn by prefs.trailers.flow.collectAsStateWithLifecycle()
+    val delayText by prefs.trailerDelay.flow.collectAsStateWithLifecycle()
+    val sound by prefs.trailerSound.flow.collectAsStateWithLifecycle()
+    val look = remember(trailersOn, delayText, sound, expand) { TrailerLook(trailersOn && expand, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound) }
+    val slots = remember(key) { RowSlots(key, home = false) }
+    val state = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val withSub = metas.any { sub(it) != null }
+    EchoRowTitle(title)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }, LocalRowSlots provides slots, LocalTrailer provides look) {
+        LazyRow(
+            Modifier.fillMaxWidth().height(dims.posterHeight + if (withSub) 44.dp else 0.dp)
+                .focusRestorer { slots.reqs[slots.last] ?: slots.reqs[state.firstVisibleItemIndex] ?: FocusRequester.Default }
+                .focusGroup()
+                .onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && slots.last >= metas.size - 1 && metas.isNotEmpty() },
+            state = state,
+            contentPadding = PaddingValues(end = 600.dp),
+            horizontalArrangement = Arrangement.spacedBy(dims.gap)
+        ) {
+            if (metas.isEmpty()) item(key = "loading") { Slot(0) { LoadingCard(key, dims.posterWidth, dims.posterHeight, dims.radius, { emptyList() }, scope) } }
+            itemsIndexed(metas, key = { i, m -> "$i:${m.id}" }) { i, m -> Slot(i) {
+                if (onEnd != null && i >= metas.size - 6) LaunchedEffect(metas.size) { onEnd() }
+                val mm = remember(m) { if (m.poster.isNullOrBlank() && m.id.startsWith("tt")) m.copy(poster = posterOf(m.id)) else m }
+                Column {
+                    val mod = if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier
+                    if (expand) PosterCard(mm, dims, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.let { h -> { h(m) } })
+                    else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.let { h -> { h(m) } }) {
+                        val art = com.lekathedon.visionlite.poster.Posters.poster(mm.id, mm.type, mm.poster)
+                        if (art.isNullOrBlank()) Fallback(mm.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = mm.poster)
+                    }
+                    sub(m)?.let { Text(it, color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.width(dims.posterWidth).padding(top = 6.dp)) }
+                }
+            } }
+        }
+    }
+}
+
+/** A Genres / Decades tile: a picture from its titles (or its own colour), the name big in the middle. */
+@Composable
+private fun BrowseTile(id: String, name: String, art: String?, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
+    val tint = remember(id) { TileColors[(id.hashCode() and 0x7fffffff) % TileColors.size] }
+    EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, modifier, onFocus, onClick) { focused ->
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(tint, Color(0xFF101010)))))
+        if (art != null) Img(art, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Black.copy(alpha = if (focused) 0.35f else 0.55f), Color.Black.copy(alpha = 0.15f)))))
+        Text(name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.7f), blurRadius = 12f)),
+            modifier = Modifier.align(Alignment.Center).padding(horizontal = 16.dp))
+    }
+}
+
+private val TileColors = listOf(Color(0xFF7A1F2B), Color(0xFF1F4E7A), Color(0xFF2E6B3A), Color(0xFF6B4A1F), Color(0xFF4B2A6E),
+    Color(0xFF1F6B6B), Color(0xFF7A3D1F), Color(0xFF3A3A6E), Color(0xFF6E2A55), Color(0xFF41611F))
 
 /** Echo's row title, for rows on other pages. */
 @Composable
@@ -1313,7 +1404,7 @@ private object Sections {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
         "YOUTUBE" -> com.lekathedon.visionlite.youtube.YtTabs.tabs().map { (k, l) -> l to Screen.YouTube(k) }
         "MUSIC" -> com.lekathedon.visionlite.music.MusicTabs.all.map { (k, l) -> l to Screen.Music(k) }
-        else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search, "Genres" to Screen.Genres, "Decades" to Screen.Decades,
+        else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search,
             "Scout" to Screen.Scout, "Library" to Screen.Library, "Calendar" to Screen.Calendar)
     }
     /** Picking YouTube or Music opens its first tab (as Vision's do); Films & TV, Anime and IPTV stay on Home with their pages in the pill. */

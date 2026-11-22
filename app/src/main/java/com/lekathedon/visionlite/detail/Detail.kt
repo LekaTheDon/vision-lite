@@ -284,7 +284,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             val similar = t?.similar.orEmpty()
             if (similar.isNotEmpty()) item(key = "similar") {
                 Header("More like this", "IMDb")
-                PosterRow(similar) { r -> nav.push(Screen.Detail(r.type, r.imdb, r.title)) }
+                val metas = remember(similar) { similar.map { r -> com.lekathedon.visionlite.addons.MetaPreview(r.imdb, r.type, r.title, r.poster,
+                    releaseInfo = r.year?.toString(), imdbRating = r.rating?.let { "%.1f".format(it) }) } }
+                com.lekathedon.visionlite.home.PageRow("similar", "", metas, sub = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } }) { m ->
+                    nav.push(Screen.Detail(m.type, m.id, m.name))
+                }
             }
 
             // ---------------------------------------------------------------- reviews

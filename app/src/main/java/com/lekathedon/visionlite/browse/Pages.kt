@@ -1,5 +1,5 @@
-// Vision's Nuvio pages, the lite way: Discover (your add-ons' catalogs), Genres and Decades (Cinemeta's genre and
-// year catalogs, no key), Scout (the recommendation engine) and Calendar (Trakt). One poster card, one rail, one grid.
+// Vision's Nuvio pages, the lite way: Discover (your add-ons' catalogs), Genres and Decades (WuPlay's, from tiles on
+// Home), Scout (the recommendation engine) and Calendar (Trakt). One poster card, one rail, one grid.
 package com.lekathedon.visionlite.browse
 
 import androidx.compose.foundation.background
@@ -35,6 +35,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -92,15 +93,13 @@ fun hubOnly(metas: List<MetaPreview>): List<MetaPreview> {
 
 @Composable
 fun Rail(title: String, metas: List<MetaPreview>, nav: Nav, subOf: (MetaPreview) -> String? = { null }, onHold: ((MetaPreview) -> Unit)? = null,
-         firstFocus: FocusRequester? = null, onEnd: (() -> Unit)? = null) {
+         firstFocus: FocusRequester? = null, onEnd: (() -> Unit)? = null, key: String = title, loading: Boolean = false) {
     val metas = hubOnly(metas)
-    if (metas.isEmpty()) return
-    com.lekathedon.visionlite.home.EchoRowTitle(title)
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        itemsIndexed(metas, key = { _, m -> m.id }) { i, m ->
-            if (onEnd != null && i >= metas.size - 6) LaunchedEffect(metas.size) { onEnd() }
-            Poster(m, nav, if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier, subOf(m), onHold?.let { h -> { h(m) } })
-        }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Home's row: the opened card rests on the left, Up / Down come back to the card you left.
+    com.lekathedon.visionlite.home.PageRow(key, title, metas, loading, subOf, firstFocus, onHold, onEnd) { m ->
+        if (m.id.startsWith("tt") || m.id.startsWith("kitsu:")) nav.push(Screen.Detail(m.type, m.id, m.name))
+        else scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
     }
 }
 
@@ -195,128 +194,138 @@ private fun DiscoverOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
 private fun key(p: Pair<Addon, CatalogDef>) = p.first.base + "|" + p.second.type + "|" + p.second.id
 private fun typeName(t: String) = when (t) { "movie" -> "Movies"; "series" -> "Shows"; "tv" -> "TV"; "channel" -> "Channels"; else -> t.replaceFirstChar { it.uppercase() } }
 
-// ---------------------------------------------------------------- Genres and Decades (Cinemeta, keyless)
+// ---------------------------------------------------------------- Genres and Decades (WuPlay, see Wuplay.kt)
 
-private object Cinemeta {
-    const val BASE = "https://v3-cinemeta.strem.io"
-    @Volatile private var manifest: Manifest? = null
-    suspend fun manifest(): Manifest? = manifest ?: runCatching { Net.getJson<Manifest>("$BASE/manifest.json", 12) }.getOrNull()?.also { manifest = it }
-    suspend fun page(type: String, catalog: String, genre: String, skip: Int = 0): List<MetaPreview> {
-        val m = manifest() ?: return emptyList()
-        val def = m.catalogs.firstOrNull { it.type == type && it.id == catalog } ?: CatalogDef(type, catalog)
-        return runCatching { App.instance.client.catalog(Addon(BASE, m), def, skip, genre = genre) }.getOrDefault(emptyList())
-    }
-    suspend fun genres(): List<String> = manifest()?.catalogs?.filter { it.id == "top" }?.flatMap { c -> c.extra.firstOrNull { it.name == "genre" }?.options.orEmpty() }
-        ?.distinct().orEmpty()
+/** A loading rail's titles, kept by its page (not by the row), so a row scrolled away and back keeps what it had. */
+class RailData {
+    val items = mutableStateListOf<MetaPreview>()
+    var busy by mutableStateOf(false)
+    var end by mutableStateOf(false)
+    /** Cards the source has given so far (before dropping repeats): the next page starts there. */
+    var fetched = 0
+    var page = 0
 }
 
-private val media = listOf("movie" to "Movies", "series" to "Shows", "all" to "All")
-
-/** A rail that loads itself the first time it's drawn, and pages as you reach its end. */
+/** The page's rails' data: one per rail key, alive while the page is. */
 @Composable
-private fun LoadingRail(title: String, nav: Nav, load: suspend (skip: Int) -> List<MetaPreview>) {
-    val items = remember(title) { mutableStateListOf<MetaPreview>() }
-    var busy by remember(title) { mutableStateOf(false) }
-    var end by remember(title) { mutableStateOf(false) }
-    /** Cards the source has given so far (before dropping repeats): the next page starts there. */
-    var fetched by remember(title) { mutableStateOf(0) }
+fun rememberRails(vararg keys: Any?): MutableMap<String, RailData> = remember(*keys) { HashMap() }
+
+/** A rail that loads itself the first time it's drawn, and pages as you reach its end. [load] gets (skip, page). */
+@Composable
+fun LoadingRail(title: String, nav: Nav, store: MutableMap<String, RailData>, key: String = title, load: suspend (skip: Int, page: Int) -> List<MetaPreview>) {
+    val d = store.getOrPut(key) { RailData() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun more() {
-        if (busy || end) return
-        busy = true
+        if (d.busy || d.end) return
+        d.busy = true
         scope.launch {
-            for (tries in 0 until 3) {
-                val got = load(fetched)
-                fetched += got.size
-                val p = got.filter { m -> items.none { it.id == m.id } }
-                items.addAll(p); end = got.isEmpty()
-                if (end || p.any { com.lekathedon.visionlite.anime.Hubs.keeps(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
-            }
-            busy = false
+            try {
+                for (tries in 0 until 3) {
+                    val got = load(d.fetched, d.page + 1)
+                    d.page++; d.fetched += got.size
+                    val p = got.filter { m -> d.items.none { it.id == m.id } }
+                    d.items.addAll(p); d.end = got.isEmpty()
+                    if (d.end || p.any { com.lekathedon.visionlite.anime.Hubs.keeps(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
+                }
+            } finally { d.busy = false }
         }
     }
-    LaunchedEffect(title) { more() }
-    // A rail that ended empty (an anime subgenre with nothing in that decade) leaves no trace.
-    if (hubOnly(items).isEmpty()) { if (!end) { Text(title, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 16.dp)); Box(Modifier.height(195.dp)) } }
-    else Rail(title, items, nav, subOf = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } }, onEnd = { more() })
+    LaunchedEffect(key) { if (d.items.isEmpty()) more() }
+    // A rail that ended empty (a subgenre with nothing in that decade) leaves no trace; one still loading keeps a card.
+    Rail(title, d.items, nav, subOf = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } },
+        onEnd = { more() }, key = key, loading = !d.end && d.items.isEmpty())
 }
 
-/** Genres: a genre on the left; its Popular and Top rated rails on the right, for movies, shows or both. */
+private val media = listOf("all" to "All", "movie" to "Movies", "series" to "Shows")
+private fun mediaOf(k: String) = when (k) { "movie" -> Wuplay.Media.MOVIES; "series" -> Wuplay.Media.SHOWS; else -> Wuplay.Media.ALL }
+
+/** A genre tile's page (WuPlay): Popular, Latest, Most Rated, then its subgenres, each a row; Anime: one subgenre's rows. */
 @Composable
-fun Genres(nav: Nav) {
-    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
-    val anime = hub == com.lekathedon.visionlite.anime.Hub.ANIME
-    // Anime: WuPlay's 52 anime subgenres on AniList (all anime); Films & TV: Cinemeta's genres, without the anime in them.
-    val genres by produceState(emptyList<String>(), anime) { value = if (anime) com.lekathedon.visionlite.anime.AniBrowse.subgenres.map { it.name } else Cinemeta.genres().filter { it != "Anime" } }
-    var genre by rememberSaveable { mutableStateOf<String?>(null) }
+fun GenrePage(nav: Nav, slug: String) {
+    if (slug.startsWith("anime:")) { AnimeGenrePage(nav, slug.removePrefix("anime:")); return }
+    val g = remember(slug) { Wuplay.genre(slug) } ?: return
     var kind by rememberSaveable { mutableStateOf("all") }
-    val g = genre ?: genres.firstOrNull()
-    Page("Genres", if (genres.isEmpty()) "Loading…" else null) {
+    val store = rememberRails(slug, kind)
+    val first = remember { FocusRequester() }
+    Page(g.name, if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else "${g.rails.size} rows") {
         Chips(media, kind, Modifier.padding(top = 12.dp)) { kind = it }
-        Row(Modifier.fillMaxSize().padding(top = 12.dp)) {
-            LazyColumn(Modifier.width(200.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 30.dp)) {
-                items(genres) { x -> SideItem(x, x == g) { genre = x } }
-            }
-            if (g != null) LazyColumn(Modifier.weight(1f).padding(start = 18.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
-                val types = if (kind == "all") listOf("movie", "series") else listOf(kind)
-                val sub = if (anime) com.lekathedon.visionlite.anime.AniBrowse.subgenres.firstOrNull { it.name == g } else null
-                if (sub?.format != null) {
-                    // OVA / ONA are a format, not movies or shows: one pair of rails.
-                    item(key = "a|$g|top") { LoadingRail("Popular · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page("series", "POPULARITY_DESC", sub = sub, skip = skip) } }
-                    item(key = "a|$g|rated") { LoadingRail("Top rated · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page("series", "SCORE_DESC", sub = sub, skip = skip) } }
-                } else types.forEach { t ->
-                    if (sub != null) {
-                        item(key = "a|$g|$t|top") { LoadingRail("Popular ${typeName(t).lowercase()} · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", sub = sub, skip = skip) } }
-                        item(key = "a|$g|$t|rated") { LoadingRail("Top rated ${typeName(t).lowercase()} · $g", nav) { skip -> com.lekathedon.visionlite.anime.AniBrowse.page(t, "SCORE_DESC", sub = sub, skip = skip) } }
-                    } else {
-                        item(key = "$g|$t|top") { LoadingRail("Popular ${typeName(t).lowercase()} · $g", nav) { skip -> Cinemeta.page(t, "top", g, skip) } }
-                        item(key = "$g|$t|rated") { LoadingRail("Top rated ${typeName(t).lowercase()} · $g", nav) { skip -> Cinemeta.page(t, "imdbRating", g, skip) } }
-                    }
-                }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
+            items(g.rails, key = { "$kind|${it.key}" }) { r ->
+                LoadingRail(r.title, nav, store, key = r.key) { _, page -> Wuplay.page(r, mediaOf(kind), page) }
             }
         }
     }
 }
 
-/** Decades: a decade on the left; a rail per year of it (newest first), movies, shows or both. */
+/** A decade tile's page (WuPlay): Popular, Most Rated, then each genre within the decade, each a row. */
 @Composable
-fun Decades(nav: Nav) {
-    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
-    val anime = hub == com.lekathedon.visionlite.anime.Hub.ANIME
+fun DecadePage(nav: Nav, slug: String) {
+    if (slug.startsWith("anime:")) { AnimeDecadePage(nav, slug.removePrefix("anime:").toInt()); return }
+    val d = remember(slug) { Wuplay.decade(slug) } ?: return
+    var kind by rememberSaveable { mutableStateOf("all") }
+    val store = rememberRails(slug, kind)
+    Page(d.name, if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else null) {
+        Chips(media, kind, Modifier.padding(top = 12.dp)) { kind = it }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
+            items(d.rails, key = { "$kind|${it.key}" }) { r ->
+                LoadingRail(r.title, nav, store, key = r.key) { _, page -> Wuplay.page(r, mediaOf(kind), page) }
+            }
+        }
+    }
+}
+
+/** Anime hub: one of WuPlay's 52 anime subgenres (AniList): popular, top rated and newest, shows and movies. */
+@Composable
+private fun AnimeGenrePage(nav: Nav, name: String) {
+    val sub = remember(name) { com.lekathedon.visionlite.anime.AniBrowse.subgenres.firstOrNull { it.name == name } } ?: return
+    val store = rememberRails(name)
+    val ab = com.lekathedon.visionlite.anime.AniBrowse
+    fun r(t: String, f: suspend (Int) -> List<MetaPreview>) = t to f
+    val rails = if (sub.format != null) listOf(
+        r("Popular") { s -> ab.page("series", "POPULARITY_DESC", sub = sub, skip = s) },
+        r("Top rated") { s -> ab.page("series", "SCORE_DESC", sub = sub, skip = s) },
+        r("Latest") { s -> ab.page("series", "START_DATE_DESC", sub = sub, skip = s) })
+    else listOf(
+        r("Popular shows") { s -> ab.page("series", "POPULARITY_DESC", sub = sub, skip = s) },
+        r("Popular movies") { s -> ab.page("movie", "POPULARITY_DESC", sub = sub, skip = s) },
+        r("Top rated shows") { s -> ab.page("series", "SCORE_DESC", sub = sub, skip = s) },
+        r("Top rated movies") { s -> ab.page("movie", "SCORE_DESC", sub = sub, skip = s) },
+        r("Latest shows") { s -> ab.page("series", "START_DATE_DESC", sub = sub, skip = s) })
+    Page(name) {
+        LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
+            items(rails, key = { it.first }) { (t, load) -> LoadingRail(t, nav, store, key = "$name|$t") { skip, _ -> load(skip) } }
+        }
+    }
+}
+
+/** Anime hub: a decade's most popular, then WuPlay's anime subgenres within it, each a row. */
+@Composable
+private fun AnimeDecadePage(nav: Nav, decade: Int) {
     val year = Calendar.getInstance().get(Calendar.YEAR)
-    val decades = remember(anime) { (year / 10 * 10 downTo (if (anime) 1960 else 1920) step 10).toList() }
-    var decade by rememberSaveable { mutableStateOf(decades.first()) }
-    var kind by rememberSaveable { mutableStateOf("movie") }
-    Page("Decades") {
-        Chips(media, kind, Modifier.padding(top = 12.dp)) { kind = it }
-        Row(Modifier.fillMaxSize().padding(top = 12.dp)) {
-            LazyColumn(Modifier.width(200.dp).fillMaxHeight()) { items(decades) { d -> SideItem("${d}s", d == decade) { decade = d } } }
-            LazyColumn(Modifier.weight(1f).padding(start = 18.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
-                val types = if (kind == "all") listOf("movie", "series") else listOf(kind)
-                if (anime) {
-                    // Anime: the decade's most popular, then WuPlay's anime subgenres within the decade (rails load as you scroll).
-                    val to = minOf(decade + 9, year)
-                    types.forEach { t -> item(key = "a|$decade|$t") { LoadingRail("Popular ${typeName(t).lowercase()} · ${decade}s", nav) { skip ->
-                        com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", from = decade, to = to, skip = skip) } } }
-                    com.lekathedon.visionlite.anime.AniBrowse.subgenres.forEach { sub ->
-                        (if (sub.format != null) listOf("series") else types).forEach { t ->
-                            item(key = "a|$decade|${sub.name}|$t") { LoadingRail(if (sub.format != null) sub.name else "${sub.name} · ${typeName(t)}", nav) { skip ->
-                                com.lekathedon.visionlite.anime.AniBrowse.page(t, "POPULARITY_DESC", sub = sub, from = decade, to = to, skip = skip) } }
-                        }
-                    }
-                } else (minOf(decade + 9, year) downTo decade).forEach { y ->
-                    types.forEach { t -> item(key = "$anime|$y|$t") { LoadingRail("$y · ${typeName(t)}", nav) { skip -> Cinemeta.page(t, "year", y.toString(), skip) } } }
-                }
+    val to = minOf(decade + 9, year)
+    val store = rememberRails(decade)
+    val ab = com.lekathedon.visionlite.anime.AniBrowse
+    Page("${decade}s") {
+        LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
+            listOf("series" to "Popular shows", "movie" to "Popular movies").forEach { (t, title) ->
+                item(key = "pop|$t") { LoadingRail(title, nav, store, key = "pop|$t") { skip, _ -> ab.page(t, "POPULARITY_DESC", from = decade, to = to, skip = skip) } }
+            }
+            items(ab.subgenres, key = { it.name }) { sub ->
+                LoadingRail(sub.name, nav, store, key = "sub|${sub.name}") { skip, _ -> ab.page("series", "POPULARITY_DESC", sub = sub, from = decade, to = to, skip = skip) }
             }
         }
     }
 }
 
-@Composable
-private fun SideItem(label: String, selected: Boolean, onClick: () -> Unit) {
-    Focusable(onClick, Modifier.padding(bottom = 4.dp).fillMaxWidth()) { f ->
-        Text(label, color = if (f) Color.Black else Palette.Text, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.fillMaxWidth().background(if (f) Color.White else if (selected) Color(0x33FFFFFF) else Color.Transparent).padding(10.dp))
+/** Home's Genres / Decades tiles for a hub: (id, name). Films & TV: WuPlay's 19 and 9; Anime: its 52 subgenres and decades. */
+object BrowseTiles {
+    fun genres(anime: Boolean): List<Pair<String, String>> =
+        if (anime) com.lekathedon.visionlite.anime.AniBrowse.subgenres.map { "genre:anime:${it.name}" to it.name }
+        else Wuplay.genres.map { "genre:${it.slug}" to it.name }
+    fun decades(anime: Boolean): List<Pair<String, String>> {
+        if (!anime) return Wuplay.decades.map { "decade:${it.slug}" to it.name }
+        val year = Calendar.getInstance().get(Calendar.YEAR)
+        return (year / 10 * 10 downTo 1960 step 10).map { "decade:anime:$it" to "${it}s" }
     }
 }
 
@@ -439,41 +448,44 @@ private fun dayMs(d: Long) = Calendar.getInstance().apply { set(Calendar.YEAR, (
 fun ServicePage(nav: Nav, id: String) {
     val s = remember(id) { com.lekathedon.visionlite.home.Services.S.entries.firstOrNull { it.id == id } } ?: return
     val rows = remember(s) { com.lekathedon.visionlite.home.Services.rows(s) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val store = rememberRails(id)
     val first = remember { FocusRequester() }
+    var focusedOnce by rememberSaveable(id) { mutableStateOf(false) }
     Page(s.title, when (s.region) { "GB" -> "UK"; "FR" -> "France"; "JP" -> "Japan"; else -> "US" }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
             itemsIndexed(rows, key = { _, r -> r.first }) { i, (title, load) ->
-                val items = remember(title) { androidx.compose.runtime.mutableStateListOf<MetaPreview>() }
-                var page by remember(title) { mutableStateOf(0) }
-                var busy by remember(title) { mutableStateOf(false) }
-                fun next() { if (busy || page >= 5) return; busy = true; scope.launch { val more = load(page + 1); page++; items.addAll(more.filter { m -> items.none { it.id == m.id } }); busy = false } }
-                LaunchedEffect(title) { next() }
-                if (i == 0) LaunchedEffect(items.isNotEmpty()) { if (items.isNotEmpty()) runCatching { first.requestFocus() } }
-                TmdbRail(title, items, nav, if (i == 0) first else null) { next() }
+                val d = store.getOrPut(title) { RailData() }
+                // First visit only: focus the first card once it's in (never again on the way back up).
+                if (i == 0 && !focusedOnce) LaunchedEffect(d.items.isNotEmpty()) { if (d.items.isNotEmpty()) { withFrameNanos { }; if (runCatching { first.requestFocus() }.isSuccess) focusedOnce = true } }
+                ServiceRail(title, nav, d, if (i == 0) first else null) { p -> load(p) }
             }
         }
     }
 }
 
-/** Like [Rail], but cards with TMDB ids are turned into IMDb ids when opened. */
+/** A service row: up to 5 pages, the ones without a card of this hub skipped; kept by the page across scrolling. */
 @Composable
-private fun TmdbRail(title: String, all: List<MetaPreview>, nav: Nav, firstFocus: FocusRequester?, onEnd: () -> Unit) {
-    val metas = hubOnly(all)
-    // None of this hub's on the pages so far: ask the next ones.
-    if (metas.isEmpty() && all.isNotEmpty()) LaunchedEffect(all.size) { onEnd() }
-    if (metas.isEmpty()) return
+private fun ServiceRail(title: String, nav: Nav, d: RailData, firstFocus: FocusRequester?, load: suspend (Int) -> List<MetaPreview>) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    com.lekathedon.visionlite.home.EchoRowTitle(title)
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        itemsIndexed(metas, key = { i, m -> "$i:${m.id}" }) { i, m ->
-            if (i >= metas.size - 6) LaunchedEffect(metas.size) { onEnd() }
-            com.lekathedon.visionlite.home.EchoPoster(m, if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier,
-                sub = listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null }) {
-                scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
-            }
+    fun next() {
+        if (d.busy || d.end) return
+        d.busy = true
+        scope.launch {
+            try {
+                for (tries in 0 until 3) {
+                    if (d.page >= 5) { d.end = true; break }
+                    val more = load(d.page + 1); d.page++
+                    if (more.isEmpty()) { d.end = true; break }
+                    val fresh = more.filter { m -> d.items.none { it.id == m.id } }
+                    d.items.addAll(fresh)
+                    if (fresh.any { com.lekathedon.visionlite.anime.Hubs.keeps(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
+                }
+            } finally { d.busy = false }
         }
     }
+    LaunchedEffect(title) { if (d.items.isEmpty()) next() }
+    Rail(title, d.items, nav, subOf = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } },
+        firstFocus = firstFocus, onEnd = { next() }, key = title, loading = !d.end && d.items.isEmpty())
 }
 
 /** A person's films and shows, newest first (IMDb); Follow puts them on Home's Favourite people. */
@@ -531,5 +543,5 @@ private fun AiRail(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     }
     fun meta(p: com.lekathedon.visionlite.recs.Pick) = MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), releaseInfo = p.year?.toString(),
         imdbRating = p.rating?.toString(), genres = p.genres, description = p.why)
-    Rail("", picks.map(::meta), nav, subOf = { it.description }, onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name); ai.remove(m.id, hub) })
+    Rail("", picks.map(::meta), nav, key = "ai", subOf = { it.description }, onHold = { m -> Recs.notForMe(m.id, m.type == "series", m.name); ai.remove(m.id, hub) })
 }

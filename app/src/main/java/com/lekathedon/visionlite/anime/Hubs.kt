@@ -39,7 +39,7 @@ object Hubs {
 
     /** People and streaming services are no title: they show in both hubs (their pages filter their titles). */
     fun keeps(hub: Hub, m: MetaPreview): Boolean = when (m.type) {
-        "service", "person" -> true
+        "service", "person", "genre", "decade" -> true
         else -> keepsId(hub, m.id)
     }
     fun keepsId(hub: Hub, id: String): Boolean = AnimeIds.isAnime(id) == (hub == Hub.ANIME)

@@ -7,10 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,7 +33,7 @@ import com.lekathedon.visionlite.ui.Screen
 fun posterOf(imdb: String) = "https://images.metahub.space/poster/medium/$imdb/img"
 fun backdropOf(imdb: String) = "https://images.metahub.space/background/medium/$imdb/img"
 
-/** Library = local saves, then the Trakt watchlist (newest first). */
+/** Library = local saves, then the Trakt watchlist (newest first): movies and shows, each a row like Home's. */
 @Composable
 fun Library(nav: Nav) {
     val trakt = App.instance.trakt
@@ -46,39 +43,41 @@ fun Library(nav: Nav) {
     val saved = remember { Saves.all().filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.id) } }
     LaunchedEffect(Unit) { items = if (trakt.connected.value != null) trakt.watchlist() else emptyList() }
     val first = remember { FocusRequester() }
-    LaunchedEffect(items) { if (saved.isNotEmpty() || !items.isNullOrEmpty()) runCatching { first.requestFocus() } }
-    LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (saved.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("Saved · ${saved.size}", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-            }
-            items(saved, key = { "s:" + it.id }) { sv ->
-                val mod = if (sv.id == saved.first().id) Modifier.focusRequester(first) else Modifier
-                com.lekathedon.visionlite.home.EchoPoster(com.lekathedon.visionlite.addons.MetaPreview(sv.id, sv.type, sv.name, sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null),
-                    mod, expand = false) { nav.push(Screen.Detail(sv.type, sv.id, sv.name)) }
-            }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(when {
-                trakt.connected.value == null -> "Trakt watchlist: connect Trakt in Settings"
-                items == null -> "Trakt watchlist"
-                else -> items!!.count { li -> (li.movie?.ids?.imdb ?: li.show?.ids?.imdb)?.let { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it) } == true }
-                    .let { n -> if (n == 0) "Trakt watchlist is empty" else "Trakt watchlist · $n" }
-            }, color = Palette.Text, fontSize = if (saved.isEmpty()) 26.sp else 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = if (saved.isEmpty()) 0.dp else 16.dp, bottom = 8.dp))
-        }
-        val list = items.orEmpty().mapNotNull { li ->
+    val list = remember(items) {
+        items.orEmpty().mapNotNull { li ->
             when {
-                li.movie != null -> li.movie.ids.imdb?.let { Triple("movie", it, li.movie.title) }
-                li.show != null -> li.show.ids.imdb?.let { Triple("series", it, li.show.title) }
+                li.movie != null -> li.movie.ids.imdb?.let { com.lekathedon.visionlite.addons.MetaPreview(it, "movie", li.movie.title, posterOf(it), backdropOf(it)) }
+                li.show != null -> li.show.ids.imdb?.let { com.lekathedon.visionlite.addons.MetaPreview(it, "series", li.show.title, posterOf(it), backdropOf(it)) }
                 else -> null
             }
-        }.filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.second) }
-        items(list, key = { it.second }) { (type, imdb, title) ->
-            val mod = if (saved.isEmpty() && imdb == list.first().second) Modifier.focusRequester(first) else Modifier
-            com.lekathedon.visionlite.home.EchoPoster(com.lekathedon.visionlite.addons.MetaPreview(imdb, type, title, posterOf(imdb)), mod, expand = false) {
-                nav.push(Screen.Detail(type, imdb, title))
-            }
+        }.filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.id) }
+    }
+    val savedMetas = remember(saved) { saved.map { sv -> com.lekathedon.visionlite.addons.MetaPreview(sv.id, sv.type, sv.name,
+        sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null, if (sv.id.startsWith("tt")) backdropOf(sv.id) else null) } }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(items) { if (!focused && (saved.isNotEmpty() || list.isNotEmpty())) { androidx.compose.runtime.withFrameNanos { }; if (runCatching { first.requestFocus() }.isSuccess) focused = true } }
+    val open: (com.lekathedon.visionlite.addons.MetaPreview) -> Unit = { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
+    val movies = list.filter { it.type == "movie" }
+    val shows = list.filter { it.type != "movie" }
+    LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(start = 40.dp, end = 24.dp, top = 24.dp, bottom = 60.dp)) {
+        item(key = "head") {
+            Text(when {
+                trakt.connected.value == null -> "Library · connect Trakt in Settings for your watchlist"
+                items == null -> "Library"
+                list.isEmpty() && saved.isEmpty() -> "Library is empty"
+                else -> "Library"
+            }, color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+        if (saved.isNotEmpty()) item(key = "saved") {
+            com.lekathedon.visionlite.home.PageRow("lib:saved", "Saved · ${saved.size}", savedMetas, firstFocus = first, onClick = open)
+        }
+        item(key = "movies") {
+            com.lekathedon.visionlite.home.PageRow("lib:movies", "Watchlist · Movies · ${movies.size}", movies, loading = items == null && trakt.connected.value != null,
+                firstFocus = if (saved.isEmpty()) first else null, onClick = open)
+        }
+        item(key = "shows") {
+            com.lekathedon.visionlite.home.PageRow("lib:shows", "Watchlist · Shows · ${shows.size}", shows,
+                firstFocus = if (saved.isEmpty() && movies.isEmpty()) first else null, onClick = open)
         }
     }
 }

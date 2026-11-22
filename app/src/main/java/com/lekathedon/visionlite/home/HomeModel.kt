@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-enum class RowKind { POSTER, COMING, SERVICES, PEOPLE, /** Top 20 Today: Vision Echo's wide cards with the big 1-20 behind them. */ RANKED }
+enum class RowKind { POSTER, COMING, SERVICES, PEOPLE, /** Genres / Decades tiles. */ TILES, /** Top 20 Today: Vision Echo's wide cards with the big 1-20 behind them. */ RANKED }
 
 /** A Home row: Vision's own (addon == null) or an add-on catalog. */
 data class Row(
@@ -96,6 +96,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch { ComingUp.items.collect { fill(VisionRows.COMING_UP) } }
         viewModelScope.launch { Services.art.collect { fill(VisionRows.SERVICES) } }
         viewModelScope.launch { People.list.collect { fill(VisionRows.PEOPLE) } }
+        viewModelScope.launch { com.lekathedon.visionlite.browse.Wuplay.art.collect { fill(VisionRows.GENRES); fill(VisionRows.DECADES) } }
         // A title moved between hubs, or the anime list refreshed: every row sorts itself again.
         viewModelScope.launch {
             AnimeIds.changed.collect { n ->
@@ -123,6 +124,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val vision = VisionRows.forHub(hub).map { (key, title) ->
             old[key] ?: Row(key, title, null, null, emptyList(), done = false, kind = when (key) {
                 VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES; VisionRows.PEOPLE -> RowKind.PEOPLE
+                VisionRows.GENRES, VisionRows.DECADES -> RowKind.TILES
                 in VisionRows.ranked -> RowKind.RANKED; else -> RowKind.POSTER
             })
         }
@@ -143,7 +145,11 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 old[key] ?: Row(key, title(a, c), a, c, emptyList(), done = false)
             }
         }
-        state.value = (vision + imported + rotating + addons).withIndex().sortedBy { (i, r) -> order[r.key] ?: (order.size + i) }.map { it.value }
+        // Rows new since you arranged Home (Genres, Decades) sit right after Streaming services, not at the bottom.
+        val svc = order[VisionRows.SERVICES]
+        fun place(i: Int, r: Row): Double = order[r.key]?.toDouble()
+            ?: if (svc != null && r.key == VisionRows.GENRES) svc + 0.1 else if (svc != null && r.key == VisionRows.DECADES) svc + 0.2 else (order.size + i).toDouble()
+        state.value = (vision + imported + rotating + addons).withIndex().sortedBy { (i, r) -> place(i, r) }.map { it.value }
     }
 
     private fun title(a: Addon, c: CatalogDef): String {
@@ -189,6 +195,8 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.AI -> viewModelScope.launch { runCatching { AiPicks.refreshIfDue(hub) } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             VisionRows.PEOPLE -> {}
+            // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
+            VisionRows.GENRES, VisionRows.DECADES -> if (hub == Hub.FILMS) viewModelScope.launch { runCatching { com.lekathedon.visionlite.browse.Wuplay.loadArt() } }
             SERVER_ROW -> {
                 loading[key] = viewModelScope.launch {
                     val items = runCatching { com.lekathedon.visionlite.streams.MediaServers.recentlyAdded() }.getOrDefault(emptyList())
@@ -233,6 +241,12 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 MetaPreview("svc:${s.id}", "service", s.title, null, Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))
             }
             VisionRows.PEOPLE -> People.list.value.filter { it.hub == hub.key }.map { MetaPreview(it.id, "person", it.name, it.photo) }
+            VisionRows.GENRES, VisionRows.DECADES -> {
+                val art = com.lekathedon.visionlite.browse.Wuplay.art.value
+                val anime = hub == Hub.ANIME
+                val tiles = if (key == VisionRows.GENRES) com.lekathedon.visionlite.browse.BrowseTiles.genres(anime) else com.lekathedon.visionlite.browse.BrowseTiles.decades(anime)
+                tiles.map { (id, name) -> MetaPreview(id, if (key == VisionRows.GENRES) "genre" else "decade", name, null, art[id]) }
+            }
             else -> return
         }
         set(key, items)

@@ -35,11 +35,14 @@ object VisionRows {
     const val AI = "v/ai"
     const val SERVICES = "v/services"
     const val PEOPLE = "v/people"
+    /** WuPlay's Genres and Decades as rows of tiles (were their own pages before 0.26). */
+    const val GENRES = "v/genres"
+    const val DECADES = "v/decades"
 
     /** key to title, in Vision's order. */
     val all: List<Pair<String, String>> = listOf(
         COMING_UP to "Coming up", PICKS to "Vision Picks", IMDB to "IMDb Picks", AI to "AI Picks",
-        SERVICES to "Streaming services", PEOPLE to "Favourite people"
+        SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades", PEOPLE to "Favourite people"
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
     /**

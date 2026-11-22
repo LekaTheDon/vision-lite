@@ -96,11 +96,7 @@ fun Search(nav: Nav) {
         if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
             val hints = com.lekathedon.visionlite.browse.hubOnly(hints)
             Text("Suggestions", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                itemsIndexed(hints, key = { i, m -> "$i:${m.id}" }) { _, m ->
-                    com.lekathedon.visionlite.home.EchoPoster(m, sub = m.releaseInfo) { nav.push(Screen.Detail(m.type, m.id, m.name)) }
-                }
-            }
+            com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
         }
         if (results.isEmpty() && recent.isNotEmpty() && hints.isEmpty()) item {
             Text("Recent", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
@@ -110,16 +106,11 @@ fun Search(nav: Nav) {
             }
         }
         // Index in the key: two add-ons (or one add-on's film and series catalogs) can give the same row name.
-        itemsIndexed(results, key = { i, r -> "$i:${r.first}" }) { _, (title, all) ->
+        itemsIndexed(results, key = { i, r -> "$i:${r.first}" }) { i, (title, all) ->
             // Only the hub you're in: Anime finds anime, Films & TV everything else.
             val metas = com.lekathedon.visionlite.browse.hubOnly(all)
             if (metas.isEmpty()) return@itemsIndexed
-            com.lekathedon.visionlite.home.EchoRowTitle(title)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                itemsIndexed(metas.distinctBy { it.type + it.id }, key = { i, m -> "$i:${m.type}:${m.id}" }) { _, m ->
-                    com.lekathedon.visionlite.home.EchoPoster(m) { nav.push(Screen.Detail(m.type, m.id, m.name)) }
-                }
-            }
+            com.lekathedon.visionlite.home.PageRow("search:$i:$title", title, metas.distinctBy { it.type + it.id }) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
         }
     }
 }

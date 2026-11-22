@@ -25,8 +25,10 @@ object Trailers {
     private const val ENDPOINT = "https://api.graphql.imdb.com/"
     private const val CLIENT_NAME = "nuvio-tv"
     private const val BUDGET_MS = 4_000L
-    private const val QUERY = "query TitleTrailer(\$id: ID!) { title(id: \$id) { primaryVideos(first: 1) " +
-        "{ edges { node { id playbackURLs { url videoMimeType videoDefinition } } } } } }"
+    // Up to 20 of the title's videos with their kind and owner: IMDb's first one is often a clip, an interview or a
+    // featurette about someone else (Ray 2004 → "The Rise of Jamie Foxx"), so only a Trailer of this very title counts.
+    private const val QUERY = "query TitleTrailer(\$id: ID!) { title(id: \$id) { primaryVideos(first: 20) " +
+        "{ edges { node { id name { value } contentType { id } primaryTitle { id } playbackURLs { url videoMimeType videoDefinition } } } } } }"
 
     private val client = Net.http.newBuilder().connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(3, TimeUnit.SECONDS).callTimeout(4, TimeUnit.SECONDS).build()
@@ -51,7 +53,7 @@ object Trailers {
         val body = withTimeoutOrNull(BUDGET_MS) { post(request) }
         if (body == null) { backoff.failed(); return null }
         if (body.isEmpty()) { backoff.refused(); return null }
-        val encodings = parse(body)
+        val encodings = parse(body, id)
         if (encodings == null) {
             if (hasErrors(body)) backoff.refused()
             return null
@@ -62,12 +64,23 @@ object Trailers {
         return url
     }
 
-    /** IMDb's answer as encodings; empty list = the title has no trailer; null = no usable answer. */
-    private fun parse(json: String): List<Encoding>? = runCatching {
+    /**
+     * IMDb's answer as encodings of the title's own trailer; empty list = it has none; null = no usable answer.
+     * Picks a video IMDb files as a Trailer whose title is [imdbId] itself; among those an "official"/"Trailer #1" one,
+     * never a teaser, clip, featurette or interview, nor anything about another title.
+     */
+    private fun parse(json: String, imdbId: String): List<Encoding>? = runCatching {
         val edges = JSONObject(json).optJSONObject("data")?.optJSONObject("title")
             ?.optJSONObject("primaryVideos")?.optJSONArray("edges") ?: return null
-        if (edges.length() == 0) return emptyList()
-        val node = edges.getJSONObject(0).optJSONObject("node") ?: return null
+        val trailers = (0 until edges.length()).mapNotNull { edges.optJSONObject(it)?.optJSONObject("node") }.filter { n ->
+            n.optJSONObject("contentType")?.optString("id")?.endsWith(".trailer") == true &&
+                n.optJSONObject("primaryTitle")?.optString("id") == imdbId
+        }
+        if (trailers.isEmpty()) return emptyList()
+        fun name(n: JSONObject) = n.optJSONObject("name")?.optString("value").orEmpty().lowercase()
+        val bad = Regex("teaser|featurette|interview|behind the scenes|clip|recap|review|anniversary|characters|spot|promo|first look|sneak")
+        val node = trailers.firstOrNull { name(it).let { n -> ("official" in n || "trailer #1" in n || "trailer 1" in n) && !bad.containsMatchIn(n) } }
+            ?: trailers.firstOrNull { !bad.containsMatchIn(name(it)) } ?: trailers.first()
         val id = node.optString("id")
         if (!Regex("vi\\d{6,}").matches(id)) return null
         val urls = node.optJSONArray("playbackURLs") ?: JSONArray()
