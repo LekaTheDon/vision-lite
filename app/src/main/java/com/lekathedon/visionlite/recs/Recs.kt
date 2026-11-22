@@ -323,6 +323,7 @@ object Recs {
         "spokenLanguages { spokenLanguages { id } } countriesOfOrigin { countries { id } } certificate { rating } " +
         "directors: credits(first: 2, filter: { categories: [\"director\"] }) { edges { node { name { id nameText { text } } } } } " +
         "writers: credits(first: 2, filter: { categories: [\"writer\"] }) { edges { node { name { id nameText { text } } } } } " +
+        "creators: credits(first: 2, filter: { categories: [\"creator\"] }) { edges { node { name { id nameText { text } } } } } " +
         "cast: credits(first: 5, filter: { categories: [\"actor\", \"actress\"] }) { edges { node { name { id nameText { text } } } } }"
     private val KINDS = setOf("movie", "tvMovie", "tvSeries", "tvMiniSeries")
 
@@ -390,7 +391,7 @@ object Recs {
             genres = t.optJSONObject("titleGenres")?.optJSONArray("genres").objects().mapNotNull { it.optJSONObject("genre")?.optString("text") },
             keywords = if (!full) emptyList() else t.optJSONObject("keywords")?.optJSONArray("edges").objects()
                 .mapNotNull { it.optJSONObject("node")?.optJSONObject("keyword")?.optJSONObject("text")?.optString("text")?.lowercase() },
-            crew = if (!full) emptyList() else (people("directors") + people("writers")).filter { it.id.isNotBlank() }.distinctBy { it.id },
+            crew = if (!full) emptyList() else (people("creators") + people("directors") + people("writers")).filter { it.id.isNotBlank() }.distinctBy { it.id },
             language = t.optJSONObject("spokenLanguages")?.optJSONArray("spokenLanguages").objects().firstOrNull()?.optString("id"),
             countries = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries").objects().map { it.optString("id") },
             age = RecsLogic.ageLevel(t.optJSONObject("certificate")?.optString("rating")),

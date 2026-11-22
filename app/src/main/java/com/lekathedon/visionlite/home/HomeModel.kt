@@ -111,7 +111,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch { Services.art.collect { fill(VisionRows.SERVICES) } }
         // Favourite people: a follow / unfollow changes the two rows at once (and the engine at its next build).
         viewModelScope.launch { People.list.collect { VisionRows.FAVS.forEach { if (it in needed) loadFav(it) } } }
-        viewModelScope.launch { com.lekathedon.visionlite.browse.Wuplay.art.collect { fill(VisionRows.GENRES); fill(VisionRows.DECADES) } }
+        viewModelScope.launch {
+            (if (hub == Hub.ANIME) com.lekathedon.visionlite.anime.AniBrowse.art else com.lekathedon.visionlite.browse.Wuplay.art).collect { fill(VisionRows.GENRES); fill(VisionRows.DECADES) }
+        }
         // A title moved between hubs, or the anime list refreshed: every row sorts itself again.
         viewModelScope.launch {
             AnimeIds.changed.collect { n ->
@@ -208,7 +210,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             in VisionRows.FAVS -> { loadFav(key); return }
             // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
-            VisionRows.GENRES, VisionRows.DECADES -> if (hub == Hub.FILMS) viewModelScope.launch { runCatching { com.lekathedon.visionlite.browse.Wuplay.loadArt() } }
+            VisionRows.GENRES, VisionRows.DECADES -> viewModelScope.launch { runCatching { if (hub == Hub.FILMS) com.lekathedon.visionlite.browse.Wuplay.loadArt() else com.lekathedon.visionlite.anime.AniBrowse.loadArt() } }
             SERVER_ROW -> {
                 loading[key] = viewModelScope.launch {
                     val items = runCatching { com.lekathedon.visionlite.streams.MediaServers.recentlyAdded() }.getOrDefault(emptyList())
@@ -257,8 +259,8 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 MetaPreview("svc:${s.id}", "service", s.title, null, Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))
             }
             VisionRows.GENRES, VisionRows.DECADES -> {
-                val art = com.lekathedon.visionlite.browse.Wuplay.art.value
                 val anime = hub == Hub.ANIME
+                val art = if (anime) com.lekathedon.visionlite.anime.AniBrowse.art.value else com.lekathedon.visionlite.browse.Wuplay.art.value
                 val tiles = if (key == VisionRows.GENRES) com.lekathedon.visionlite.browse.BrowseTiles.genres(anime) else com.lekathedon.visionlite.browse.BrowseTiles.decades(anime)
                 tiles.map { (id, name) -> MetaPreview(id, if (key == VisionRows.GENRES) "genre" else "decade", name, null, art[id]) }
             }

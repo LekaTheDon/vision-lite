@@ -177,7 +177,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     stars?.let { Text("Starring $it", color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp)) }
                     GuideChips(t?.guide.orEmpty())
 
-                    Row(Modifier.padding(top = 18.dp).onFocusChanged { heroFocused = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Back up at the buttons: the whole billboard shows again (logo, facts, plot), not just the buttons' line.
+                    Row(Modifier.padding(top = 18.dp).onFocusChanged {
+                        heroFocused = it.hasFocus
+                        if (it.hasFocus && (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0)) scope.launch { list.animateScrollToItem(0) }
+                    }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         val heroMod = Modifier
                         val playLabel = when {
                             !isSeries -> "Play"
@@ -266,23 +270,29 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 }
             }
 
+            // ---------------------------------------------------------------- creators & crew
+            // Creator first (IMDb's "Creator"), then directors and writers, one card each with every role they had:
+            // open one to Follow them, and their work steers the picks and gets its own "Because you like" row.
+            val crew = run {
+                val roles = LinkedHashMap<String, Pair<Imdb.Person, MutableList<String>>>()
+                fun add(list: List<Imdb.Person>?, role: String) =
+                    list.orEmpty().forEach { p -> roles.getOrPut(p.id) { p to mutableListOf() }.second.let { if (role !in it) it += role } }
+                add(t?.creators, "Creator"); add(t?.directors, "Director"); add(t?.writers, "Writer")
+                roles.values.map { (p, r) -> p.copy(role = r.joinToString(" · ")) }
+            }
+            if (crew.isNotEmpty()) item(key = "crew") {
+                Header("Creators & crew")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(crew, key = { it.id }) { p -> PersonCircle(p) { nav.push(Screen.Person(p.id, p.name)) } }
+                }
+            }
+
             // ---------------------------------------------------------------- cast
             val cast = t?.cast.orEmpty()
             if (cast.isNotEmpty()) item(key = "cast") {
                 Header("Cast")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(cast, key = { it.id }) { p ->
-                        Focusable({ nav.push(Screen.Person(p.id, p.name)) }, Modifier.width(110.dp), shape = RoundedCornerShape(10.dp)) { f ->
-                            Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(Modifier.size(90.dp).clip(CircleShape).background(Palette.Card), contentAlignment = Alignment.Center) {
-                                    if (p.photo != null) Img(p.photo, 90.dp, 90.dp, Modifier.fillMaxSize())
-                                    else Text(p.name.take(1), color = Palette.Text, fontSize = 30.sp)
-                                }
-                                Text(p.name, color = if (f) Color.White else Palette.Text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                                p.role?.let { Text(it, color = Palette.TextDim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            }
-                        }
-                    }
+                    items(cast, key = { it.id }) { p -> PersonCircle(p) { nav.push(Screen.Person(p.id, p.name)) } }
                 }
             }
 
@@ -388,6 +398,21 @@ private fun GuideChips(g: List<Imdb.Guide>) {
 
 private fun severityColor(s: String) = when (s.lowercase()) {
     "severe" -> Color(0xFFFF6B6B); "moderate" -> Color(0xFFFFC266); "mild" -> Color(0xFFB9E3A0); else -> Color(0xFFBBBBBB)
+}
+
+/** A person's round photo, name and role (cast, creators & crew); OK opens their page (Follow is there). */
+@Composable
+private fun PersonCircle(p: Imdb.Person, open: () -> Unit) {
+    Focusable(open, Modifier.width(110.dp), shape = RoundedCornerShape(10.dp)) { f ->
+        Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(90.dp).clip(CircleShape).background(Palette.Card), contentAlignment = Alignment.Center) {
+                if (p.photo != null) Img(p.photo, 90.dp, 90.dp, Modifier.fillMaxSize())
+                else Text(p.name.take(1), color = Palette.Text, fontSize = 30.sp)
+            }
+            Text(p.name, color = if (f) Color.White else Palette.Text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+            p.role?.let { Text(it, color = Palette.TextDim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
 }
 
 @Composable

@@ -41,7 +41,9 @@ object Imdb {
         val id: String, val name: String, val type: String, val year: Int?, val endYear: Int?, val rating: Float?, val votes: Int?,
         val metascore: Int?, val certificate: String?, val runtimeMin: Int?, val plot: String?, val genres: List<String>, val poster: String?,
         val seasons: List<Int>, val directors: List<Person>, val creators: List<Person>, val cast: List<Person>, val guide: List<Guide>,
-        val sequels: List<Ref>, val connections: List<Ref>, val similar: List<Ref>
+        val sequels: List<Ref>, val connections: List<Ref>, val similar: List<Ref>,
+        /** Writers (anime: often the original manga / novel author). */
+        val writers: List<Person> = emptyList()
     ) {
         val follows get() = sequels.filter { it.link == Link.PREQUEL }
         val followedBy get() = sequels.filter { it.link == Link.SEQUEL }
@@ -79,6 +81,7 @@ object Imdb {
             genres { genres { text } } primaryImage { url } episodes { seasons { number } }
             directors: credits(first: 4, filter: { categories: ["director"] }) { edges { node { $person } } }
             creators: credits(first: 4, filter: { categories: ["creator"] }) { edges { node { $person } } }
+            writers: credits(first: 4, filter: { categories: ["writer"] }) { edges { node { $person } } }
             cast: credits(first: 20, filter: { categories: ["actor", "actress", "self"] }) { edges { node { $person ... on Cast { characters { name } } } } }
             parentsGuide { categories { category { text } severity { text } } }
             connections(first: 25, filter: { categories: [${cats(true)}] }) { edges { node { category { id } associatedTitle { $NODE } } } }
@@ -122,7 +125,7 @@ object Imdb {
                 val sev = c.optJSONObject("severity")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null
                 Guide(cat, sev)
             },
-            sequels, connections, similar
+            sequels, connections, similar, people("writers")
         )
     }
 

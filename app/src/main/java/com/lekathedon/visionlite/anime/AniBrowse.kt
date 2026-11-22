@@ -103,4 +103,61 @@ object AniBrowse {
             }
         }.getOrDefault(emptyList())
     }
+
+    // ---- tile pictures: each subgenre's / decade's highest-rated anime (AniList score, 20k+ members), no repeats ----
+
+    private val _art = kotlinx.coroutines.flow.MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Tile id ("genre:anime:Name" / "decade:anime:1990") to its picture (a wide AniList banner). */
+    val art: kotlinx.coroutines.flow.StateFlow<Map<String, String>> get() = _art
+    private val artLock = kotlinx.coroutines.sync.Mutex()
+    private val artFile get() = java.io.File(com.lekathedon.visionlite.App.instance.filesDir, "anime_art.json")
+    private const val ART_FRESH_MS = 7 * 24 * 3600_000L
+
+    /**
+     * Loads the Anime hub's tile pictures: disk first, asked again weekly. Cost: ~6 AniList requests (10 tiles each,
+     * 8 titles a tile, ~15 KB each), 2.5 s apart for AniList's rate limit. Keyless.
+     */
+    suspend fun loadArt() = withContext(Dispatchers.IO) {
+        artLock.lock()
+        try {
+            val disk = runCatching { JSONObject(artFile.readText()) }.getOrNull()
+            val have = disk?.optJSONObject("art")?.let { a -> a.keys().asSequence().associateWith { a.getString(it) } }.orEmpty()
+            if (have.isNotEmpty()) _art.value = have
+            val tiles = com.lekathedon.visionlite.browse.BrowseTiles.genres(true).map { it.first } + com.lekathedon.visionlite.browse.BrowseTiles.decades(true).map { it.first }
+            if (have.keys.containsAll(tiles) && System.currentTimeMillis() - (disk?.optLong("at") ?: 0L) < ART_FRESH_MS) return@withContext
+            fun q(v: String) = JSONObject.quote(v)
+            fun filter(id: String): String? {
+                if (id.startsWith("decade:anime:")) {
+                    val y = id.removePrefix("decade:anime:").toIntOrNull() ?: return null
+                    return "startDate_greater: ${y * 10000 - 1}, startDate_lesser: ${(y + 10) * 10000}"
+                }
+                val sub = subgenres.firstOrNull { "genre:anime:${it.name}" == id } ?: return null
+                return listOfNotNull(sub.genres?.let { g -> "genre_in: [${g.joinToString(",") { q(it) }}]" },
+                    sub.tag?.let { "tag: ${q(it)}, minimumTagRank: 60" }, sub.source?.let { "source: $it" },
+                    sub.format?.let { "format_in: [$it]" }).joinToString(", ")
+            }
+            val found = LinkedHashMap<String, List<MetaPreview>>()
+            tiles.chunked(10).forEachIndexed { n, chunk ->
+                if (n > 0) kotlinx.coroutines.delay(2500)
+                val parts = chunk.mapIndexedNotNull { i, id -> filter(id)?.let { f ->
+                    "t$i: Page(perPage: 8) { media(type: ANIME, isAdult: false, sort: [SCORE_DESC], popularity_greater: 20000${if (f.isEmpty()) "" else ", $f"}) " +
+                        "{ id format title { english userPreferred } coverImage { large extraLarge } bannerImage seasonYear averageScore genres } }" } }
+                val body = JSONObject().put("query", "{ ${parts.joinToString(" ")} }").toString().toRequestBody("application/json".toMediaType())
+                val d = runCatching {
+                    Net.http.newCall(Request.Builder().url("https://graphql.anilist.co").post(body).header("Accept", "application/json").build()).execute()
+                        .use { r -> if (r.isSuccessful) JSONObject(r.body!!.string()).optJSONObject("data") else null }
+                }.getOrNull() ?: return@forEachIndexed
+                chunk.forEachIndexed { i, id -> found[id] = Charts.ani(d, "t$i") }
+            }
+            // In tile order: a title already behind a tile goes to the next in line (a wide banner, else its cover).
+            val used = HashSet<String>()
+            val fresh = HashMap(have)
+            tiles.forEach { id ->
+                val list = found[id] ?: return@forEach
+                list.firstOrNull { (it.background ?: it.poster) != null && used.add(it.id) }?.let { fresh[id] = it.background ?: it.poster!! }
+            }
+            _art.value = fresh
+            if (found.isNotEmpty()) runCatching { artFile.writeText(JSONObject().put("at", System.currentTimeMillis()).put("art", JSONObject(fresh as Map<*, *>)).toString()) }
+        } finally { artLock.unlock() }
+    }
 }

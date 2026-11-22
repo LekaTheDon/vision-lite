@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,9 +47,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-/** Suggestions while typing (IMDb feed); every add-on catalog that takes a search term is asked when Search is pressed. */
+/**
+ * Suggestions while typing (IMDb feed); every add-on catalog that takes a search term is asked when Search is pressed.
+ * Each hub has its own Search: its own typed text and Recent list, and only its own titles (Anime finds only anime,
+ * Films & TV never does). Switching hubs on the pill starts that hub's Search fresh.
+ */
 @Composable
 fun Search(nav: Nav) {
+    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
+    androidx.compose.runtime.key(hub) { SearchOf(nav, hub) }
+}
+
+@Composable
+private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val app = App.instance
     var q by remember { mutableStateOf("") }
     val results = remember { mutableStateListOf<Pair<String, List<MetaPreview>>>() }
@@ -57,12 +68,13 @@ fun Search(nav: Nav) {
     val field = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
     val prefs = app.prefs
-    var recent by remember { mutableStateOf(prefs.recentSearches.value.split('\n').filter { it.isNotEmpty() }) }
+    val recentPref = if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) prefs.recentSearchesAnime else prefs.recentSearches
+    var recent by remember { mutableStateOf(recentPref.value.split('\n').filter { it.isNotEmpty() }) }
     fun run() {
         job?.cancel(); results.clear()
         val term = q.trim().ifEmpty { return }
         recent = (listOf(term) + recent.filterNot { it.equals(term, true) }).take(8)
-        prefs.recentSearches.value = recent.joinToString("\n")
+        recentPref.value = recent.joinToString("\n")
         job = scope.launch {
             app.addons.addons.value.flatMap { a -> a.manifest.catalogs.filter { it.supportsSearch }.map { a to it } }
                 .map { (a, c) -> async { searchRowName(c.name, c.type, a.manifest.name) to runCatching { app.client.catalog(a, c, search = term) }.getOrDefault(emptyList()) } }
@@ -90,7 +102,7 @@ fun Search(nav: Nav) {
                 textStyle = TextStyle(color = Palette.Text, fontSize = 18.sp), cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { run() }),
                 modifier = Modifier.fillMaxWidth(0.6f).focusRequester(field).background(Palette.Card).padding(14.dp),
-                decorationBox = { inner -> if (q.isEmpty()) Text(if (com.lekathedon.visionlite.anime.Hubs.now() == com.lekathedon.visionlite.anime.Hub.ANIME) "Search anime" else "Search movies and series",
+                decorationBox = { inner -> if (q.isEmpty()) Text(if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "Search anime" else "Search movies and series",
                     color = Palette.TextDim, fontSize = 18.sp); inner() })
         }
         if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
@@ -102,7 +114,7 @@ fun Search(nav: Nav) {
             Text("Recent", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(recent) { t -> com.lekathedon.visionlite.ui.Button(t, { q = t; run() }) }
-                item { com.lekathedon.visionlite.ui.Button("Clear", { recent = emptyList(); prefs.recentSearches.value = "" }) }
+                item { com.lekathedon.visionlite.ui.Button("Clear", { recent = emptyList(); recentPref.value = "" }) }
             }
         }
         // Index in the key: two add-ons (or one add-on's film and series catalogs) can give the same row name.

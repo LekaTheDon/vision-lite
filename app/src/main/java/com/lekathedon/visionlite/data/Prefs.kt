@@ -166,6 +166,8 @@ class Prefs(context: Context) {
     val saved = Text("saved", "[]")
     /** Last searches, newline separated, newest first. */
     val recentSearches = Text("recent_searches", "")
+    /** The Anime hub's own recent searches (Films & TV keeps [recentSearches]). */
+    val recentSearchesAnime = Text("recent_searches_anime", "")
     // Vision TB (off until switched on; the key comes from the phone form, never from the repo)
     /** Recommendations: IMDb minimum ("0" = off) and the More like this / Not for me marks. */
     val recMinImdb = Text("rec_min_imdb", "7")

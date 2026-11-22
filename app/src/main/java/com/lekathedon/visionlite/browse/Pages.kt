@@ -127,75 +127,7 @@ private fun Page(title: String, note: String? = null, content: @Composable () ->
     }
 }
 
-// ---------------------------------------------------------------- Discover
-
-/** Discover: a type, one of your add-ons' catalogs for it, and a genre when the catalog has them; a grid that pages. */
-@Composable
-fun Discover(nav: Nav) {
-    val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
-    androidx.compose.runtime.key(hub) { DiscoverOf(nav, hub) }
-}
-
-@Composable
-private fun DiscoverOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
-    val addons by App.instance.addons.addons.collectAsState()
-    val all = remember(addons) {
-        addons.flatMap { a -> a.manifest.catalogs.filter { c -> !c.needsSearch && c.extraRequired.all { it == "genre" } && c.extra.none { it.isRequired && it.name != "genre" } }.map { a to it } }
-    }
-    val types = remember(all) { all.map { it.second.type }.distinct().sortedBy { listOf("movie", "series").indexOf(it).let { i -> if (i < 0) 9 else i } } }
-    var type by rememberSaveable { mutableStateOf<String?>(null) }
-    val t = type ?: types.firstOrNull()
-    val cats = all.filter { it.second.type == t }
-    var catKey by rememberSaveable(t) { mutableStateOf<String?>(null) }
-    val cat = cats.firstOrNull { key(it) == catKey } ?: cats.firstOrNull()
-    val genres = cat?.second?.extra?.firstOrNull { it.name == "genre" }?.options.orEmpty()
-    val genreRequired = cat?.second?.let { c -> c.extra.any { it.name == "genre" && it.isRequired } || "genre" in c.extraRequired } == true
-    var genre by rememberSaveable(catKey, t) { mutableStateOf<String?>(null) }
-    val g = genre ?: if (genreRequired) genres.firstOrNull() else null
-    val items = remember(cat?.let(::key), g) { mutableStateListOf<MetaPreview>() }
-    var more by remember(cat?.let(::key), g) { mutableStateOf(true) }
-    var asked by remember(cat?.let(::key), g) { mutableStateOf(0) }
-    var loading by remember(cat?.let(::key), g) { mutableStateOf(false) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    fun load() {
-        val c = cat ?: return
-        if (loading || !more) return
-        loading = true
-        scope.launch {
-            // Only this hub's titles; a page with none of them asks the next (up to 4 in a row).
-            for (tries in 0 until 4) {
-                val page = runCatching { App.instance.client.catalog(c.first, c.second, skip = asked, genre = g) }.getOrDefault(emptyList())
-                asked += page.size
-                val fresh = page.filter { m -> items.none { it.id == m.id } }
-                val kept = fresh.filter { com.lekathedon.visionlite.anime.Hubs.keeps(hub, it) }
-                items.addAll(kept)
-                more = fresh.isNotEmpty() && c.second.supportsSkip
-                if (!more || kept.isNotEmpty()) break
-            }
-            loading = false
-        }
-    }
-    LaunchedEffect(cat?.let(::key), g) { load() }
-    val adultRev by com.lekathedon.visionlite.recs.Adult.revision.collectAsState()
-    val adultOn by App.instance.prefs.hideAdult.flow.collectAsState()
-    val shown = remember(items, adultRev, adultOn) { com.lekathedon.visionlite.recs.Adult.visible(items) }
-    Page("Discover", if (all.isEmpty()) "Your add-ons have no catalogs to browse." else null) {
-        Chips(types.map { it to typeName(it) }, t, Modifier.padding(top = 12.dp)) { type = it }
-        Chips(cats.map { key(it) to ((it.second.name ?: it.second.id) + " · " + it.first.manifest.name) }, cat?.let(::key), Modifier.padding(top = 8.dp)) { catKey = it }
-        if (genres.isNotEmpty()) Chips((if (genreRequired) emptyList() else listOf("" to "All")) + genres.map { it to it }, g ?: "", Modifier.padding(top = 8.dp)) { genre = it.ifEmpty { null } }
-        LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().padding(top = 14.dp), contentPadding = PaddingValues(bottom = 40.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            itemsIndexed(shown, key = { _, m -> m.id }) { i, m ->
-                if (i >= shown.size - 12) LaunchedEffect(items.size) { load() }
-                Poster(m, nav, sub = listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null }, expand = false)
-            }
-            if (items.isEmpty() && !loading && cat != null) item(span = { GridItemSpan(maxLineSpan) }) { Text("Nothing here.", color = Palette.TextDim, fontSize = 15.sp) }
-        }
-    }
-}
-
-private fun key(p: Pair<Addon, CatalogDef>) = p.first.base + "|" + p.second.type + "|" + p.second.id
-private fun typeName(t: String) = when (t) { "movie" -> "Movies"; "series" -> "Shows"; "tv" -> "TV"; "channel" -> "Channels"; else -> t.replaceFirstChar { it.uppercase() } }
+// Discover: see Discover.kt (built-in sources; add-ons optional).
 
 // ---------------------------------------------------------------- Genres and Decades (WuPlay, see Wuplay.kt)
 

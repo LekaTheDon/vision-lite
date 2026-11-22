@@ -257,7 +257,7 @@ object Charts {
         Src.LIVECHART -> null
     }
 
-    private fun mal(path: String): List<MetaPreview> = Net.http.newCall(Request.Builder().url("https://api.myanimelist.net/v2/$path")
+    internal fun mal(path: String): List<MetaPreview> = Net.http.newCall(Request.Builder().url("https://api.myanimelist.net/v2/$path")
         .header("X-MAL-CLIENT-ID", BuildConfig.MAL_CLIENT_ID).build()).execute().use { r ->
         if (!r.isSuccessful) throw java.io.IOException("MAL HTTP ${r.code}")
         JSONObject(r.body?.string().orEmpty()).optJSONArray("data").objects().mapNotNull { e ->
@@ -415,24 +415,25 @@ object Services {
             val today = LocalDate.now().toString()
             val adult = com.lekathedon.visionlite.recs.Adult.on()
             val fresh7 = runCatching { LocalDate.parse(saved.day).plusDays(7) > LocalDate.now() }.getOrDefault(false)
-            if (fresh7 && saved.v == 2 && saved.adult == adult && saved.art.size == S.entries.size) return@withContext
+            if (fresh7 && saved.v == 3 && saved.adult == adult && saved.art.size == S.entries.size) return@withContext
             val logosOld = System.currentTimeMillis() - saved.logosAt > 30L * 24 * 3600_000L
             val without = com.lekathedon.visionlite.recs.Adult.tmdbWithout()
+            com.lekathedon.visionlite.anime.AnimeIds.warm()
             // Each service's best-rated originals (its own network; a provider's catalogue when TMDB has no network for it).
-            fun top(path: String): List<Pair<String, String>> = Tmdb.get(path + without)?.optJSONArray("results").objects()
-                .filter { !it.optBoolean("adult") }
+            fun top(path: String, anime: Boolean): List<Pair<String, String>> = Tmdb.get(path + without)?.optJSONArray("results").objects()
+                .filter { !it.optBoolean("adult") && (anime || !com.lekathedon.visionlite.browse.Wuplay.isAnimeResult(it, "discover/tv" in path)) }
                 .mapNotNull { r -> r.optString("backdrop_path").takeIf { it.startsWith("/") }?.let { r.optInt("id").toString() to it } }
             val lists = coroutineScope {
                 S.entries.map { s -> async {
                     val kept = saved.art.firstOrNull { it.id == s.id }
                     val logo = s.logo ?: if (s.network == 0) null else if (!logosOld && kept?.logo != null) kept.logo else Tmdb.get("network/${s.network}")?.optString("logo_path")?.ifBlank { null } ?: kept?.logo
                     val cands = if (s.network != 0) {
-                        top("discover/tv?sort_by=vote_average.desc&vote_count.gte=300&with_networks=${s.network}").map { "tv:" + it.first to it.second }
-                            .ifEmpty { top("discover/tv?sort_by=vote_average.desc&vote_count.gte=50&with_networks=${s.network}").map { "tv:" + it.first to it.second } }
+                        top("discover/tv?sort_by=vote_average.desc&vote_count.gte=300&with_networks=${s.network}", s.anime).map { "tv:" + it.first to it.second }
+                            .ifEmpty { top("discover/tv?sort_by=vote_average.desc&vote_count.gte=50&with_networks=${s.network}", s.anime).map { "tv:" + it.first to it.second } }
                     } else {
                         val prov = "&watch_region=${s.region}&with_watch_providers=${s.providers}"
-                        (top("discover/tv?sort_by=vote_average.desc&vote_count.gte=200$prov").map { "tv:" + it.first to it.second } +
-                            top("discover/movie?sort_by=vote_average.desc&vote_count.gte=500$prov").map { "movie:" + it.first to it.second })
+                        (top("discover/tv?sort_by=vote_average.desc&vote_count.gte=200$prov", s.anime).map { "tv:" + it.first to it.second } +
+                            top("discover/movie?sort_by=vote_average.desc&vote_count.gte=500$prov", s.anime).map { "movie:" + it.first to it.second })
                     }
                     Triple(s, logo, cands)
                 } }.awaitAll()
@@ -444,7 +445,7 @@ object Services {
                 Art(s.id, logo, pick?.second ?: saved.art.firstOrNull { it.id == s.id }?.backdrop)
             }
             _art.value = fresh
-            runCatching { file.writeText(Net.json.encodeToString(Saved.serializer(), Saved(today, if (logosOld) System.currentTimeMillis() else saved.logosAt, fresh, 2, adult))) }
+            runCatching { file.writeText(Net.json.encodeToString(Saved.serializer(), Saved(today, if (logosOld) System.currentTimeMillis() else saved.logosAt, fresh, 3, adult))) }
         } finally { lock.unlock() }
     }
 
@@ -521,7 +522,7 @@ object People {
     suspend fun titles(id: String): Pair<Person?, List<MetaPreview>> = withContext(Dispatchers.IO) {
         val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } }"
         val q = "{ name(id: \"$id\") { nameText { text } primaryImage { url } " +
-            "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\"]}) { edges { node { $node } } } " +
+            "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\"]}) { edges { node { $node } } } " +
             "knownFor(first: 30) { edges { node { $node } } } } }"
         val d = runCatching {
             Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))

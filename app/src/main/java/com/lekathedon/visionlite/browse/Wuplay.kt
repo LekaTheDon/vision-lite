@@ -135,7 +135,7 @@ object Wuplay {
     private val artFile get() = File(App.instance.filesDir, "browse_art.json")
     private const val ART_FRESH_MS = 7 * 24 * 3600_000L
     /** 2 = highest rated (was: most popular). A change of version or of Hide adult titles asks every tile again. */
-    private const val ART_V = 2
+    private const val ART_V = 3
 
     /** Highest-rated titles for a tile, best first: (TMDB id, backdrop). Hide adult titles leaves the explicit ones out. */
     private fun topRated(genre: Int?, from: Int?, to: Int?, tv: Boolean, votes: Int): List<Pair<String, String>> {
@@ -143,8 +143,6 @@ object Wuplay {
         val dateKey = if (tv) "first_air_date" else "primary_release_date"
         val q = StringBuilder(if (tv) "discover/tv" else "discover/movie").append("?include_adult=false&language=en-US&sort_by=vote_average.desc&vote_count.gte=").append(votes)
         g?.let { q.append("&with_genres=").append(it) }
-        // Animated films (mostly anime) top many genres' charts; outside Animation's own tile they are left out.
-        if (genre != 16) q.append("&without_genres=16")
         from?.let { q.append("&$dateKey.gte=").append(it).append("-01-01") }
         to?.let { q.append("&$dateKey.lte=").append(minOf("$it-12-31", LocalDate.now().toString())) }
         q.append(com.lekathedon.visionlite.recs.Adult.tmdbWithout())
@@ -152,13 +150,24 @@ object Wuplay {
         return (0 until results.length()).mapNotNull { i ->
             val r = results.optJSONObject(i) ?: return@mapNotNull null
             if (r.optBoolean("adult")) return@mapNotNull null
+            // Strictly Films & TV: nothing anime behind any tile (the anime list, or Japanese / Chinese / Korean animation).
+            if (isAnimeResult(r, tv)) return@mapNotNull null
             val b = r.optString("backdrop_path").takeIf { it.startsWith("/") } ?: return@mapNotNull null
             (if (tv) "tv:" else "movie:") + r.optInt("id") to Tmdb.img(b, "w1280")!!
         }
     }
 
+    /** True for a TMDB result the anime list knows, or animation (genre 16) made in Japanese, Chinese or Korean. */
+    internal fun isAnimeResult(r: JSONObject, tv: Boolean): Boolean {
+        if (com.lekathedon.visionlite.anime.AnimeIds.isAnime("tmdb:${if (tv) "tv" else "movie"}:${r.optInt("id")}")) return true
+        val g = r.optJSONArray("genre_ids")
+        val animated = g != null && (0 until g.length()).any { g.optInt(it) == 16 }
+        return animated && r.optString("original_language") in setOf("ja", "zh", "ko", "cn")
+    }
+
     /** Loads the tiles' pictures (disk first; asked again weekly, or when the rule or Hide adult titles changed). Needs the TMDB key. */
     suspend fun loadArt() = withContext(Dispatchers.IO) {
+        com.lekathedon.visionlite.anime.AnimeIds.warm()
         artLock.withLock {
             val disk = runCatching { JSONObject(artFile.readText()) }.getOrNull()
             val at = disk?.optLong("at") ?: 0L
