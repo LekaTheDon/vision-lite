@@ -258,7 +258,7 @@ object Iptv {
                 val base = if (dot > 0) id.substring(0, dot) else id
                 val suffix = if (dot > 0) id.substring(dot + 1).lowercase().let { if (it == "gb") "uk" else it }.takeIf { it.length == 2 && it.all(Char::isLetter) } else null
                 squash(base) == squash(fam) && (country == null || suffix == null || suffix == country)
-            }?.maxWithOrNull(compareBy({ it.value[0] }, { it.value[1] }))?.key ?: continue
+            }?.maxByOrNull { it.value[0].toLong() * 1_000_000 + it.value[1] }?.key ?: continue
             w.execSQL("UPDATE ch SET tvg=? WHERE pl=? AND n=?", arrayOf(id, pl, row)); n++
         }
         return n
