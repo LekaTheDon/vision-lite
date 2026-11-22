@@ -120,7 +120,7 @@ private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                                 modifier = Modifier.padding(start = Start, bottom = 8.dp))
                             CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }) {
                                 LazyRow(contentPadding = PaddingValues(horizontal = Start), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    itemsIndexed(cw, key = { _, r -> r.streamId }) { i, r ->
+                                    itemsIndexed(cw, key = { i, r -> "$i/${r.streamId}" }) { i, r ->
                                         val m = remember(r) { MetaPreview(r.imdb, r.type, r.label, com.lekathedon.visionlite.library.posterOf(r.imdb), com.lekathedon.visionlite.library.backdropOf(r.imdb)) }
                                         Box {
                                             Poster(m, if (i == 0) Modifier.focusRequester(firstFocus) else Modifier, onFocus = { focused = m },
@@ -136,7 +136,7 @@ private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                             }
                         }
                     }
-                    items(visible, key = { it.key }) { row ->
+                    items(visible.distinctBy { it.key }, key = { it.key }) { row ->
                         LaunchedEffect(row.key) { vm.need(row.key) }
                         Column(Modifier.padding(bottom = 18.dp)) {
                             Text(row.title, color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
@@ -146,7 +146,7 @@ private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                             } else {
                                 CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }) {
                                     LazyRow(contentPadding = PaddingValues(horizontal = Start), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        itemsIndexed(row.items, key = { _, m -> m.id }) { i, m ->
+                                        itemsIndexed(row.items, key = { i, m -> "$i/${m.id}" }) { i, m ->
                                             Poster(
                                                 m,
                                                 modifier = if (cw.isEmpty() && row.key == visible.first().key && i == 0) Modifier.focusRequester(firstFocus) else Modifier,
