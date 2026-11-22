@@ -1,6 +1,7 @@
 // From Nuvio + IPTV (homelessbrian/NuvioTV dev, 054166d7d + e1625fb65): League Networks page. Vision: no region filter.
 package com.lekathedon.visionlite.sports
 
+import com.lekathedon.visionlite.sports.SportsCatalog.hasWord
 import com.lekathedon.visionlite.iptv.EpgProgram
 
 import androidx.compose.foundation.ExperimentalFoundationApi
