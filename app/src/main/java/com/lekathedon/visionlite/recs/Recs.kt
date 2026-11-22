@@ -86,10 +86,24 @@ object Recs {
     fun forYou(count: Int = 30, now: Long = System.currentTimeMillis(), hub: Hub = Hubs.now()): List<Pick> {
         val nope = nope()
         val min = minImdb()
-        val own = RecsLogic.rotate(withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) }
-            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) }, count, now)
-        return own
+        val all = imdbLift(withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) }
+            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) })
+        val slice = RecsLogic.rotate(all, count, now)
+        // What was the IMDb Picks row (0.28: no row of its own): the engine's IMDb-best take every fifth place.
+        val inSlice = slice.mapTo(HashSet()) { it.imdb }
+        val best = all.filter { it.imdb !in inSlice && (it.rating ?: 0f) >= maxOf(min, 7.5f) }
+            .sortedWith(compareByDescending<Pick> { it.rating ?: 0f }.thenByDescending { it.sources }).iterator()
+        val out = ArrayList<Pick>(count)
+        slice.forEach { x -> if (out.size < count && (out.size + 1) % 5 == 0 && best.hasNext()) out += best.next(); if (out.size < count) out += x }
+        return out
     }
+
+    /**
+     * IMDb's rating steers every engine list (Vision Picks, Because you watched, Moods): a title IMDb rates 8+ moves up
+     * four places, 7.5+ two, so the engine's IMDb-best show sooner without crowding out taste.
+     */
+    internal fun imdbLift(list: List<Pick>): List<Pick> = list.withIndex()
+        .sortedBy { (i, p) -> i - when { (p.rating ?: 0f) >= 8f -> 4.5; (p.rating ?: 0f) >= 7.5f -> 2.5; else -> 0.0 } }.map { it.value }
 
     /**
      * The AIs (Gemini, Groq, Mistral, when keyed) as one more source of the engine, not a row of their own: a title the
@@ -110,7 +124,7 @@ object Recs {
         return out
     }
 
-    /** IMDb Picks: the engine's finds IMDb rates highest, without what Vision Picks shows now. */
+    /** The engine's finds IMDb rates highest, without what Vision Picks shows now (a phone-added "IMDb Picks" list row). */
     fun imdbPicks(count: Int = 30, now: Long = System.currentTimeMillis(), hub: Hub = Hubs.now()): List<Pick> {
         val nope = nope()
         val shown = forYou(30, now, hub).map { it.imdb }.toSet()
@@ -122,7 +136,7 @@ object Recs {
     /** "Because you watched X" rows, strongest first. */
     fun because(hub: Hub = Hubs.now()): List<Because> {
         val nope = nope()
-        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = b.picks.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && Hubs.keepsId(hub, it.imdb) }) }
+        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = imdbLift(b.picks.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && Hubs.keepsId(hub, it.imdb) })) }
     }
 
     /** The "because you watched" rows Home shows now: [n] of them, a different set every 12 hours. */
@@ -219,7 +233,9 @@ object Recs {
         val signals = signals(trakt, now).filter { Hubs.keepsId(hub, it.id) }
         val seeds = RecsLogic.seeds(signals)
         val min = minImdb()
-        val sig = RecsLogic.signature(seeds, min)
+        // Favourite people steer the picks (Follow / Unfollow rebuilds within the hour, like any change of taste).
+        val favs = com.lekathedon.visionlite.home.People.list.value.filter { it.hub == hub.key }.associate { it.id to it.name }
+        val sig = RecsLogic.signature(seeds, min) + favs.keys.sorted().joinToString(",", ",fav:")
         if (seeds.none { it.weight > 0 }) return Pool(now, sig, version = RecsLogic.VERSION).also { save(hub, it) }
         if (!force && !RecsLogic.shouldRefresh(pool(hub).value, sig, now)) return pool(hub).value
 
@@ -245,11 +261,11 @@ object Recs {
         var tally = RecsLogic.tally(results, ex, min)
         // Full facts for the best candidates, so taste can judge them.
         val head = tally.values.sortedByDescending { it.score }.take(RecsLogic.LOOKUPS).map { it.facts.id }
-        lookUp(head.filter { facts[it]?.full != true }, facts)
+        lookUp(head.filter { facts[it]?.let { f -> f.full && f.v >= 1 } != true }, facts)
         tally = RecsLogic.tally(results.map { (s, seed, list) -> Triple(s, seed, list.map { facts[it.id] ?: it }) }, ex, min)
 
         val loved = signals.filter { it.kind == Kind.LOVE || it.kind == Kind.LIKED }.map { it.id }.toSet()
-        val taste = RecsLogic.taste(seeds.mapNotNull { s -> facts[s.id]?.takeIf { it.full }?.let { it to s.weight } }, loved)
+        val taste = RecsLogic.taste(seeds.mapNotNull { s -> facts[s.id]?.takeIf { it.full }?.let { it to s.weight } }, loved, favs)
         val picks = RecsLogic.rank(tally, taste, facts)
         val top = picks.take(20).map { it.imdb }.toSet()
         val because = seeds.filter { it.weight > 0 }.take(BECAUSE_ROWS).map { seed ->
@@ -306,7 +322,8 @@ object Recs {
     private const val FULL = "$LIGHT keywords(first: 15) { edges { node { keyword { text { text } } } } } " +
         "spokenLanguages { spokenLanguages { id } } countriesOfOrigin { countries { id } } certificate { rating } " +
         "directors: credits(first: 2, filter: { categories: [\"director\"] }) { edges { node { name { id nameText { text } } } } } " +
-        "writers: credits(first: 2, filter: { categories: [\"writer\"] }) { edges { node { name { id nameText { text } } } } }"
+        "writers: credits(first: 2, filter: { categories: [\"writer\"] }) { edges { node { name { id nameText { text } } } } } " +
+        "cast: credits(first: 5, filter: { categories: [\"actor\", \"actress\"] }) { edges { node { name { id nameText { text } } } } }"
     private val KINDS = setOf("movie", "tvMovie", "tvSeries", "tvMiniSeries")
 
     /** Each seed's own facts and IMDb's "More like this" for it. */
@@ -378,7 +395,9 @@ object Recs {
             countries = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries").objects().map { it.optString("id") },
             age = RecsLogic.ageLevel(t.optJSONObject("certificate")?.optString("rating")),
             full = full,
-            at = now
+            at = now,
+            cast = if (!full) emptyList() else people("cast").filter { it.id.isNotBlank() }.distinctBy { it.id },
+            v = if (full) 1 else 0
         )
     }
 

@@ -30,7 +30,10 @@ import kotlin.math.sqrt
     val countries: List<String> = emptyList(),
     val age: Int? = null,
     val full: Boolean = false,
-    val at: Long = 0L
+    val at: Long = 0L,
+    /** Top-billed actors (full facts from 0.28 on; [v] 1), only to find your favourite people's work. */
+    val cast: List<Person> = emptyList(),
+    val v: Int = 0
 )
 
 /** One recommendation. [because] = the watched title that pulled hardest; [why] = a person or theme in common. */
@@ -72,7 +75,7 @@ enum class Kind { LIKED, NOT_FOR_ME, LOVE, LIKE, REWATCHED, STOPPED, FINISHED, W
 
 object RecsLogic {
     /** 2 (0.27): six "because you watched" rows, Love / Like. */
-    const val VERSION = 2
+    const val VERSION = 3
     const val SEEDS = 20
     const val NEGATIVE = 4
     const val MIN_SEEDS = 3
@@ -94,6 +97,8 @@ object RecsLogic {
     private const val W_RATING = 0.15
     private const val W_KEYWORDS = 3.0
     private const val W_PEOPLE = 0.5
+    /** A favourite person (Follow on their page) in the cast or crew: as strong as a theme you keep coming back to. */
+    private const val W_FAV = 0.6
     private const val W_LANGUAGE = 0.15
     private const val W_COUNTRY = 0.075
     private const val W_APPETITE = 0.12
@@ -198,7 +203,9 @@ object RecsLogic {
     class Taste(
         val keywords: Map<String, Double>, val people: Map<String, Double>, val names: Map<String, String>,
         val loved: Set<String>, val languages: Map<String, Double>, val countries: Map<String, Double>, val total: Double,
-        val logMean: Double, val logSd: Double, val ageFloor: Int?, val ageCeiling: Int?, val avoided: Set<String>
+        val logMean: Double, val logSd: Double, val ageFloor: Int?, val ageCeiling: Int?, val avoided: Set<String>,
+        /** Your favourite people: IMDb name id to name. */
+        val favs: Map<String, String> = emptyMap()
     )
 
     private fun Facts.words() = keywords.filter { it !in SKIP_KEYWORDS }
@@ -212,7 +219,7 @@ object RecsLogic {
         else -> null
     }
 
-    fun taste(items: List<Pair<Facts, Double>>, loved: Set<String>): Taste {
+    fun taste(items: List<Pair<Facts, Double>>, loved: Set<String>, favs: Map<String, String> = emptyMap()): Taste {
         val kw = HashMap<String, Double>(); val ppl = HashMap<String, Double>(); val names = HashMap<String, String>()
         val lovedPeople = HashSet<String>(); val lang = HashMap<String, Double>(); val ctry = HashMap<String, Double>()
         val nope = HashMap<String, Double>(); val nopeCount = HashMap<String, Int>(); val logs = ArrayList<Double>()
@@ -234,7 +241,7 @@ object RecsLogic {
         val sd = if (logs.size > 1) max(0.4, sqrt(logs.sumOf { (it - mean).pow(2) } / logs.size)) else 0.8
         val ages = items.filter { it.second > 0 }.mapNotNull { (f, w) -> f.age?.let { it to w } }
         val avoided = nopeCount.filter { (l, c) -> c >= 2 && (lang[l] ?: 0.0) < nope.getValue(l) }.keys
-        return Taste(kw, ppl, names, lovedPeople, lang, ctry, total.coerceAtLeast(1.0), mean, sd, ageFloor(ages), ageCeiling(ages), avoided)
+        return Taste(kw, ppl, names, lovedPeople, lang, ctry, total.coerceAtLeast(1.0), mean, sd, ageFloor(ages), ageCeiling(ages), avoided, favs)
     }
 
     /** The lowest age level really watched; below it a pick is pushed down, never removed. */
@@ -275,6 +282,7 @@ object RecsLogic {
                 val top = t.people.values.max().coerceAtLeast(1e-6)
                 s += W_PEOPLE * min(1.0, f.crew.distinctBy { it.id }.sumOf { max(0.0, t.people[it.id] ?: 0.0) } / top)
             }
+            if (t.favs.isNotEmpty() && (f.crew.any { it.id in t.favs } || f.cast.any { it.id in t.favs })) s += W_FAV
             f.language?.let { s += W_LANGUAGE * (t.languages[it] ?: 0.0) / t.total }
             s += W_COUNTRY * (f.countries.maxOfOrNull { t.countries[it] ?: 0.0 } ?: 0.0) / t.total
             if (f.age != null && t.ageFloor != null && f.age < t.ageFloor) s -= W_AGE * (t.ageFloor - f.age)
@@ -339,7 +347,10 @@ object RecsLogic {
     private fun toPick(x: Tallied, f: Facts, t: Taste, freq: Map<String, Int>, stretched: Boolean): Pick {
         val person = f.crew.distinctBy { it.id }.filter { (t.people[it.id] ?: 0.0) > 0 }.maxByOrNull { t.people.getValue(it.id) }
         val word = f.words().filter { (t.keywords[it] ?: 0.0) > 0 && (freq[it] ?: 0) >= 2 }.maxByOrNull { t.keywords.getValue(it) * rarity(it, freq) }
+        val fav = f.cast.firstOrNull { it.id in t.favs }?.let { "With ${it.name}, a favourite of yours" }
+            ?: f.crew.firstOrNull { it.id in t.favs }?.let { "From ${it.name}, a favourite of yours" }
         val why = when {
+            fav != null -> fav
             person != null && person.id in t.loved -> "From ${person.name}, whose work you love"
             person != null -> "From ${person.name}"
             word != null -> "More $word"

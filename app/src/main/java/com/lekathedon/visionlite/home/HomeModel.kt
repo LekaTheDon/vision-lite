@@ -33,7 +33,7 @@ data class Row(
 }
 
 /**
- * Home rows = Vision's rows (Coming up, Vision Picks, IMDb Picks, AI Picks, Streaming services, Favourite people,
+ * Home rows = Vision's rows (Coming up, Vision Picks, Because you watched / you like, Moods, Streaming services,
  * the charts) and, when switched on, every add-on catalog that needs no extra. A row loads only when it comes near
  * the screen ([need]); add-on rows ask more pages only when focus nears their end ([more]).
  */
@@ -50,7 +50,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private val raw = HashMap<String, List<MetaPreview>>()
     private fun keep(list: List<MetaPreview>) = list.filter { Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.Adult.hides(it) }
     private val rowOrder get() = Hubs.rowOrder(hub)
-    private val engineKeys = listOf(VisionRows.PICKS, VisionRows.IMDB) + VisionRows.BECAUSE + VisionRows.MOODS
+    private val engineKeys = listOf(VisionRows.PICKS) + VisionRows.BECAUSE + VisionRows.MOODS
     /** Mood rows' TMDB top-up, once per mood per app run (2 TMDB requests; nothing without a key). */
     val rows: StateFlow<List<Row>> get() = state
     private val loading = HashMap<String, Job>()
@@ -100,9 +100,17 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it)) } ?: r }
             }
         }
+        // Hide adult titles switched: the tiles' pictures are chosen again under the new rule (no-op when unchanged).
+        viewModelScope.launch {
+            app.prefs.hideAdult.flow.collect {
+                if (VisionRows.SERVICES in needed) runCatching { Services.refresh() }
+                if (hub == Hub.FILMS && VisionRows.GENRES in needed) runCatching { com.lekathedon.visionlite.browse.Wuplay.loadArt() }
+            }
+        }
         viewModelScope.launch { ComingUp.items.collect { fill(VisionRows.COMING_UP) } }
         viewModelScope.launch { Services.art.collect { fill(VisionRows.SERVICES) } }
-        viewModelScope.launch { People.list.collect { fill(VisionRows.PEOPLE) } }
+        // Favourite people: a follow / unfollow changes the two rows at once (and the engine at its next build).
+        viewModelScope.launch { People.list.collect { VisionRows.FAVS.forEach { if (it in needed) loadFav(it) } } }
         viewModelScope.launch { com.lekathedon.visionlite.browse.Wuplay.art.collect { fill(VisionRows.GENRES); fill(VisionRows.DECADES) } }
         // A title moved between hubs, or the anime list refreshed: every row sorts itself again.
         viewModelScope.launch {
@@ -130,7 +138,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val order = rowOrder.value.split('\n').filter { it.isNotEmpty() }.withIndex().associate { it.value to it.index }
         val vision = VisionRows.forHub(hub).map { (key, title) ->
             old[key] ?: Row(key, title, null, null, emptyList(), done = false, kind = when (key) {
-                VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES; VisionRows.PEOPLE -> RowKind.PEOPLE
+                VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES
                 VisionRows.GENRES, VisionRows.DECADES, VisionRows.MOODS -> RowKind.TILES
                 in VisionRows.ranked -> RowKind.RANKED; else -> RowKind.POSTER
             })
@@ -155,7 +163,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         // Rows new since you arranged Home (Genres, Decades) sit right after Streaming services, not at the bottom.
         val svc = order[VisionRows.SERVICES]
         fun place(i: Int, r: Row): Double = order[r.key]?.toDouble()
-            ?: if (svc != null && r.key == VisionRows.GENRES) svc + 0.1 else if (svc != null && r.key == VisionRows.DECADES) svc + 0.2 else (order.size + i).toDouble()
+            ?: if (svc != null && r.key == VisionRows.GENRES) svc + 0.1 else if (svc != null && r.key == VisionRows.DECADES) svc + 0.2
+            // Because you like · 1 / 2 (new in 0.28): right under Because you watched · 1 / 2.
+            else VisionRows.FAVS.indexOf(r.key).takeIf { it >= 0 }?.let { order[VisionRows.BECAUSE[it]] }?.let { it + 0.1 } ?: (order.size + i).toDouble()
         state.value = (vision + imported + rotating + addons).withIndex().sortedBy { (i, r) -> place(i, r) }.map { it.value }
     }
 
@@ -194,9 +204,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val key = row.key
         when (key) {
             VisionRows.COMING_UP -> ComingUp.onHome()
-            VisionRows.PICKS, VisionRows.IMDB, in VisionRows.BECAUSE, VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
+            VisionRows.PICKS, in VisionRows.BECAUSE, VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
-            VisionRows.PEOPLE -> {}
+            in VisionRows.FAVS -> { loadFav(key); return }
             // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
             VisionRows.GENRES, VisionRows.DECADES -> if (hub == Hub.FILMS) viewModelScope.launch { runCatching { com.lekathedon.visionlite.browse.Wuplay.loadArt() } }
             SERVER_ROW -> {
@@ -235,7 +245,6 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                     description = ComingUp.episodeLine(i), releaseInfo = ComingUp.label(i))
             }
             VisionRows.PICKS -> Recs.forYou(30, hub = hub).map(::meta)
-            VisionRows.IMDB -> Recs.imdbPicks(30, hub = hub).map(::meta)
             in VisionRows.BECAUSE -> {
                 val b = Recs.becauseNow(VisionRows.BECAUSE.size, hub).getOrNull(VisionRows.BECAUSE.indexOf(key))
                 set(key, b?.picks.orEmpty().map(::meta), b?.let { "Because you watched ${it.seed}" }); return
@@ -247,7 +256,6 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 val art = Services.art.value.firstOrNull { it.id == s.id }
                 MetaPreview("svc:${s.id}", "service", s.title, null, Tmdb.img(art?.backdrop, "w780"), Tmdb.img(art?.logo, "w300"))
             }
-            VisionRows.PEOPLE -> People.list.value.filter { it.hub == hub.key }.map { MetaPreview(it.id, "person", it.name, it.photo) }
             VisionRows.GENRES, VisionRows.DECADES -> {
                 val art = com.lekathedon.visionlite.browse.Wuplay.art.value
                 val anime = hub == Hub.ANIME
@@ -257,6 +265,18 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             else -> return
         }
         set(key, items)
+    }
+
+    /** "Because you like X": the favourite this row follows now, their titles (one IMDb request, kept for the run). */
+    private fun loadFav(key: String) {
+        val i = VisionRows.FAVS.indexOf(key)
+        loading.remove(key)?.cancel()
+        loading[key] = viewModelScope.launch {
+            val p = People.now(hub.key, VisionRows.FAVS.size).getOrNull(i)
+            if (p == null) set(key, emptyList())
+            else set(key, runCatching { People.row(p) }.getOrDefault(emptyList()), "Because you like ${p.name}")
+            loading.remove(key)
+        }
     }
 
     private fun set(key: String, items: List<MetaPreview>, title: String? = null) {

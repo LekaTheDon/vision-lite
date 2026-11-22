@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -87,25 +88,26 @@ object Vod {
                     _status.value = "Loading ${pl.name}'s films and series…"
                     val base = Iptv.xtreamBase(pl)
                     val api = "$base/player_api.php?username=${Iptv.encode(pl.user)}&password=${Iptv.encode(pl.pass)}"
-                    fun arr(action: String) = JSONArray(Iptv.openStream("$api&action=$action").bufferedReader().use { it.readText() })
-                    fun names(a: JSONArray) = (0 until a.length()).associate { a.getJSONObject(it).let { c -> c.optString("category_id") to c.optString("category_name") } }
-                    val movieCats = names(arr("get_vod_categories"))
-                    val movies = arr("get_vod_streams")
-                    val films = (0 until movies.length()).mapNotNull { i ->
-                        val o = movies.optJSONObject(i) ?: return@mapNotNull null
-                        val id = o.optString("stream_id").ifBlank { return@mapNotNull null }
-                        VodItem(pl.id, "movie", id, o.optString("name"), movieCats[o.optString("category_id")] ?: "Films", o.optString("stream_icon").takeIf { it.startsWith("http") },
-                            "$base/movie/${Iptv.encode(pl.user)}/${Iptv.encode(pl.pass)}/$id.${o.optString("container_extension").ifBlank { "mp4" }}", o.optString("rating").takeIf { it.isNotBlank() && it != "0" })
+                    // Streamed straight into vod.db: big panels send 50-100 MB lists (one string of them ran the app out of memory).
+                    fun names(action: String): Map<String, String> = HashMap<String, String>().also { m ->
+                        eachObject("$api&action=$action") { o -> m[o["category_id"].orEmpty()] = o["category_name"].orEmpty() }
                     }
-                    write(pl.id, "movie", films)
-                    val seriesCats = names(arr("get_series_categories"))
-                    val series = arr("get_series")
-                    write(pl.id, "series", (0 until series.length()).mapNotNull { i ->
-                        val o = series.optJSONObject(i) ?: return@mapNotNull null
-                        val id = o.optString("series_id").ifBlank { return@mapNotNull null }
-                        VodItem(pl.id, "series", id, o.optString("name"), seriesCats[o.optString("category_id")] ?: "Series", o.optString("cover").takeIf { it.startsWith("http") }, null,
-                            o.optString("rating").takeIf { it.isNotBlank() && it != "0" })
-                    })
+                    val movieCats = names("get_vod_categories")
+                    writeStream(pl.id, "movie") { add ->
+                        eachObject("$api&action=get_vod_streams") { o ->
+                            val id = o["stream_id"]?.ifBlank { null } ?: return@eachObject
+                            add(VodItem(pl.id, "movie", id, o["name"].orEmpty(), movieCats[o["category_id"].orEmpty()] ?: "Films", o["stream_icon"]?.takeIf { it.startsWith("http") },
+                                "$base/movie/${Iptv.encode(pl.user)}/${Iptv.encode(pl.pass)}/$id.${o["container_extension"]?.ifBlank { null } ?: "mp4"}", o["rating"]?.takeIf { it.isNotBlank() && it != "0" }))
+                        }
+                    }
+                    val seriesCats = names("get_series_categories")
+                    writeStream(pl.id, "series") { add ->
+                        eachObject("$api&action=get_series") { o ->
+                            val id = o["series_id"]?.ifBlank { null } ?: return@eachObject
+                            add(VodItem(pl.id, "series", id, o["name"].orEmpty(), seriesCats[o["category_id"].orEmpty()] ?: "Series", o["cover"]?.takeIf { it.startsWith("http") }, null,
+                                o["rating"]?.takeIf { it.isNotBlank() && it != "0" }))
+                        }
+                    }
                     db.writableDatabase.execSQL("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", arrayOf("${pl.id}|loaded", System.currentTimeMillis().toString()))
                     _status.value = ""
                 } catch (e: Exception) {
@@ -115,6 +117,50 @@ object Vod {
                 _version.value++
             }
         }
+    }
+
+    /**
+     * Each object of a top-level JSON array at [url], as flat strings (nested values skipped), read as a stream: memory
+     * stays flat however long the list is. A panel answering with an object (or nothing) gives no items.
+     */
+    private fun eachObject(url: String, each: (Map<String, String?>) -> Unit) {
+        android.util.JsonReader(Iptv.openStream(url).bufferedReader()).use { r ->
+            r.isLenient = true
+            if (r.peek() != android.util.JsonToken.BEGIN_ARRAY) { r.skipValue(); return }
+            r.beginArray()
+            val o = HashMap<String, String?>()
+            while (r.hasNext()) {
+                if (r.peek() != android.util.JsonToken.BEGIN_OBJECT) { r.skipValue(); continue }
+                o.clear(); r.beginObject()
+                while (r.hasNext()) {
+                    val k = r.nextName()
+                    when (r.peek()) {
+                        android.util.JsonToken.STRING, android.util.JsonToken.NUMBER -> o[k] = r.nextString()
+                        android.util.JsonToken.BOOLEAN -> o[k] = r.nextBoolean().toString()
+                        android.util.JsonToken.NULL -> { r.nextNull(); o[k] = null }
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject(); each(o)
+            }
+            r.endArray()
+        }
+    }
+
+    /** Replaces [pl]'s [kind] items with what [fill] adds, in one transaction (nothing changes when it fails). */
+    private fun writeStream(pl: String, kind: String, fill: ((VodItem) -> Unit) -> Unit) {
+        val w = db.writableDatabase
+        w.beginTransaction()
+        try {
+            w.delete("items", "pl=? AND kind=?", arrayOf(pl, kind))
+            val st = w.compileStatement("INSERT OR REPLACE INTO items(pl,kind,id,name,grp,poster,url,rating) VALUES(?,?,?,?,?,?,?,?)")
+            fill { v ->
+                st.clearBindings(); st.bindString(1, v.pl); st.bindString(2, v.kind); st.bindString(3, v.id); st.bindString(4, v.name); st.bindString(5, v.group)
+                v.poster?.let { st.bindString(6, it) }; v.url?.let { st.bindString(7, it) }; v.rating?.let { st.bindString(8, it) }; st.executeInsert()
+            }
+            w.setTransactionSuccessful()
+        } finally { w.endTransaction() }
+        _version.value++
     }
 
     /** A series' episodes (Xtream get_series_info). */
@@ -141,9 +187,9 @@ object Vod {
     fun groups(kind: String): List<Pair<String, Int>> = db.readableDatabase.rawQuery(
         "SELECT grp, COUNT(*) FROM items WHERE kind=? GROUP BY grp ORDER BY MIN(rowid)", arrayOf(kind)).use { c -> buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) } }
 
-    fun items(kind: String, group: String?): List<VodItem> {
+    fun items(kind: String, group: String?, offset: Int = 0, limit: Int = 3000): List<VodItem> {
         val (w, a) = if (group == null) "kind=?" to arrayOf(kind) else "kind=? AND grp=?" to arrayOf(kind, group)
-        return db.readableDatabase.rawQuery("SELECT pl,kind,id,name,grp,poster,url,rating FROM items WHERE $w ORDER BY rowid LIMIT 3000", a).use { c ->
+        return db.readableDatabase.rawQuery("SELECT pl,kind,id,name,grp,poster,url,rating FROM items WHERE $w ORDER BY rowid LIMIT $limit OFFSET $offset", a).use { c ->
             buildList { while (c.moveToNext()) add(VodItem(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), c.getString(7))) }
         }
     }
@@ -177,52 +223,61 @@ object Vod {
     }
 }
 
-/** VOD: Films / Series, a category on the left, posters on the right; a series opens its seasons and episodes. */
+/**
+ * VOD in Home's look: Films / Series, then one Home row per category (posters, focus memory, Up/Down back to the card
+ * you left). Each row reads 40 titles from vod.db and the next 40 as you reach its end. A series opens its episodes.
+ */
 @Composable
 fun VodScreen(nav: Nav) {
     val version by Vod.version.collectAsState()
     val status by Vod.status.collectAsState()
     LaunchedEffect(Unit) { Vod.ensureLoaded() }
     var kind by rememberSaveable { mutableStateOf("movie") }
-    var group by rememberSaveable(kind) { mutableStateOf<String?>(null) }
     val groups by produceState(emptyList<Pair<String, Int>>(), version, kind) { value = withContext(Dispatchers.IO) { Vod.groups(kind) } }
-    val items by produceState(emptyList<VodItem>(), version, kind, group) { value = withContext(Dispatchers.IO) { Vod.items(kind, group) } }
     var series by remember { mutableStateOf<VodItem?>(null) }
     if (series != null) { androidx.activity.compose.BackHandler { series = null }; Episodes(nav, series!!); return }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 36.dp, end = 24.dp, top = 24.dp)) {
+    val store = remember(version, kind) { HashMap<String, VodRow>() }
+    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
         Row {
             Text("VOD", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(status.ifEmpty { if (Iptv.playlists().isEmpty()) "Add a playlist in Live TV first." else "${items.size} titles" }, color = Palette.TextDim, fontSize = 13.sp,
-                modifier = Modifier.padding(start = 14.dp, top = 8.dp))
+            Text(status.ifEmpty { if (Iptv.playlists().isEmpty()) "Add a playlist in Live TV first." else "${groups.sumOf { it.second }} titles · ${groups.size} categories" },
+                color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(start = 14.dp, top = 8.dp))
         }
         Chips(listOf("movie" to "Films", "series" to "Series"), kind, Modifier.padding(top = 12.dp)) { kind = it }
-        Row(Modifier.fillMaxSize().padding(top = 12.dp)) {
-            LazyColumn(Modifier.width(230.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 30.dp)) {
-                items(listOf("" to groups.sumOf { it.second }) + groups, key = { it.first }) { (g, n) ->
-                    val sel = (group ?: "") == g
-                    Focusable({ group = g.ifEmpty { null } }, Modifier.padding(bottom = 4.dp).fillMaxWidth()) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (sel) Color(0x33FFFFFF) else Color.Transparent).padding(10.dp)) {
-                            Text(g.ifEmpty { "All" }, color = if (f) Color.Black else Palette.Text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Text("$n", color = if (f) Color.DarkGray else Palette.TextDim, fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-            LazyVerticalGrid(GridCells.Adaptive(130.dp), Modifier.weight(1f).padding(start = 16.dp), contentPadding = PaddingValues(bottom = 40.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(items, key = { it.pl + it.kind + it.id }) { v ->
-                    Column(Modifier.width(130.dp)) {
-                        Focusable({ if (v.kind == "series") series = v else v.url?.let { nav.push(Screen.Player(it, v.name, type = "vod")) } }, Modifier.size(130.dp, 195.dp)) {
-                            Box(Modifier.fillMaxSize().background(Palette.Card)) {
-                                Text(v.name, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                                if (v.poster != null) Img(v.poster, 130.dp, 195.dp, Modifier.fillMaxSize())
-                            }
-                        }
-                        Text(v.name + (v.rating?.let { " · ★ $it" } ?: ""), color = Palette.TextDim, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-                    }
-                }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
+            items(groups, key = { "$kind|${it.first}" }) { (g, n) ->
+                VodRail(nav, kind, g, n, store) { series = it }
             }
         }
+    }
+}
+
+/** One category row's titles, kept by the page so a row scrolled away and back keeps what it had. */
+class VodRow { val items = androidx.compose.runtime.mutableStateListOf<VodItem>(); var busy = false; var end = false }
+
+@Composable
+private fun VodRail(nav: Nav, kind: String, group: String, count: Int, store: MutableMap<String, VodRow>, openSeries: (VodItem) -> Unit) {
+    val d = store.getOrPut(group) { VodRow() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun more() {
+        if (d.busy || d.end) return
+        d.busy = true
+        scope.launch {
+            try {
+                val got = withContext(Dispatchers.IO) { Vod.items(kind, group, d.items.size, 40) }
+                d.items.addAll(got); d.end = got.size < 40
+            } finally { d.busy = false }
+        }
+    }
+    LaunchedEffect(group) { if (d.items.isEmpty()) more() }
+    val metas = remember(d.items.size) {
+        d.items.map { v -> com.lekathedon.visionlite.addons.MetaPreview("vod:${v.pl}|${v.kind}|${v.id}", v.kind, v.name, v.poster, imdbRating = v.rating) }
+    }
+    val byId = remember(d.items.size) { d.items.associateBy { "vod:${it.pl}|${it.kind}|${it.id}" } }
+    com.lekathedon.visionlite.home.PageRow("vod|$kind|$group", "$group · $count", metas, loading = !d.end && d.items.isEmpty(),
+        sub = { m -> m.imdbRating?.let { "★ $it" } }, onHoldIn = { }, onEnd = { more() }, expand = false) { m ->
+        val v = byId[m.id] ?: return@PageRow
+        if (v.kind == "series") openSeries(v) else v.url?.let { nav.push(Screen.Player(it, v.name, type = "vod")) }
     }
 }
 

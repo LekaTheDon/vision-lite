@@ -267,7 +267,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
         val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
         r.key !in hidden && (shows || !r.done ||
-            ((r.key == VisionRows.PICKS || r.key == VisionRows.IMDB) && traktOn))
+            (r.key == VisionRows.PICKS && traktOn))
     }
     // The phone companion's copy of Home (only while it is switched on; built off the main thread).
     val linkOn by prefs.phoneLink.flow.collectAsStateWithLifecycle()
@@ -423,7 +423,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                     val ranked = row.kind == RowKind.RANKED
                     val h = if (ranked) dims.highlightHeight else if (wide) dims.cwHeight else dims.posterHeight
                     val title = when {
-                        (row.key == VisionRows.PICKS || row.key == VisionRows.IMDB) && recsBuilding -> "${row.title} · thinking…"
+                        row.key == VisionRows.PICKS && recsBuilding -> "${row.title} · thinking…"
                         else -> row.title
                     }
                     val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items

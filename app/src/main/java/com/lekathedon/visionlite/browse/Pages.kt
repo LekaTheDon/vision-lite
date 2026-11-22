@@ -457,14 +457,14 @@ private fun ServiceRail(title: String, nav: Nav, d: RailData, firstFocus: FocusR
         firstFocus = firstFocus, onEnd = { next() }, key = title, loading = !d.end && d.items.isEmpty())
 }
 
-/** A person's films and shows, newest first (IMDb); Follow puts them on Home's Favourite people. */
+/** A person's films and shows, newest first (IMDb); Follow makes them a favourite: they steer the engine and get "Because you like" rows on Home. */
 @Composable
 fun PersonPage(nav: Nav, id: String, name: String) {
     val people = com.lekathedon.visionlite.home.People
     var data by remember(id) { mutableStateOf<Pair<com.lekathedon.visionlite.home.People.Person?, List<MetaPreview>>?>(null) }
     LaunchedEffect(id) { data = people.titles(id) }
     val list by people.list.collectAsState()
-    // Follow puts them on this hub's Favourite people only (Anime: voice actors, directors you follow there).
+    // Follow makes them a favourite in this hub only (Anime: voice actors, directors you follow there).
     val hubKey = com.lekathedon.visionlite.anime.Hubs.content.collectAsState().value.key
     val following = list.any { it.id == id && it.hub == hubKey }
     val first = remember { FocusRequester() }

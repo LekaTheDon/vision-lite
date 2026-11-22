@@ -135,7 +135,7 @@ object Moods {
         val all = (pool?.picks.orEmpty() + ai + pool?.because.orEmpty().flatMap { it.picks }).distinctBy { it.imdb }
             .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) && com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.imdb) }
         val kw = Recs.keywordsOf(all.map { it.imdb })
-        return all.filter { mood.fits(it.genres, kw[it.imdb].orEmpty(), it.rating, it.type == "series") }
+        return Recs.imdbLift(all.filter { mood.fits(it.genres, kw[it.imdb].orEmpty(), it.rating, it.type == "series") })
     }
 
     /** More for [mood] from TMDB with Scout's filters (needs a TMDB key); nothing the engine already shows or you've seen. */

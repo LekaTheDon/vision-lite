@@ -35,22 +35,23 @@ import java.time.LocalDate
 object VisionRows {
     const val COMING_UP = "v/comingup"
     const val PICKS = "v/picks"
-    const val IMDB = "v/imdb"
     /** "Because you watched X": two rows, which titles they follow change every 12 h. */
     val BECAUSE = listOf("v/because1", "v/because2")
     /** Moods: one row of tiles, every mood (Scout's 12 + Vision's 11); a tile opens that mood's page. */
     const val MOODS = "v/moods"
     const val SERVICES = "v/services"
-    const val PEOPLE = "v/people"
+    /** "Because you like Tom Hardy": two of your favourite people (actors, directors, writers), a different two every 12 h. */
+    val FAVS = listOf("v/fav1", "v/fav2")
     /** WuPlay's Genres and Decades as rows of tiles (were their own pages before 0.26). */
     const val GENRES = "v/genres"
     const val DECADES = "v/decades"
 
     /** key to title, in Vision's order. */
     val all: List<Pair<String, String>> = listOf(
-        COMING_UP to "Coming up", PICKS to "Vision Picks", IMDB to "IMDb Picks",
-        BECAUSE[0] to "Because you watched · 1", MOODS to "Moods", BECAUSE[1] to "Because you watched · 2",
-        SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades", PEOPLE to "Favourite people"
+        COMING_UP to "Coming up", PICKS to "Vision Picks",
+        BECAUSE[0] to "Because you watched · 1", FAVS[0] to "Because you like · 1", MOODS to "Moods",
+        BECAUSE[1] to "Because you watched · 2", FAVS[1] to "Because you like · 2",
+        SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades"
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
     /**
@@ -70,9 +71,9 @@ object VisionRows {
         return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "").replace("Top 250 Series", "Top 250 TV Shows") } + rest.drop(head.size)
     }
 
-    fun isPicks(key: String) = key == PICKS || key == IMDB
+    fun isPicks(key: String) = key == PICKS
     /** Rows the engine fills (their titles are recommendations: Love / Like / Not for me on hold). */
-    fun isEngine(key: String) = isPicks(key) || key in BECAUSE
+    fun isEngine(key: String) = isPicks(key) || key in BECAUSE || key in FAVS
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
     val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}",
         "c/${Charts.Chart.ANIME_TODAY_SERIES.id}", "c/${Charts.Chart.ANIME_TODAY_MOVIES.id}")
@@ -362,8 +363,8 @@ object Charts {
 // ------------------------------------------------------------------ Streaming services (TMDB)
 
 /**
- * Vision's Streaming services row: one wide tile per service (its logo over a backdrop from its Originals, new each
- * day); OK opens its page of WuPlay's hub rows, all TMDB for the US (UK for ITVX/NOW). Needs your TMDB key; without
+ * Vision's Streaming services row: one wide tile per service (its logo over the backdrop of its highest-rated original,
+ * never the same title on two tiles; asked again weekly or when Hide adult titles changes); OK opens its page of WuPlay's hub rows, all TMDB for the US (UK for ITVX/NOW). Needs your TMDB key; without
  * it the row stays away and nothing is asked.
  */
 object Services {
@@ -395,7 +396,8 @@ object Services {
         ANIMEGEN("animegen", "Anime Generation", 0, "1895", region = "IT", originals = false, anime = true)
     }
     @Serializable data class Art(val id: String, val logo: String? = null, val backdrop: String? = null)
-    @Serializable private data class Saved(val day: String = "", val logosAt: Long = 0, val art: List<Art> = emptyList())
+    /** [v] 2 = backdrops are each service's highest-rated original (no two tiles the same); [adult] = Hide adult titles then. */
+    @Serializable private data class Saved(val day: String = "", val logosAt: Long = 0, val art: List<Art> = emptyList(), val v: Int = 0, val adult: Boolean = false)
 
     private val _art = MutableStateFlow<List<Art>>(emptyList())
     val art: StateFlow<List<Art>> get() = _art
@@ -411,22 +413,38 @@ object Services {
             if (_art.value.isEmpty()) _art.value = saved.art
             if (!on()) return@withContext
             val today = LocalDate.now().toString()
-            if (saved.day == today && saved.art.size == S.entries.size) return@withContext
+            val adult = com.lekathedon.visionlite.recs.Adult.on()
+            val fresh7 = runCatching { LocalDate.parse(saved.day).plusDays(7) > LocalDate.now() }.getOrDefault(false)
+            if (fresh7 && saved.v == 2 && saved.adult == adult && saved.art.size == S.entries.size) return@withContext
             val logosOld = System.currentTimeMillis() - saved.logosAt > 30L * 24 * 3600_000L
-            val fresh = coroutineScope {
+            val without = com.lekathedon.visionlite.recs.Adult.tmdbWithout()
+            // Each service's best-rated originals (its own network; a provider's catalogue when TMDB has no network for it).
+            fun top(path: String): List<Pair<String, String>> = Tmdb.get(path + without)?.optJSONArray("results").objects()
+                .filter { !it.optBoolean("adult") }
+                .mapNotNull { r -> r.optString("backdrop_path").takeIf { it.startsWith("/") }?.let { r.optInt("id").toString() to it } }
+            val lists = coroutineScope {
                 S.entries.map { s -> async {
                     val kept = saved.art.firstOrNull { it.id == s.id }
                     val logo = s.logo ?: if (s.network == 0) null else if (!logosOld && kept?.logo != null) kept.logo else Tmdb.get("network/${s.network}")?.optString("logo_path")?.ifBlank { null } ?: kept?.logo
-                    val backs = (if (s.network == 0) Tmdb.get("discover/tv?sort_by=popularity.desc&watch_region=${s.region}&with_watch_providers=${s.providers}")
-                        else Tmdb.get("discover/tv?sort_by=popularity.desc&with_networks=${s.network}"))?.optJSONArray("results").objects()
-                        .mapNotNull { it.optString("backdrop_path").takeIf { p -> p.startsWith("/") } }
-                        .ifEmpty { Tmdb.get("discover/movie?sort_by=popularity.desc&watch_region=${s.region}&with_watch_providers=${s.providers}")?.optJSONArray("results").objects()
-                            .mapNotNull { it.optString("backdrop_path").takeIf { p -> p.startsWith("/") } } }
-                    Art(s.id, logo, backs.randomOrNull() ?: kept?.backdrop)
+                    val cands = if (s.network != 0) {
+                        top("discover/tv?sort_by=vote_average.desc&vote_count.gte=300&with_networks=${s.network}").map { "tv:" + it.first to it.second }
+                            .ifEmpty { top("discover/tv?sort_by=vote_average.desc&vote_count.gte=50&with_networks=${s.network}").map { "tv:" + it.first to it.second } }
+                    } else {
+                        val prov = "&watch_region=${s.region}&with_watch_providers=${s.providers}"
+                        (top("discover/tv?sort_by=vote_average.desc&vote_count.gte=200$prov").map { "tv:" + it.first to it.second } +
+                            top("discover/movie?sort_by=vote_average.desc&vote_count.gte=500$prov").map { "movie:" + it.first to it.second })
+                    }
+                    Triple(s, logo, cands)
                 } }.awaitAll()
             }
+            // No two tiles the same: a title already behind one service goes to the next in line on the others.
+            val used = HashSet<String>()
+            val fresh = lists.map { (s, logo, cands) ->
+                val pick = cands.firstOrNull { used.add(it.first) }
+                Art(s.id, logo, pick?.second ?: saved.art.firstOrNull { it.id == s.id }?.backdrop)
+            }
             _art.value = fresh
-            runCatching { file.writeText(Net.json.encodeToString(Saved.serializer(), Saved(today, if (logosOld) System.currentTimeMillis() else saved.logosAt, fresh))) }
+            runCatching { file.writeText(Net.json.encodeToString(Saved.serializer(), Saved(today, if (logosOld) System.currentTimeMillis() else saved.logosAt, fresh, 2, adult))) }
         } finally { lock.unlock() }
     }
 
@@ -461,8 +479,10 @@ object Services {
 // ------------------------------------------------------------------ Favourite people (IMDb, keyless)
 
 /**
- * Favourite people: actors and directors you follow; their tile opens their films and shows (IMDb, no key). Add one
- * from a title's cast. Your Vision list is taken over once if it was copied to the app's import folder.
+ * Favourite people: actors, directors and writers you follow (Follow on their page, from a title's cast). They are no
+ * row of their own: they steer the engine (their work ranks higher in every recommendation) and Home shows two
+ * "Because you like …" rows of their titles, a different two every 12 hours. Your Vision list is taken over once if it
+ * was copied to the app's import folder.
  */
 object People {
     /** [hub]: the hub they were followed in ("NUVIO" = Films & TV, "ANIME"); each hub's row shows only its own. */
@@ -521,6 +541,30 @@ object People {
         }
         val all = (list("credits").ifEmpty { list("knownFor") }).distinctBy { it.id }.sortedByDescending { it.releaseInfo?.toIntOrNull() ?: 0 }
         person to all
+    }
+
+    /** Each person's titles, asked once per app run (one IMDb request each). */
+    private val titlesCache = java.util.concurrent.ConcurrentHashMap<String, List<MetaPreview>>()
+
+    /** The [n] favourites of [hub] Home follows now: a different few every 12 hours (all of them when there are no more). */
+    fun now(hub: String, n: Int, at: Long = System.currentTimeMillis()): List<Person> {
+        val mine = _list.value.filter { it.hub == hub }
+        if (mine.size <= n) return mine
+        return mine.shuffled(java.util.Random(at / (12 * 3600_000L) * 31 + hub.hashCode())).take(n)
+    }
+
+    /**
+     * A favourite's row: their films and shows you haven't watched, said no to or marked watched, IMDb's best first
+     * (over the IMDb minimum when it has a rating), the order shuffled a little every 12 hours so the row changes.
+     */
+    suspend fun row(p: Person, at: Long = System.currentTimeMillis()): List<MetaPreview> {
+        val all = titlesCache[p.id] ?: titles(p.id).second.also { if (it.isNotEmpty()) titlesCache[p.id] = it }
+        val seen = com.lekathedon.visionlite.recs.Recs.seenIds()
+        val min = com.lekathedon.visionlite.recs.Recs.minImdb()
+        val r = java.util.Random(at / (12 * 3600_000L) + p.id.hashCode())
+        return all.filter { it.id !in seen && (it.imdbRating?.toFloatOrNull()?.let { x -> x >= min } ?: true) && (it.releaseInfo?.toIntOrNull() ?: 0) <= java.time.LocalDate.now().year }
+            .map { it to (it.imdbRating?.toDoubleOrNull() ?: 5.0) + r.nextDouble() * 1.5 }
+            .sortedByDescending { it.second }.map { it.first }.take(30)
     }
 
     private fun small(url: String) = if ("._V1_" in url) url.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else url

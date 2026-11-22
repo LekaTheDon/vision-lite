@@ -127,33 +127,62 @@ object Wuplay {
         }.also { l -> if (adult.isNotEmpty()) com.lekathedon.visionlite.recs.Adult.clean(l.map { it.m.id }) }
     }
 
-    // ---- tile pictures: the backdrop of each genre's / decade's most popular title (one call each, kept a week) ----
+    // ---- tile pictures: each genre's / decade's highest-rated title (no two tiles the same; kept a week) ----
 
     private val _art = MutableStateFlow<Map<String, String>>(emptyMap())
     val art: StateFlow<Map<String, String>> get() = _art
     private val artLock = Mutex()
     private val artFile get() = File(App.instance.filesDir, "browse_art.json")
     private const val ART_FRESH_MS = 7 * 24 * 3600_000L
+    /** 2 = highest rated (was: most popular). A change of version or of Hide adult titles asks every tile again. */
+    private const val ART_V = 2
 
-    /** Loads the tiles' pictures (disk first; missing or week-old ones asked again). Needs the TMDB key. */
+    /** Highest-rated titles for a tile, best first: (TMDB id, backdrop). Hide adult titles leaves the explicit ones out. */
+    private fun topRated(genre: Int?, from: Int?, to: Int?, tv: Boolean, votes: Int): List<Pair<String, String>> {
+        val g = if (!tv) genre else genre?.let { TV_GENRE[it] ?: it.takeIf { x -> x in TV_GENRES } ?: return emptyList() }
+        val dateKey = if (tv) "first_air_date" else "primary_release_date"
+        val q = StringBuilder(if (tv) "discover/tv" else "discover/movie").append("?include_adult=false&language=en-US&sort_by=vote_average.desc&vote_count.gte=").append(votes)
+        g?.let { q.append("&with_genres=").append(it) }
+        // Animated films (mostly anime) top many genres' charts; outside Animation's own tile they are left out.
+        if (genre != 16) q.append("&without_genres=16")
+        from?.let { q.append("&$dateKey.gte=").append(it).append("-01-01") }
+        to?.let { q.append("&$dateKey.lte=").append(minOf("$it-12-31", LocalDate.now().toString())) }
+        q.append(com.lekathedon.visionlite.recs.Adult.tmdbWithout())
+        val results = Tmdb.get(q.toString())?.optJSONArray("results") ?: return emptyList()
+        return (0 until results.length()).mapNotNull { i ->
+            val r = results.optJSONObject(i) ?: return@mapNotNull null
+            if (r.optBoolean("adult")) return@mapNotNull null
+            val b = r.optString("backdrop_path").takeIf { it.startsWith("/") } ?: return@mapNotNull null
+            (if (tv) "tv:" else "movie:") + r.optInt("id") to Tmdb.img(b, "w1280")!!
+        }
+    }
+
+    /** Loads the tiles' pictures (disk first; asked again weekly, or when the rule or Hide adult titles changed). Needs the TMDB key. */
     suspend fun loadArt() = withContext(Dispatchers.IO) {
         artLock.withLock {
             val disk = runCatching { JSONObject(artFile.readText()) }.getOrNull()
             val at = disk?.optLong("at") ?: 0L
+            val adult = com.lekathedon.visionlite.recs.Adult.on()
+            val same = disk != null && disk.optInt("v") == ART_V && disk.optBoolean("adult") == adult
             val have = disk?.optJSONObject("art")?.let { a -> a.keys().asSequence().associateWith { a.getString(it) } }.orEmpty()
-            if (have.isNotEmpty()) _art.value = have
-            if (Tmdb.key() == null || (have.size >= genres.size + decades.size && System.currentTimeMillis() - at < ART_FRESH_MS)) return@withLock
-            val fresh = HashMap(have)
-            val used = HashSet<String>()
-            fun pick(list: List<Scored>, id: String) {
-                val m = list.firstOrNull { it.m.background != null && it.m.id !in used } ?: return
-                used += m.m.id; fresh[id] = m.m.background!!
-                _art.value = HashMap(fresh)
+            // Old pictures (another rule, or adult titles shown then) are never shown again.
+            if (have.isNotEmpty() && same) _art.value = have
+            if (Tmdb.key() == null || (same && have.size >= genres.size + decades.size && System.currentTimeMillis() - at < ART_FRESH_MS)) return@withLock
+            // Each tile's list asked at once (28 small calls), then handed out in order: a title already behind a tile
+            // goes to the next in line (Action and Adventure never share one).
+            val asks = coroutineScope {
+                (genres.map { g -> "genre:${g.slug}" to async {
+                    runCatching { topRated(g.genre, null, null, false, 3000).ifEmpty { topRated(g.genre, null, null, true, 500) } }.getOrDefault(emptyList())
+                } } + decades.map { d -> "decade:${d.slug}" to async {
+                    val votes = if ((d.from ?: 0) < 1970) 800 else 2000
+                    runCatching { topRated(null, d.from, d.to, false, votes).ifEmpty { topRated(null, d.from, d.to, true, 200) } }.getOrDefault(emptyList())
+                } }).map { (id, job) -> id to job.await() }
             }
-            fun first(r: Rail) = runCatching { discover(r, false, 1) }.getOrDefault(emptyList()).ifEmpty { runCatching { discover(r, true, 1) }.getOrDefault(emptyList()) }
-            genres.forEach { g -> if ("genre:${g.slug}" !in fresh || System.currentTimeMillis() - at >= ART_FRESH_MS) pick(first(g.rails.first()), "genre:${g.slug}") }
-            decades.forEach { d -> if ("decade:${d.slug}" !in fresh || System.currentTimeMillis() - at >= ART_FRESH_MS) pick(first(d.rails.first()), "decade:${d.slug}") }
-            runCatching { artFile.writeText(JSONObject().put("at", System.currentTimeMillis()).put("art", JSONObject(fresh as Map<*, *>)).toString()) }
+            val used = HashSet<String>()
+            val fresh = HashMap<String, String>()
+            asks.forEach { (id, list) -> list.firstOrNull { used.add(it.first) }?.let { fresh[id] = it.second } ?: (if (same) have[id] else null)?.let { fresh[id] = it } }
+            _art.value = fresh
+            runCatching { artFile.writeText(JSONObject().put("at", System.currentTimeMillis()).put("v", ART_V).put("adult", adult).put("art", JSONObject(fresh as Map<*, *>)).toString()) }
         }
     }
 
