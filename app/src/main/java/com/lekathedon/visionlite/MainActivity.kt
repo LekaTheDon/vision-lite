@@ -109,10 +109,11 @@ class MainActivity : ComponentActivity() {
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
                         Screen.LiveTv -> com.lekathedon.visionlite.iptv.LiveTv(nav)
                         Screen.Sports -> com.lekathedon.visionlite.sports.SportsScreen(nav)
-                        Screen.SportsTeams -> com.lekathedon.visionlite.sports.SportsTeams()
-                        Screen.SportsMyTeams -> com.lekathedon.visionlite.sports.SportsMyTeamsPage(nav)
-                        is Screen.SportsGame -> com.lekathedon.visionlite.sports.SportsGamePage(nav, s.id)
-                        is Screen.Standings -> com.lekathedon.visionlite.sports.SportsStandings(s.leagueId)
+                        // Vision's hub has the game page, Pick Your Teams and the tables inside it: these open it there.
+                        Screen.SportsTeams -> { androidx.compose.runtime.remember(s) { com.lekathedon.visionlite.sports.SportsLaunch.openPicker() }; com.lekathedon.visionlite.sports.SportsScreen(nav) }
+                        Screen.SportsMyTeams -> { androidx.compose.runtime.remember(s) { com.lekathedon.visionlite.sports.SportsLaunch.openArrange() }; com.lekathedon.visionlite.sports.SportsScreen(nav) }
+                        is Screen.SportsGame -> { androidx.compose.runtime.remember(s) { com.lekathedon.visionlite.sports.SportsLaunch.openEvent(s.id) }; com.lekathedon.visionlite.sports.SportsScreen(nav) }
+                        is Screen.Standings -> com.lekathedon.visionlite.sports.SportsScreen(nav)
                         Screen.Vod -> com.lekathedon.visionlite.iptv.VodScreen(nav)
                         Screen.Recordings -> com.lekathedon.visionlite.iptv.RecordingsScreen(nav)
                         Screen.Discover -> com.lekathedon.visionlite.browse.Discover(nav)

@@ -23,18 +23,6 @@ private val TWENTY_FOUR_SEVEN = Regex("""(?i)\b24\s*[/\\|\-x]?\s*7\b""")
 internal fun is247(c: LiveChannel): Boolean = TWENTY_FOUR_SEVEN.containsMatchIn(c.name) || TWENTY_FOUR_SEVEN.containsMatchIn(c.group) ||
     (c.tvgName?.let { TWENTY_FOUR_SEVEN.containsMatchIn(it) } ?: false)
 
-/** A followed team plays, a league you follow, a name you follow, or a reminder you set (Vision's SportsUi). */
-internal fun isMine(ev: SportsEvent, f: SportsFollows): Boolean =
-    f.leagues.any { SportsTaxonomy.includesLeague(it, ev.leagueId) } || ev.word != null ||
-        f.pins.any { SportsCatalog.league(it)?.kind == LeagueKind.EVENT && SportsTaxonomy.includesLeague(it, ev.leagueId) } ||
-        ev.sides.any { f.followsTeam(ev.leagueId, it.team.id) } ||
-        f.reminders.any { it.eventId == ev.id }
-
-internal fun endEstimate(ev: SportsEvent): Long {
-    val league = SportsCatalog.league(ev.leagueId)
-    return ev.endMs?.takeIf { ev.hasTime } ?: (ev.startMs + (league?.minutes ?: 120) * 60_000L)
-}
-
 /**
  * Vision's EpgDatabase calls, answered from Lite's guide (iptv.db). Lite keeps shows by playlist + guide id; these
  * queries join them to every channel carrying that id, so each show comes back under the channel's key, as in Vision.

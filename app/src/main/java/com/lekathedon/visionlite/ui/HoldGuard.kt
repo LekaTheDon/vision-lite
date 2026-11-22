@@ -10,7 +10,11 @@ import android.view.KeyEvent
 object HoldGuard {
     @Volatile private var armed = false
     fun held() { armed = true }
+    @Volatile private var backArmed = false
+    /** A hold of Back did something (Sports: full screen): the rest of that press isn't also a Back. */
+    fun heldBack() { backArmed = true }
     fun consume(e: KeyEvent): Boolean {
+        if (backArmed && e.keyCode == KeyEvent.KEYCODE_BACK) { if (e.action == KeyEvent.ACTION_UP) backArmed = false; return true }
         if (!armed) return false
         val ok = e.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || e.keyCode == KeyEvent.KEYCODE_ENTER || e.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
         if (!ok) return false

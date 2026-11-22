@@ -78,7 +78,7 @@ private fun minuteTick(): Long {
 }
 
 /** Opens a channel full screen; Up / Down in the player then steps through this game's channels; failover armed. */
-private fun watch(nav: Nav, ev: SportsEvent, m: ChannelMatch, all: List<ChannelMatch>) = watchGame(nav, ev, m, all)
+private fun clockWatch(nav: Nav, ev: SportsEvent, m: ChannelMatch, all: List<ChannelMatch>) = watchGame(nav, ev, m, all)
 
 private fun leagueShort(ev: SportsEvent) = SportsCatalog.league(ev.leagueId)?.short ?: ""
 
@@ -90,7 +90,7 @@ private fun stateText(ev: SportsEvent, now: Long): String = when (ev.state) {
 
 /** A game as one line: league and state, then teams with logos and scores (or the event's title). */
 @Composable
-private fun GameLine(ev: SportsEvent, now: Long, channels: Int, f: Boolean, compact: Boolean = false) {
+private fun ClockGameLine(ev: SportsEvent, now: Long, channels: Int, f: Boolean, compact: Boolean = false) {
     val hide = Sports.settings.hideScores && ev.state != GameState.PRE
     val text = if (f) Color.Black else Color.White
     val dim = if (f) Color.DarkGray else Muted
@@ -119,7 +119,7 @@ private fun GameLine(ev: SportsEvent, now: Long, channels: Int, f: Boolean, comp
 
 /** A channel showing the game: logo, name, what the guide says, quality; the one in the window says so. */
 @Composable
-private fun ChannelLine(m: ChannelMatch, playing: Boolean, f: Boolean) {
+private fun ClockChannelLine(m: ChannelMatch, playing: Boolean, f: Boolean) {
     Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (playing) Color(0x33D9DC8E) else Color(0x12FFFFFF)).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp, 28.dp), contentAlignment = Alignment.Center) { Img(m.channel.logo, 48.dp, 28.dp, Modifier.size(48.dp, 28.dp), ContentScale.Fit) }
@@ -135,7 +135,7 @@ private fun ChannelLine(m: ChannelMatch, playing: Boolean, f: Boolean) {
 
 /** The small window with the game and channel under it (Vision's Sports / Live now video window). */
 @Composable
-private fun Window(ev: SportsEvent, playing: ChannelMatch?, modifier: Modifier = Modifier) {
+private fun ClockWindow(ev: SportsEvent, playing: ChannelMatch?, modifier: Modifier = Modifier) {
     Column(modifier.width(480.dp)) {
         Box(Modifier.fillMaxWidth().height(270.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black)
             .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
@@ -148,85 +148,6 @@ private fun Window(ev: SportsEvent, playing: ChannelMatch?, modifier: Modifier =
     }
 }
 
-// ---------------------------------------------------------------- the Sports page
-
-/** Sports: yesterday / today / tomorrow; a game's channels on the right, tried in the window above them. */
-@Composable
-fun SportsScreen(nav: Nav) {
-    SportsViewer()
-    val events by Sports.events.collectAsState()
-    val matches by Sports.matches.collectAsState()
-    val status by Sports.status.collectAsState()
-    val now = minuteTick()
-    var day by rememberSaveable { mutableStateOf(0) }
-    var mineOnly by rememberSaveable { mutableStateOf(false) }
-    val follows = remember(events) { Sports.follows }
-    val games = remember(events, matches, day, now / 60_000, mineOnly) { Sports.day(day, now).let { g -> if (mineOnly) g.filter { isMine(it, follows) } else g } }
-    var focused by remember { mutableStateOf<SportsEvent?>(null) }
-    var open by remember { mutableStateOf<SportsEvent?>(null) }
-    var playing by remember { mutableStateOf<ChannelMatch?>(null) }
-    val firstGame = remember { FocusRequester() }
-    val firstChannel = remember { FocusRequester() }
-    var focusedOnce by remember { mutableStateOf(false) }
-    LaunchedEffect(games.isNotEmpty()) { if (games.isNotEmpty() && !focusedOnce) { focusedOnce = true; runCatching { firstGame.requestFocus() } } }
-    val shown = open ?: focused
-    val chans = shown?.let { matches[it.id].orEmpty() }.orEmpty()
-    LaunchedEffect(open) { if (open != null) { delay(60); runCatching { firstChannel.requestFocus() } } }
-    BackHandler(enabled = open != null) { open = null; playing = null }
-
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 36.dp, end = 36.dp, top = 24.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Sports", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp))
-            listOf(-1 to "Yesterday", 0 to "Today", 1 to "Tomorrow").forEach { (d, label) ->
-                Focusable({ day = d; open = null; playing = null }, shape = RoundedCornerShape(50)) { f ->
-                    Text(label, color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if (day == d) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.background(if (f) Color.White else if (day == d) Color(0x33FFFFFF) else Color.Transparent).padding(horizontal = 14.dp, vertical = 6.dp))
-                }
-            }
-            val live = games.count { it.state == GameState.LIVE }
-            Text(status.ifEmpty { "${games.size} games" + if (live > 0) " · $live live" else "" }, color = Palette.TextDim, fontSize = 13.sp,
-                modifier = Modifier.weight(1f).padding(start = 10.dp))
-            Focusable({ mineOnly = !mineOnly; open = null; playing = null }, shape = RoundedCornerShape(50)) { f ->
-                Text("My Teams", color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if (mineOnly) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.background(if (f) Color.White else if (mineOnly) Color(0x33FFFFFF) else Color.Transparent).padding(horizontal = 14.dp, vertical = 6.dp))
-            }
-            Button("My Teams page", { nav.push(Screen.SportsMyTeams) })
-            Button("Pick teams", { nav.push(com.lekathedon.visionlite.ui.Screen.SportsTeams) })
-            shown?.leagueId?.takeIf { SportsCatalog.league(it)?.espnPath != null }?.let { id ->
-                Button("Table", { nav.push(com.lekathedon.visionlite.ui.Screen.Standings(id)) })
-            }
-            Button("Refresh", { Sports.refreshNow() })
-        }
-        Row(Modifier.fillMaxSize().padding(top = 14.dp)) {
-            LazyColumn(Modifier.weight(1f).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (games.isEmpty()) item {
-                    Text(if (status.isNotEmpty() || events.isEmpty()) "Getting the games…" else if (mineOnly) "None of your teams play this day. Teams: pick them." else "No games this day.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(12.dp))
-                }
-                items(games, key = { it.id }) { ev ->
-                    Focusable({ nav.push(Screen.SportsGame(ev.id)) }, if (ev == games.first()) Modifier.focusRequester(firstGame) else Modifier,
-                        onFocus = { focused = ev; if (open != null && open != ev) { open = null; playing = null } }) { f ->
-                        GameLine(ev, now, matches[ev.id]?.size ?: 0, f)
-                    }
-                }
-            }
-            Column(Modifier.padding(start = 20.dp).width(480.dp).fillMaxHeight()) {
-                if (shown != null) {
-                    Window(shown, playing)
-                    Text(if (!Iptv.hasChannels()) "Add a Live TV playlist to see the channels showing games." else if (chans.isEmpty()) "No channel found for this one yet."
-                        else "Channels", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                        items(chans, key = { it.channel.key }) { m ->
-                            Focusable({ if (playing?.channel?.key == m.channel.key) watch(nav, shown, m, chans) else { if (open == null) open = shown; playing = m } },
-                                if (m == chans.first()) Modifier.focusRequester(firstChannel) else Modifier) { f ->
-                                ChannelLine(m, playing?.channel?.key == m.channel.key, f)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------- the clock's panel
 
@@ -381,7 +302,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
     }
     Dialog(onDismissRequest = back, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
-            game?.let { Window(it, playing, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
+            game?.let { ClockWindow(it, playing, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
             ytShown?.let { YtWindow(it, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
             if (musicShown != null) MusicWindow(Modifier.align(Alignment.CenterStart).padding(start = 40.dp))
             Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(388.dp).fillMaxHeight().clip(RoundedCornerShape(18.dp))
@@ -429,7 +350,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                             val fr = rowFocus.getOrPut(ev.id) { FocusRequester() }
                             Focusable({ game = ev; playing = null }, Modifier.focusRequester(fr).then(if (ev == live.first()) Modifier.focusRequester(first) else Modifier)) { f ->
                                 Column {
-                                    GameLine(ev, now, 0, f, compact = true)
+                                    ClockGameLine(ev, now, 0, f, compact = true)
                                     LogoChips(matches[ev.id].orEmpty())
                                 }
                             }
@@ -441,9 +362,9 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp))
                         }
                         items(chans, key = { it.channel.key }) { m ->
-                            Focusable({ if (playing?.channel?.key == m.channel.key) { onDismiss(); watch(nav, g, m, chans) } else playing = m },
+                            Focusable({ if (playing?.channel?.key == m.channel.key) { onDismiss(); clockWatch(nav, g, m, chans) } else playing = m },
                                 if (m == chans.first()) Modifier.focusRequester(first) else Modifier) { f ->
-                                ChannelLine(m, playing?.channel?.key == m.channel.key, f)
+                                ClockChannelLine(m, playing?.channel?.key == m.channel.key, f)
                             }
                         }
                     }

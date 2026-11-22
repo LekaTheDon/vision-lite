@@ -13,6 +13,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -42,10 +46,29 @@ object Sports {
 
     val settings: SportsSettings get() = SportsSettings.fromJson(prefs.sportsSettings.value.ifBlank { null })
     val follows: SportsFollows get() = SportsFollows.fromJson(prefs.sportsFollows.value.ifBlank { null })
+    /** The same two, as flows (Vision's Sports screens watch them). */
+    val settingsFlow: StateFlow<SportsSettings> by lazy {
+        prefs.sportsSettings.flow.map { SportsSettings.fromJson(it.ifBlank { null }) }.stateIn(scope, SharingStarted.Eagerly, settings)
+    }
+    val followsFlow: StateFlow<SportsFollows> by lazy {
+        prefs.sportsFollows.flow.map { SportsFollows.fromJson(it.ifBlank { null }) }.stateIn(scope, SharingStarted.Eagerly, follows)
+    }
+
+    /** The Sports page's days: a week back to a week ahead (Vision's). */
+    const val DAYS_BACK = 7
+    const val DAYS_AHEAD = 7
 
     private class LeagueData(val events: List<SportsEvent>, val at: Long)
     private val data = ConcurrentHashMap<String, LeagueData>()
     private val fixtures = ConcurrentHashMap<String, LeagueData>()
+    /** Days other than yesterday..tomorrow, fetched only when the page shows one: by "league|ESPN date". */
+    private val dayData = ConcurrentHashMap<String, LeagueData>()
+    /** Followed leagues (and leagues on your top bar): a week ahead to five weeks ahead, by month. */
+    private val ahead = ConcurrentHashMap<String, LeagueData>()
+    /** A team looked up on a table (its card): its season, kept an hour (at most 6 teams). */
+    private val _lookedUp = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
+    @Volatile private var wantedDay: Int? = null
+    @Volatile private var wantedAt = 0L
     @Volatile private var guide: List<SportsEvent> = emptyList()
 
     private val _events = MutableStateFlow<List<SportsEvent>>(emptyList())
@@ -55,6 +78,11 @@ object Sports {
     val matches: StateFlow<Map<String, List<ChannelMatch>>> get() = _matches
     private val _status = MutableStateFlow("")
     val status: StateFlow<String> get() = _status
+    private val _matching = MutableStateFlow(false)
+    /** Looking through your channels for the games (the first time takes a few seconds). */
+    val matching: StateFlow<Boolean> get() = _matching
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> get() = _loading
 
     // ---- who is looking ----
 
@@ -73,7 +101,8 @@ object Sports {
     }
 
     private var force = false
-    fun refreshNow() { force = true; if (viewers > 0 && loop?.isActive != true) loop = scope.launch { run() } }
+    private val kick = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    fun refreshNow() { force = true; kick.trySend(Unit); if (viewers > 0 && loop?.isActive != true) loop = scope.launch { run() } }
 
     private suspend fun run() {
         if (data.isEmpty()) loadCache()
@@ -82,7 +111,12 @@ object Sports {
         var matchedAt = 0L; var matchedGuide: String? = null; var matchedEvents = 0
         while (currentCoroutineContextActive()) {
             val now = System.currentTimeMillis()
-            val changed = runCatching { update(now) }.onFailure { Log.w(TAG, "update: ${it.message}") }.getOrDefault(false)
+            _loading.value = _events.value.isEmpty()
+            var changed = runCatching { update(now) }.onFailure { Log.w(TAG, "update: ${it.message}") }.getOrDefault(false)
+            if (runCatching { updateDay(now) }.onFailure { Log.w(TAG, "day: ${it.message}") }.getOrDefault(false)) changed = true
+            if (runCatching { updateAhead(now) }.onFailure { Log.w(TAG, "ahead: ${it.message}") }.getOrDefault(false)) changed = true
+            if (changed) publish()
+            _loading.value = false
             val rev = runCatching { Iptv.guideRevision() }.getOrNull()
             if (rev != matchedGuide) { guide = runCatching { guideEvents(now) }.getOrDefault(guide); publish() }
             val evs = _events.value
@@ -90,7 +124,8 @@ object Sports {
                 runCatching { match(now) }.onFailure { Log.w(TAG, "match: ${it.message}") }
                 matchedAt = now; matchedGuide = rev; matchedEvents = evs.size
             }
-            delay(15_000)
+            // Every 15 s, or at once when a change asks (a day picked, a team followed).
+            kotlinx.coroutines.withTimeoutOrNull(15_000) { kick.receive() }
         }
     }
 
@@ -192,7 +227,8 @@ object Sports {
 
     /** ESPN first; the guide and the fixture lists only for what ESPN doesn't already show (Vision's rule). */
     private fun publish() {
-        val espn = data.values.flatMap { it.events }
+        val espn = (data.values.flatMap { it.events } + dayData.values.flatMap { it.events } + ahead.values.flatMap { it.events })
+            .groupBy { it.id }.values.map { v -> v.first() }
         val g = guide
         val byLeague = g.groupBy { it.leagueId }
         val fx = fixtures.values.flatMap { it.events }.filter { f ->
@@ -214,10 +250,225 @@ object Sports {
 
     private fun match(now: Long) {
         if (!Iptv.hasChannels()) { _matches.value = emptyMap(); return }
-        val channels = Iptv.liveChannels()
-        val list = _events.value.filter { it.startMs < dayStart(2) && (endEstimate(it) > dayStart(-1)) }
-        val result = matcher.match(SportsMatcher.Input(list, channels, emptyMap(), 0L, settings, now))
-        _matches.value = result.matches
+        _matching.value = _matches.value.isEmpty()
+        try {
+            val channels = Iptv.liveChannels()
+            val list = _events.value.filter { it.startMs < dayStart(2) && (endEstimate(it) > dayStart(-1)) }
+            val result = matcher.match(SportsMatcher.Input(list, channels, emptyMap(), 0L, settings, now))
+            // Games matched one at a time (a game page further out in the week) stay matched.
+            val keep = _matches.value.filterKeys { id -> id !in result.matches && list.none { it.id == id } && _events.value.any { it.id == id } }
+            _matches.value = keep + result.matches
+            runCatching { SportsRepository.rememberUsual(result.matches, list) }
+        } finally { _matching.value = false }
+    }
+
+    private val _searching = MutableStateFlow<String?>(null)
+    /** The game "Search now" is looking for (its id), or null. */
+    val searching: StateFlow<String?> get() = _searching
+
+    /**
+     * One game's channels, straight away (its game page, or "Search now"): the same matcher and settings, for this
+     * game alone. Channels found before stay when this finds none. Returns how many channels show it.
+     */
+    suspend fun matchOne(ev: SportsEvent): Int = kotlinx.coroutines.withContext(Dispatchers.Default) {
+        if (!Iptv.hasChannels()) return@withContext 0
+        if (_searching.value == ev.id) return@withContext _matches.value[ev.id].orEmpty().size
+        _searching.value = ev.id
+        try {
+            val now = System.currentTimeMillis()
+            val one = _events.value.firstOrNull { it.id == ev.id } ?: ev
+            val found = matcher.match(SportsMatcher.Input(listOf(one), Iptv.liveChannels(), emptyMap(), 0L, settings, now,
+                replay = one.startMs < now - 5 * 3600_000L)).matches[ev.id].orEmpty()
+            if (found.isNotEmpty()) _matches.value = _matches.value + (ev.id to found)
+            (if (found.isNotEmpty()) found else _matches.value[ev.id].orEmpty()).size
+        } finally { _searching.value = null }
+    }
+
+    /** Shows the channel straight away as this game's pick (the next round keeps it, see SportsSettings.eventChannels). */
+    /** Re-orders one game's channels (Gemini's verdicts). */
+    fun rescore(id: String, f: (List<ChannelMatch>) -> List<ChannelMatch>) {
+        val cur = _matches.value[id] ?: return
+        _matches.value = _matches.value + (id to f(cur))
+    }
+
+    fun putFirst(ev: SportsEvent, m: ChannelMatch) {
+        _matches.value = _matches.value + (ev.id to (listOf(m) + _matches.value[ev.id].orEmpty().filter { it.channel.key != m.channel.key }))
+    }
+
+    fun dropChannel(ev: SportsEvent, key: String) {
+        _matches.value[ev.id]?.let { l -> _matches.value = _matches.value + (ev.id to l.filter { it.channel.key != key }) }
+    }
+
+    // ---- the rest of the week (Vision's week and past days), only for a day the page shows ----
+
+    /** The page shows day [offset] (0 = today): its games are fetched (yesterday..tomorrow always are). */
+    fun wantDay(offset: Int) {
+        wantedDay = offset; wantedAt = System.currentTimeMillis()
+        if (offset !in -1..1) refreshNow()
+    }
+
+    private fun eastern(ms: Long): String = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = TimeZone.getTimeZone("America/New_York") }.format(java.util.Date(ms))
+
+    /** One local day spans two US Eastern dates; each is asked once per league (a few hours for days to come). */
+    private suspend fun updateDay(now: Long): Boolean = coroutineScope {
+        val off = wantedDay ?: return@coroutineScope false
+        if (off in -1..1 || now - wantedAt > 30 * MINUTE) return@coroutineScope false
+        val dates = listOf(eastern(dayStart(off) + 60_000L), eastern(dayStart(off + 1) - 60_000L)).distinct()
+        val fresh = if (off < 0) 12 * 60 * MINUTE else 3 * 60 * MINUTE
+        val due = activeLeagues().filter { it.espnPath != null }.flatMap { l -> dates.map { l to it } }
+            .filter { (l, d) -> now - (dayData["${l.id}|$d"]?.at ?: 0L) > fresh }
+        if (due.isEmpty()) return@coroutineScope false
+        val gate = Semaphore(6)
+        due.map { (l, d) -> async { gate.withPermit {
+            val raw = runCatching { feeds.scoreboardDayRaw(l, d) }.getOrNull()
+            val at = System.currentTimeMillis()
+            dayData["${l.id}|$d"] = if (raw == null) LeagueData(dayData["${l.id}|$d"]?.events.orEmpty(), at - fresh + 30 * MINUTE)
+                else LeagueData(runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()), at)
+        } } }.awaitAll()
+        // Only the last few days looked at are kept.
+        if (dayData.size > 400) dayData.entries.sortedBy { it.value.at }.take(dayData.size - 300).forEach { dayData.remove(it.key) }
+        true
+    }
+
+    /** Followed leagues and top-bar leagues: their months to five weeks ahead (ESPN takes a month, not a range), every 6 hours. */
+    private suspend fun updateAhead(now: Long): Boolean {
+        val f = follows
+        val ids = (f.pins + f.leagues).toSet()
+        ahead.keys.filter { it !in ids }.forEach { ahead.remove(it) }
+        val due = ids.mapNotNull { SportsCatalog.league(it) }.filter { it.espnPath != null && now - (ahead[it.id]?.at ?: 0L) > 6 * 60 * MINUTE }
+        if (due.isEmpty()) return false
+        val fmt = SimpleDateFormat("yyyyMM", Locale.US).apply { timeZone = TimeZone.getTimeZone("America/New_York") }
+        val months = listOf(now + (DAYS_AHEAD + 1) * DAY, now + 35 * DAY).map { fmt.format(java.util.Date(it)) }.distinct()
+        val from = dayStart(2); val to = now + 36 * DAY
+        for (l in due) {
+            val raws = months.mapNotNull { m -> runCatching { feeds.scoreboardDayRaw(l, m) }.getOrNull() }
+            val at = System.currentTimeMillis()
+            ahead[l.id] = if (raws.isEmpty()) LeagueData(ahead[l.id]?.events.orEmpty(), at - 5 * 60 * MINUTE)
+                else LeagueData(raws.flatMap { r -> runCatching { SportsFeeds.parseScoreboard(l, r) }.getOrDefault(emptyList()) }
+                    .filter { it.startMs in from until to }.distinctBy { it.id }, at)
+        }
+        return true
+    }
+
+    /** Everything known: the page's days, your teams' seasons and teams looked up (each game once, the fresher copy). */
+    val known: StateFlow<List<SportsEvent>> by lazy {
+        combine(_events, _schedules, _lookedUp) { ev, sch, lu ->
+            val seen = HashSet<String>(ev.size * 2)
+            ev.forEach { seen += it.espnId?.let { e -> "e:$e" } ?: it.id }
+            ev + (sch.values.flatten() + lu.values.flatMap { it.events }).filter { seen.add(it.espnId?.let { e -> "e:$e" } ?: it.id) }
+        }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }
+
+    /** A team's games for its card (results and games to come); another team's season is fetched and kept an hour. */
+    suspend fun teamGames(team: TeamInfo): List<SportsEvent> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val fam = SportsCatalog.teamFamily(team.leagueId)
+        fun mine(ev: SportsEvent) = ev.sides.any { it.team.id == team.id && SportsCatalog.teamFamily(it.team.leagueId) == fam }
+        val now = System.currentTimeMillis()
+        val league = SportsCatalog.league(team.leagueId)
+        val followed = follows.teams.any { it.leagueId == team.leagueId && it.teamId == team.id }
+        val cur = _lookedUp.value[team.key]
+        val path = league?.espnPath
+        if (!followed && league != null && path != null && (cur == null || now - cur.at > 60 * MINUTE)) {
+            val raws = ArrayList<Pair<League, String>>()
+            runCatching { feeds.teamScheduleRaw(path, team.id, fixtures = false) }.getOrNull()?.let { raws += league to it }
+            if (path.startsWith("soccer/") || league.national) runCatching { feeds.teamScheduleRaw(path, team.id, fixtures = true) }.getOrNull()?.let { raws += league to it }
+            if (raws.isNotEmpty()) _lookedUp.value = (_lookedUp.value + (team.key to LeagueData(merge(raws), now)))
+                .entries.sortedByDescending { it.value.at }.take(6).associate { it.key to it.value }
+        }
+        known.value.filter(::mine).distinctBy { it.espnId ?: it.id }.sortedBy { it.startMs }
+    }
+
+    // ---- league tables (Vision's), asked only when a table or a game's place is shown; an hour in memory ----
+
+    private val _standings = MutableStateFlow<Map<String, Standings>>(emptyMap())
+    val standings: StateFlow<Map<String, Standings>> get() = _standings
+    private val noTable = ConcurrentHashMap<String, Long>()
+    private val tableLocks = ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+    private val RACING_TABLES = setOf("racing/f1", "racing/nascar-premier", "racing/nascar-secondary", "racing/nascar-truck", "racing/irl")
+    private val EUROPEAN_TABLES = setOf("soccer/uefa.champions", "soccer/uefa.europa", "soccer/uefa.europa.conf")
+
+    fun mayHaveTable(league: League): Boolean {
+        if (noTable.containsKey(league.id) && System.currentTimeMillis() - (noTable[league.id] ?: 0L) < 12 * 60 * MINUTE) return false
+        if (league.guideOnly || league.id.startsWith("tsdb/") || league.espnPath == null) return false
+        if (league.kind == LeagueKind.EVENT) return league.sport == Sport.RACING && league.id in RACING_TABLES
+        return league.sport !in setOf(Sport.GOLF, Sport.TENNIS, Sport.FIGHTING, Sport.WRESTLING, Sport.DARTS, Sport.SNOOKER)
+    }
+
+    fun tableLeagues(f: SportsFollows = follows): List<League> {
+        val ids = LinkedHashSet<String>()
+        for (key in SportsRows.rowKeys(f)) when {
+            key.startsWith("t:") -> f.teams.firstOrNull { "t:${it.key}" == key }?.let { t ->
+                ids += t.leagueId
+                SportsCatalog.relatedLeagues(t.leagueId).filter { it in EUROPEAN_TABLES }.forEach { ids += it }
+            }
+            key.startsWith("l:") -> ids += key.removePrefix("l:")
+        }
+        return ids.mapNotNull { SportsCatalog.league(it) }.filter { mayHaveTable(it) }
+    }
+
+    suspend fun standings(leagueId: String, force: Boolean = false): Standings? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val league = SportsCatalog.league(leagueId) ?: return@withContext null
+        val lock = tableLocks.getOrPut(leagueId) { kotlinx.coroutines.sync.Mutex() }
+        lock.lock()
+        try {
+            val now = System.currentTimeMillis()
+            _standings.value[leagueId]?.let { if (!force && now - it.fetchedAt < 60 * MINUTE) return@withContext it }
+            if (!mayHaveTable(league)) return@withContext null
+            val file = File(dir, "table_${safe(leagueId)}.json")
+            val url = Standings.espnUrl(league) ?: return@withContext null
+            val raw = runCatching { feeds.standingsRaw(url) }.getOrElse {
+                val old = runCatching { file.takeIf { f -> f.exists() }?.readText() }.getOrNull()
+                val at = old?.substringBefore('\n')?.toLongOrNull() ?: return@withContext _standings.value[leagueId]
+                return@withContext (runCatching { Standings.parseEspn(league, old.substringAfter('\n'), at) }.getOrNull() ?: _standings.value[leagueId])
+                    ?.also { st -> _standings.value = _standings.value + (leagueId to st) }
+            }
+            var table = runCatching { Standings.parseEspn(league, raw, now) }.getOrNull()?.takeIf { st -> st.groups.any { it.rows.isNotEmpty() } }
+            if (table == null) { noTable[leagueId] = now; return@withContext null }
+            runCatching { file.writeText("$now\n$raw") }
+            // Form (the last five): from the last six weeks' results (one request).
+            if (table.kind != StandingsKind.RACING && table.source == "ESPN") {
+                val recent = known.value.filter { it.leagueId == leagueId }
+                val past = runCatching {
+                    SportsFeeds.parseScoreboard(league, feeds.scoreboardRaw(league, eastern(now - 42 * DAY), eastern(now)))
+                }.getOrDefault(emptyList())
+                table = Standings.withForm(table, Standings.formFrom((past + recent).distinctBy { it.espnId ?: it.id }, leagueId))
+            }
+            if (table.kind != StandingsKind.RACING) {
+                val listed = runCatching { SportsMine.teams(league) }.getOrDefault(emptyList()).associateBy { it.id }
+                val fam = SportsCatalog.teamFamily(leagueId)
+                val seen = HashMap<String, TeamInfo>()
+                if (listed.size < table.groups.sumOf { it.rows.size }) known.value.forEach { ev ->
+                    ev.sides.forEach { sd -> if (sd.team.color != null && SportsCatalog.teamFamily(sd.team.leagueId) == fam) seen.putIfAbsent(sd.team.id, sd.team) }
+                }
+                table = table.copy(groups = table.groups.map { g -> g.copy(rows = g.rows.map { r ->
+                    val t = listed[r.id]?.takeIf { it.color != null || it.altColor != null } ?: seen[r.id]
+                    if (t == null) r else r.copy(color = t.color, altColor = t.altColor, logo = r.logo ?: t.logo)
+                }) })
+            }
+            val mem = File(dir, "table_moves_${safe(leagueId)}.json")
+            val (moved, save) = Standings.withChanges(table, runCatching { mem.takeIf { it.exists() }?.readText() }.getOrNull())
+            runCatching { mem.writeText(save) }
+            _standings.value = _standings.value + (leagueId to moved)
+            moved
+        } finally { lock.unlock() }
+    }
+
+    /** The tables My Sports' row headers need ("2nd in Premier League"): your teams' own leagues. */
+    suspend fun loadTeamTables() {
+        for (id in follows.teams.map { it.leagueId }.distinct()) {
+            val l = SportsCatalog.league(id) ?: continue
+            if (mayHaveTable(l)) runCatching { standings(id) }
+        }
+    }
+
+    /** A table row's team as the app knows it (colours and logo from the league's team list). */
+    fun teamFor(leagueId: String, row: StandingsRow): TeamInfo {
+        val league = SportsCatalog.league(leagueId)
+        val info = league?.let { SportsMine.cachedTeams(it).firstOrNull { t -> t.id == row.id } }
+            ?: known.value.asSequence().flatMap { it.sides.asSequence() }.map { it.team }
+                .firstOrNull { it.id == row.id && SportsCatalog.teamFamily(it.leagueId) == SportsCatalog.teamFamily(leagueId) }
+        return info?.copy(leagueId = leagueId, logo = info.logo ?: row.logo)
+            ?: TeamInfo(leagueId, row.id, row.shortName, row.name, row.abbr, null, null, null, row.logo)
     }
 
     // ---- what the screens show ----

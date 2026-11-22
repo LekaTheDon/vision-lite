@@ -40,6 +40,7 @@ import com.lekathedon.visionlite.ui.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.Locale
 
 /**
  * Sports, the Vision way: My Teams (follow teams or whole leagues; "My Teams" on the Sports page shows only their games,
@@ -73,128 +74,36 @@ object SportsMine {
     fun regionLabel(): String = Sports.settings.region.let { if (it.isBlank()) "This TV (${SportsCatalog.regionOf(Sports.settings)})" else SportsCatalog.regionName(it) }
 
     private val teamCache = HashMap<String, List<TeamInfo>>()
+    private val teamDir by lazy { java.io.File(App.instance.filesDir, "sports").apply { mkdirs() } }
+
+    /** A league's teams (Vision's): kept a week on the TV; countries are every country of any competition of that kind. */
     suspend fun teams(l: League): List<TeamInfo> = withContext(Dispatchers.IO) {
-        teamCache[l.id] ?: runCatching { SportsFeeds.parseTeams(l, SportsFeeds().teamsRaw(l)) }.getOrDefault(emptyList())
-            .sortedBy { it.fullName }.also { if (it.isNotEmpty()) teamCache[l.id] = it }
+        if (l.national) {
+            val all = LinkedHashMap<String, TeamInfo>()
+            for (n in SportsCatalog.leagues.filter { it.national && it.nationalGroup == l.nationalGroup })
+                leagueTeams(n).forEach { t -> all.putIfAbsent(t.id, if (n.id == l.id) t else t.copy(leagueId = l.id)) }
+            return@withContext all.values.sortedBy { it.fullName.lowercase(Locale.ROOT) }
+        }
+        leagueTeams(l)
     }
 
-    data class TableRow(val rank: Int, val team: String, val logo: String?, val played: String, val record: String, val points: String?, val mine: Boolean)
-    data class Table(val group: String, val rows: List<TableRow>)
+    /** The teams already known for [l] (memory or the saved list), without asking. */
+    fun cachedTeams(l: League): List<TeamInfo> = synchronized(teamCache) { teamCache[l.id] }
+        ?: runCatching { java.io.File(teamDir, "teams_${safeId(l.id)}.json").takeIf { it.exists() }?.readText() }.getOrNull()
+            ?.let { raw -> runCatching { SportsFeeds.parseTeams(l, raw) }.getOrDefault(emptyList()) }.orEmpty()
 
-    /** A league's table(s) from ESPN: each group (conference, division, league) with rank, team, record and points. */
-    suspend fun standings(l: League): List<Table> = withContext(Dispatchers.IO) {
-        val path = l.espnPath ?: return@withContext emptyList()
-        val f = Sports.follows
-        val raw = runCatching { SportsFeeds().standingsRaw("https://site.api.espn.com/apis/v2/sports/$path/standings") }.getOrNull() ?: return@withContext emptyList()
-        val out = ArrayList<Table>()
-        fun walk(o: JSONObject, name: String) {
-            val st = o.optJSONObject("standings")
-            val entries = st?.optJSONArray("entries")
-            if (entries != null && entries.length() > 0) {
-                val rows = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }.map { e ->
-                    val t = e.optJSONObject("team")
-                    val stats = e.optJSONArray("stats")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
-                    fun stat(vararg n: String) = stats.firstOrNull { it.optString("name") in n || it.optString("type") in n }?.optString("displayValue")?.takeIf { it.isNotBlank() }
-                    val w = stat("wins"); val d = stat("ties", "draws"); val lo = stat("losses")
-                    TableRow(stat("rank", "playoffSeed")?.toDoubleOrNull()?.toInt() ?: 0, t?.optString("displayName").orEmpty(),
-                        t?.optJSONArray("logos")?.optJSONObject(0)?.optString("href"), stat("gamesPlayed") ?: "",
-                        stat("overall", "total") ?: listOfNotNull(w, d, lo).joinToString("-"), stat("points"),
-                        f.teams.any { it.leagueId == l.id && it.teamId == t?.optString("id") })
-                }
-                val sorted = if (rows.all { it.rank > 0 }) rows.sortedBy { it.rank } else rows
-                out += Table(name.ifBlank { l.name }, sorted.mapIndexed { i, r -> if (r.rank == 0) r.copy(rank = i + 1) else r })
-            }
-            o.optJSONArray("children")?.let { c -> for (i in 0 until c.length()) c.optJSONObject(i)?.let { walk(it, it.optString("name")) } }
-        }
-        runCatching { walk(JSONObject(raw), "") }
-        out
-    }
-}
+    private fun safeId(id: String) = id.replace(Regex("[^a-zA-Z0-9]+"), "_")
 
-/** My Teams: leagues on the left (your region's first); a league's teams on the right, OK follows. */
-@Composable
-fun SportsTeams() {
-    var follows by remember { mutableStateOf(Sports.follows) }
-    val leagues = remember { Sports.activeLeagues().filter { it.espnPath != null && it.kind == LeagueKind.TEAMS } }
-    var league by remember { mutableStateOf(leagues.firstOrNull()) }
-    var teams by remember { mutableStateOf<List<TeamInfo>?>(null) }
-    LaunchedEffect(league) { teams = null; league?.let { teams = SportsMine.teams(it) } }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 36.dp, end = 36.dp, top = 24.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("My Teams", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("${follows.teams.size} teams · ${follows.leagues.size} whole leagues", color = Palette.TextDim, fontSize = 13.sp)
-            Button("Region: ${SportsMine.regionLabel()}", { SportsMine.nextRegion() })
-        }
-        Row(Modifier.fillMaxSize().padding(top = 14.dp)) {
-            LazyColumn(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                itemsIndexed(leagues, key = { _, l -> l.id }) { i, l ->
-                    Focusable({ league = l }, if (i == 0) Modifier.focusRequester(first) else Modifier, onFocus = { league = l }) { f ->
-                        Text((if (l.id in follows.leagues) "★ " else "") + l.name, color = if (f) Color.Black else Palette.Text, fontSize = 15.sp, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth().background(if (f) Color.White else Palette.Card).padding(10.dp))
-                    }
-                }
-            }
-            Column(Modifier.padding(start = 20.dp).weight(1f)) {
-                val l = league
-                if (l != null) Button(if (l.id in follows.leagues) "Following every ${l.short} game ✓" else "Follow every ${l.short} game",
-                    { SportsMine.toggleLeague(l.id); follows = Sports.follows })
-                val t = teams
-                when {
-                    l == null -> {}
-                    t == null -> Text("Getting the teams…", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
-                    t.isEmpty() -> Text("No team list for this one.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
-                    else -> LazyColumn(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                        items(t, key = { it.id }) { team ->
-                            val on = follows.followsTeam(team.leagueId, team.id)
-                            Focusable({ SportsMine.toggleTeam(team); follows = Sports.follows }) { f ->
-                                Row(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    team.logo?.let { Img(it, 32.dp, 32.dp, Modifier.size(32.dp)) }
-                                    Text(team.fullName, color = Palette.Text, fontSize = 15.sp, modifier = Modifier.weight(1f).padding(start = 10.dp))
-                                    Text(if (on) "Following ✓" else "Follow", color = if (on) Color(0xFF7BD88F) else Palette.TextDim, fontSize = 13.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** A league's table(s); your teams stand out. */
-@Composable
-fun SportsStandings(leagueId: String) {
-    val league = remember(leagueId) { SportsCatalog.league(leagueId) }
-    var tables by remember(leagueId) { mutableStateOf<List<SportsMine.Table>?>(null) }
-    LaunchedEffect(leagueId) { tables = league?.let { SportsMine.standings(it) } ?: emptyList() }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(tables) { if (!tables.isNullOrEmpty()) runCatching { first.requestFocus() } }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 36.dp, end = 36.dp, top = 24.dp)) {
-        Text("${league?.name ?: "League"} · Table", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        val t = tables
-        when {
-            t == null -> Text("Getting the table…", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
-            t.isEmpty() -> Text("No table for this one.", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
-            else -> LazyColumn(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp), contentPadding = PaddingValues(bottom = 40.dp)) {
-                t.forEachIndexed { ti, table ->
-                    item(key = "h$ti") { Text(table.group, color = Palette.TextDim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
-                    itemsIndexed(table.rows, key = { i, r -> "$ti:$i:${r.team}" }) { i, r ->
-                        Focusable({}, if (ti == 0 && i == 0) Modifier.focusRequester(first) else Modifier) { f ->
-                            Row(Modifier.fillMaxWidth(0.8f).background(if (f) Color(0x33FFFFFF) else if (r.mine) Color(0x2232C25A) else Palette.Card).padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Text("${r.rank}", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.width(34.dp))
-                                Box(Modifier.size(24.dp)) { r.logo?.let { Img(it, 24.dp, 24.dp, Modifier.size(24.dp)) } }
-                                Text(r.team, color = Palette.Text, fontSize = 14.sp, fontWeight = if (r.mine) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f).padding(start = 10.dp))
-                                Text(r.played, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.width(44.dp))
-                                Text(r.record, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.width(110.dp))
-                                Text(r.points?.let { "$it pts" } ?: "", color = Palette.Text, fontSize = 13.sp, modifier = Modifier.width(70.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    private fun leagueTeams(l: League): List<TeamInfo> {
+        synchronized(teamCache) { teamCache[l.id] }?.let { return it }
+        if (l.espnPath == null) return emptyList()
+        val file = java.io.File(teamDir, "teams_${safeId(l.id)}.json")
+        val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < 7 * 24 * 3600_000L
+        val raw = (if (fresh) runCatching { file.readText() }.getOrNull() else null)
+            ?: runCatching { SportsFeeds().teamsRaw(l).also { runCatching { file.writeText(it) } } }.getOrNull()
+            ?: runCatching { file.readText() }.getOrNull() ?: return emptyList()
+        val list = runCatching { SportsFeeds.parseTeams(l, raw) }.getOrDefault(emptyList()).sortedBy { (it.location ?: it.fullName).lowercase(Locale.ROOT) }
+        if (list.isNotEmpty()) synchronized(teamCache) { teamCache[l.id] = list }
+        return list
     }
 }
