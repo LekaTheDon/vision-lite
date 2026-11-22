@@ -160,6 +160,12 @@ private class RowSlots(val key: String, val home: Boolean = true) {
 
 /** The card last focused in each row of the other pages (by page + row), so going back up lands where you were. */
 internal object PageFocus { val index = HashMap<String, Int>() }
+
+/** Home's poster rows (key, title) for Settings' billboard choice, and their titles for the screensaver. */
+object BillboardRows {
+    val rows = kotlinx.coroutines.flow.MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    fun publish(list: List<Pair<String, String>>) { if (list.isNotEmpty()) rows.value = (rows.value + list).distinctBy { it.first } }
+}
 /** Each Home row's slots by row key, so focus can go back to a row after one of its cards was removed. */
 private val RowRegistry = HashMap<String, RowSlots>()
 
@@ -293,10 +299,18 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     }
     // Vision's start screen: the Legacy billboard over the whole page, focus on View title. It shows the hero's
     // titles (Continue Watching first, else the first row) and, once a card has focus, that card's title.
-    val firstItems = visible.firstOrNull { it.items.isNotEmpty() }?.items
-    val heroEntries = remember(cw, firstItems) {
-        if (cw.isNotEmpty()) cw.take(8).map { HeroEntry(MetaPreview(it.imdb, it.type, it.name, posterOf(it.imdb), backdropOf(it.imdb)), it.season, it.episode) }
-        else firstItems.orEmpty().take(8).map { HeroEntry(it, null, null) }
+    // Billboard source (Settings › Home and look, user 2026-11-22): default = Continue watching then the first row;
+    // a row key = that row; "random" = a different filled row on each visit, to keep Home fresh.
+    val billSrc by prefs.billboardSource.flow.collectAsStateWithLifecycle()
+    LaunchedEffect(visible.size, visible.sumOf { it.items.size }) { com.lekathedon.visionlite.ui.Screensaver.feed(visible.filter { it.kind == RowKind.POSTER }.flatMap { it.items.take(20) }) }
+    LaunchedEffect(visible.size) { BillboardRows.publish(visible.filter { it.kind == RowKind.POSTER }.map { it.key to it.title }) }
+    val pool = visible.filter { it.items.isNotEmpty() && it.kind == RowKind.POSTER }
+    val randomKey = remember(pool.size > 0) { pool.randomOrNull()?.key }
+    val chosen = when (billSrc) { "" -> null; "random" -> pool.firstOrNull { it.key == randomKey } ?: pool.firstOrNull(); else -> pool.firstOrNull { it.key == billSrc } }
+    val firstItems = (chosen ?: visible.firstOrNull { it.items.isNotEmpty() })?.items
+    val heroEntries = remember(cw, firstItems, chosen?.key) {
+        if (cw.isNotEmpty() && chosen == null) cw.take(8).map { HeroEntry(MetaPreview(it.imdb, it.type, it.name, posterOf(it.imdb), backdropOf(it.imdb)), it.season, it.episode) }
+        else firstItems.orEmpty().let { if (billSrc == "random") it.shuffled() else it }.take(8).map { HeroEntry(it, null, null) }
     }
     var heroIndex by remember { mutableStateOf(0) }
     var heroFocused by remember { mutableStateOf(true) }
@@ -962,10 +976,13 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
                 var trailer by remember { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
                 LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
                 trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, look.muted, Modifier.fillMaxSize(), it.audio) { trailer = null } }
-                Box(Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
-                ))
-                CardLogo(m.logoUrl(), m.name, 0.55f, 0.4f, dims.posterOpenWidth, dims.posterHeight, 14.dp, 20f)
+                // Custom wide art has the name on it: the logo comes only once the trailer covers the art (user 2026-11-22).
+                if (trailer != null || !com.lekathedon.visionlite.poster.Posters.wideHasTitle(m.id, m.type)) {
+                    Box(Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
+                    ))
+                    CardLogo(m.logoUrl(), m.name, 0.55f, 0.4f, dims.posterOpenWidth, dims.posterHeight, 14.dp, 20f)
+                }
             }
         }
         WatchedTick(m.id, Modifier.align(Alignment.TopEnd))
@@ -984,16 +1001,20 @@ private fun RankedCard(rank: Int, m: MetaPreview, dims: EchoDims, modifier: Modi
         EchoCard(dims.highlightWidth, dims.highlightHeight, dims.radius, Modifier.align(Alignment.TopEnd), onFocus = onFocus, onClick = onClick, onHold = onHold) { f ->
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.wide()), dims.highlightWidth, dims.highlightHeight, Modifier.fillMaxSize(), fallback = m.wide())
+                var trailer by remember(m.id) { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
                 if (f) {
                     val look = LocalTrailer.current
-                    var trailer by remember { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
                     LaunchedEffect(m.id, look) { trailer = if (look.on) trailerAfterRest(m, look.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(1080)) else null }
                     trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, look.muted, Modifier.fillMaxSize(), it.audio) { trailer = null } }
                 }
-                Box(Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
-                ))
-                CardLogo(m.logoUrl(), m.name, 0.55f, 0.4f, dims.highlightWidth, dims.highlightHeight, 14.dp, 20f)
+                LaunchedEffect(f) { if (!f) trailer = null }
+                // Custom wide art has the name on it: the logo comes only once the trailer covers the art (user 2026-11-22).
+                if ((f && trailer != null) || !com.lekathedon.visionlite.poster.Posters.wideHasTitle(m.id, m.type)) {
+                    Box(Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
+                    ))
+                    CardLogo(m.logoUrl(), m.name, 0.55f, 0.4f, dims.highlightWidth, dims.highlightHeight, 14.dp, 20f)
+                }
                 WatchedTick(m.id, Modifier.align(Alignment.TopEnd))
             }
         }

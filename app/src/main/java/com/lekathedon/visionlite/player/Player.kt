@@ -479,6 +479,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 }
             )
         }
+        // Until the first picture: the title's backdrop and logo, not a black screen (user 2026-11-22).
+        if (s.type != "live") androidx.compose.animation.AnimatedVisibility(!firstFrame, enter = androidx.compose.animation.EnterTransition.None,
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(400))) {
+            com.lekathedon.visionlite.ui.LoadingHero(s.id, s.title, "Starting…")
+        }
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
         val skipMode = prefs.skipIntro.value
         val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {

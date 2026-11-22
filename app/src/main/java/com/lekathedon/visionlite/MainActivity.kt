@@ -34,7 +34,8 @@ import com.lekathedon.visionlite.ui.Screen
 
 class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
-        com.lekathedon.visionlite.ui.HoldGuard.consume(event) || super.dispatchKeyEvent(event)
+        com.lekathedon.visionlite.ui.Screensaver.dismiss(event) || com.lekathedon.visionlite.ui.HoldGuard.consume(event) ||
+            com.lekathedon.visionlite.ui.DpadPace.consume(event) || super.dispatchKeyEvent(event)
 
     override fun onResume() { super.onResume(); com.lekathedon.visionlite.link.LinkState.front = true }
     override fun onPause() { com.lekathedon.visionlite.link.LinkState.front = false; super.onPause() }
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
             // Music never plays over a video: a film, an episode, Live TV or a YouTube video pauses it.
             val top = nav.current
             androidx.compose.runtime.LaunchedEffect(top) {
+                com.lekathedon.visionlite.ui.DpadPace.inPlayer = top is Screen.Player || top is Screen.YtPlay
                 if (top is Screen.Player || top is Screen.YtPlay) com.lekathedon.visionlite.music.MusicPlayer.pause()
             }
             CompositionLocalProvider(LocalLook provides look) {
@@ -144,6 +146,8 @@ class MainActivity : ComponentActivity() {
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).
                   com.lekathedon.visionlite.sports.SportsHost(nav)
                   com.lekathedon.visionlite.home.TasteMenuHost()
+                  // Vision's Ambient Mode: idle minutes off the player → 4K backdrops from your rows.
+                  com.lekathedon.visionlite.ui.ScreensaverHost(nav)
                   if (hub != null) {
                       val pillHome = remember { androidx.compose.ui.focus.FocusRequester() }
                       var pillFocused by remember { androidx.compose.runtime.mutableStateOf(false) }

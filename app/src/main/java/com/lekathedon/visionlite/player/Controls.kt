@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private enum class Panel { AUDIO, SUBS, SPEED, STATS, SYNC, SLEEP }
+private enum class Panel { AUDIO, SUBS, SPEED, STATS, SYNC, SLEEP, MORE }
 
 private val Aspects = listOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT to "Fit",
@@ -240,16 +240,20 @@ internal fun Controls(
                 .background(Color.White, RoundedCornerShape(22.dp)).padding(horizontal = 22.dp, vertical = 11.dp))
         if (!visible) return@Box
 
-        // Top (Vision's player header): the title's logo (or name), episode, when it ends, and what is playing as badges.
-        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))).padding(start = 48.dp, end = 48.dp, top = 28.dp, bottom = 40.dp)) {
+        // Vision's control chrome (old Vision, "Previous" style): everything bottom-left over a 260 dp shade — logo,
+        // episode line, badges just above the timeline, the time row, then small round icon-only buttons.
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(260.dp)
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val ep = remember(title) { EPISODE.find(title) }
             val name = ep?.let { title.substring(0, it.range.first).trim() } ?: title
             var logoFailed by remember(logo) { mutableStateOf(logo.isNullOrBlank()) }
-            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 340.dp, maxHeight = 72.dp),
-                alignment = Alignment.BottomStart, contentScale = androidx.compose.ui.layout.ContentScale.Fit, onError = { logoFailed = true })
+            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 300.dp, maxHeight = 64.dp),
+                alignment = Alignment.CenterStart, contentScale = androidx.compose.ui.layout.ContentScale.Fit, onError = { logoFailed = true })
             else Text(name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            val line = listOfNotNull(ep?.let { "Season ${it.groupValues[1]} · Episode ${it.groupValues[2]}" }, if (dur > 0) "Ends at ${endsAt(dur - pos, speed)}" else null)
-            if (line.isNotEmpty()) Text(line.joinToString("   ·   "), color = Color(0xFFBDBDBD), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+            val line = listOfNotNull(ep?.let { "S${it.groupValues[1].toInt()} E${it.groupValues[2].toInt()}" }, if (dur > 0) "Ends at ${endsAt(dur - pos, speed)}" else null)
+            if (line.isNotEmpty()) Text(line.joinToString("  •  "), color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, maxLines = 1)
             var badges by remember { mutableStateOf(emptyList<Int>()) }
             LaunchedEffect(release) {
                 while (true) {
@@ -257,16 +261,12 @@ internal fun Controls(
                     delay(1_000)
                 }
             }
-            if (badges.isNotEmpty()) BadgeRow(badges, Modifier.padding(top = 8.dp))
-        }
+            if (badges.isNotEmpty()) BadgeRow(badges)
 
-        // Bottom: seek bar and buttons.
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000)))).padding(start = 48.dp, end = 48.dp, top = 60.dp, bottom = 28.dp)) {
             val shown = seekTo ?: pos
             var barFocused by remember { mutableStateOf(false) }
             thumb?.takeIf { seekTo != null && dur > 0 }?.let { b ->
-                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val x = ((maxWidth - 240.dp) * (shown.toFloat() / dur).coerceIn(0f, 1f))
                     Column(Modifier.padding(start = x).width(240.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         androidx.compose.foundation.Image(b.asImageBitmap(), null, Modifier.width(240.dp).height(135.dp).clip(RoundedCornerShape(8.dp)))
@@ -274,43 +274,53 @@ internal fun Controls(
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(clock(shown), color = Color.White, fontSize = 14.sp)
-                Box(Modifier.weight(1f).padding(horizontal = 14.dp).height(if (barFocused) 8.dp else 4.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x40FFFFFF))
-                    .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
-                    .onKeyEvent { e ->
-                        if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
-                        when (e.key) {
-                            Key.DirectionLeft -> { step(false); true }
-                            Key.DirectionRight -> { step(true); true }
-                            Key.DirectionCenter, Key.Enter -> { toggle(); true }
-                            else -> false
-                        }
-                    }) {
+            // Vision's timeline: 20 dp box, pill track 4 dp (8 focused), white played + buffered, a round marker.
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(20.dp)
+                .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
+                .onKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (e.key) {
+                        Key.DirectionLeft -> { step(false); true }
+                        Key.DirectionRight -> { step(true); true }
+                        Key.DirectionCenter, Key.Enter -> { toggle(); true }
+                        else -> false
+                    }
+                }, contentAlignment = Alignment.CenterStart) {
+                val track = if (barFocused) 8.dp else 4.dp
+                val frac = if (dur > 0) (shown.toFloat() / dur).coerceIn(0f, 1f) else 0f
+                Box(Modifier.fillMaxWidth().height(track).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if (barFocused) 0.24f else 0.18f))) {
                     if (dur > 0) {
-                        Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color(0x66FFFFFF)))
-                        Box(Modifier.fillMaxHeight().fillMaxWidth((shown.toFloat() / dur).coerceIn(0f, 1f)).background(if (barFocused) Color(0xFFD9DC8E) else Color.White))
+                        Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color.White.copy(alpha = 0.35f)))
+                        Box(Modifier.fillMaxHeight().fillMaxWidth(frac).background(Color.White))
                     }
                 }
-                Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White, fontSize = 14.sp)
+                val dot = if (barFocused) 12.dp else 8.dp
+                if (dur > 0) Box(Modifier.padding(start = ((maxWidth - dot) * frac)).size(dot).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
             }
-            Row(Modifier.padding(top = 16.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                IconPill(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton)) { toggle() }
-                IconPill(Icons.Restart, "Restart") { player.seekTo(0); player.play() }
-                if (canNext) IconPill(Icons.Next, "Next episode") { onNext() }
-                IconPill(Icons.Audio, "Audio") { panel = Panel.AUDIO }
-                IconPill(Icons.Subtitles, "Subtitles") { panel = Panel.SUBS }
-                IconPill(Icons.Speed, "Speed ${fmtSpeed(speed)}") { panel = Panel.SPEED }
-                if (onZap == null) IconPill(Icons.Sync, "Sync · audio ${Sync.label(Sync.audioMs)} · subs ${Sync.label(Sync.subMs)}") { panel = Panel.SYNC }
-                IconPill(Icons.Sleep, sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: if (sleepEnd) "Sleep at the end" else "Sleep timer") { panel = Panel.SLEEP }
-                IconPill(Icons.Aspect, Aspects[aspect].second) { aspect = (aspect + 1) % Aspects.size; onAspect(Aspects[aspect].first) }
-                if (vs10) IconPill(Icons.Hdr, "VS10") {
-                    note = "VS10…"
-                    scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
+            Row(Modifier.fillMaxWidth()) {
+                Text(clock(shown), color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+                Spacer(Modifier.weight(1f))
+                Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+            }
+            // The deck: playback on the left, tracks and tools on the right; the rest under More.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ControlButton(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton)) { toggle() }
+                    ControlButton(Icons.Restart, "Restart") { player.seekTo(0); player.play() }
+                    if (canNext) ControlButton(Icons.Next, "Next episode") { onNext() }
                 }
-                IconPill(Icons.Engine, "Engine: ${engine.label}") { onEngine() }
-                IconPill(Icons.Info, "Stats · HDR · FEL") { panel = if (panel == Panel.STATS) null else Panel.STATS }
-                IconPill(Icons.Sources, "Sources") { onSources() }
+                Spacer(Modifier.weight(1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ControlButton(Icons.Info, "Stats") { panel = if (panel == Panel.STATS) null else Panel.STATS }
+                    ControlButton(Icons.Audio, "Audio") { panel = Panel.AUDIO }
+                    ControlButton(Icons.Subtitles, "Subtitles") { panel = Panel.SUBS }
+                    ControlButton(Icons.Sources, "Sources") { onSources() }
+                    if (vs10) ControlButton(Icons.Hdr, "VS10") {
+                        note = "VS10…"
+                        scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
+                    }
+                    ControlButton(Icons.More, "More") { panel = Panel.MORE }
+                }
             }
         }
 
@@ -332,6 +342,16 @@ internal fun Controls(
                     }
                     panel = null
                 }
+            }
+            Panel.MORE -> {
+                val items = buildList<Pair<String, () -> Unit>> {
+                    add("Speed · ${fmtSpeed(speed)}" to { panel = Panel.SPEED })
+                    if (onZap == null) add("Sync · audio ${Sync.label(Sync.audioMs)} · subs ${Sync.label(Sync.subMs)}" to { panel = Panel.SYNC })
+                    add((sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: if (sleepEnd) "Sleep at the end" else "Sleep timer") to { panel = Panel.SLEEP })
+                    add("Aspect · ${Aspects[aspect].second}" to { aspect = (aspect + 1) % Aspects.size; onAspect(Aspects[aspect].first); note = "Aspect: ${Aspects[aspect].second}"; panel = null })
+                    add("Engine · ${engine.label} (switch)" to { panel = null; onEngine() })
+                }
+                SidePanel("More", items.map { it.first }, -1) { i -> items[i].second() }
             }
             null -> {}
         }
@@ -385,18 +405,13 @@ private fun SyncPanel(onDelays: () -> Unit) {
     }
 }
 
-/** A round icon button; its name shows under it while focused (Vision's control deck). */
+/** Vision's ControlButton: round, icon only (28 dp), clear until focused, then a white circle with a black icon. */
 @Composable
-private fun IconPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    var f by remember { mutableStateOf(false) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp)) {
-        Focusable(onClick, modifier.onFocusChanged { f = it.isFocused }, androidx.compose.foundation.shape.CircleShape) { focused ->
-            Box(Modifier.size(52.dp).background(if (focused) Color.White else Color(0x33FFFFFF)), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.Icon(icon, label, Modifier.size(26.dp), tint = if (focused) Color.Black else Color.White)
-            }
+private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape) { focused ->
+        Box(Modifier.size(48.dp).background(if (focused) Color.White else Color.Transparent), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(icon, label, Modifier.size(28.dp), tint = if (focused) Color.Black else Color.White)
         }
-        Text(if (f) label else "", color = Color.White, fontSize = 12.sp, maxLines = 1, softWrap = false,
-            modifier = Modifier.padding(top = 6.dp).height(16.dp).wrapContentWidth(unbounded = true))
     }
 }
 

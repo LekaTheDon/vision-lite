@@ -273,7 +273,7 @@ object AutoPick {
     fun trust(l: Link, t: EpisodeCheck.Target?): Int {
         if (t == null) return 0
         if (!namesShow(l, EpisodeFacts.titlesOf(t))) return 0
-        val vouched = l.source.startsWith("Torrentio", true) || EpisodeVouches.has(t.season, t.episode, l.tb?.hash ?: l.stream.infoHash)
+        val vouched = l.vod || l.source.startsWith("Torrentio", true) || EpisodeVouches.has(t.season, t.episode, l.tb?.hash ?: l.stream.infoHash)
         return when (verdict(l, t)) {
             EpisodeCheck.Verdict.WRONG, EpisodeCheck.Verdict.UNKNOWN -> 0
             EpisodeCheck.Verdict.CONFIRMED -> TRUST_VERIFIED

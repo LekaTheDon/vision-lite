@@ -194,6 +194,18 @@ object Vod {
         }
     }
 
+    /** How many films and series vod.db holds (0 = no VOD: Vision TB doesn't look here). */
+    fun count(): Long = db.readableDatabase.rawQuery("SELECT COUNT(*) FROM items", null).use { if (it.moveToFirst()) it.getLong(0) else 0L }
+
+    /** Titles of [kind] whose name holds [word] (Vision TB's VOD match narrows with this, then compares whole names). */
+    fun search(kind: String, word: String, limit: Int = 200): List<VodItem> {
+        if (word.isBlank()) return emptyList()
+        return db.readableDatabase.rawQuery("SELECT pl,kind,id,name,grp,poster,url,rating FROM items WHERE kind=? AND name LIKE ? LIMIT $limit",
+            arrayOf(kind, "%${word.replace("%", "").replace("_", "")}%")).use { c ->
+            buildList { while (c.moveToNext()) add(VodItem(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), c.getString(7))) }
+        }
+    }
+
     private fun write(pl: String, what: String, list: List<VodItem>) {
         val w = db.writableDatabase
         w.beginTransaction()

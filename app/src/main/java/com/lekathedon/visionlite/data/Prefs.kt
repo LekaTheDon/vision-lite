@@ -192,6 +192,14 @@ class Prefs(context: Context) {
     val seekThumbs = Flag("seek_thumbs", true)
     val linkPicks = Text("link_picks", "")
     val visionTb = Flag("vision_tb", false)
+    /** Your IPTV VOD films and series join Vision TB's links (autoplay can pick them). */
+    val vodInTb = Flag("vod_in_tb", true)
+    /** Fast horizontal navigation (Vision's Advanced): held Left/Right repeats every 48 ms instead of 80 ms. */
+    val fastHorizontal = Flag("fast_horizontal", false)
+    /** Screensaver (Vision's Ambient Mode): after this many idle minutes, 4K backdrops from your rows ("0" = off). */
+    val screensaverMin = Text("screensaver_min", "5")
+    /** Where the Home billboard takes its titles: "" = Continue watching then the first row; else a row key. */
+    val billboardSource = Text("billboard_source", "")
     val torboxKey = Text("torbox_key", "")
     // App
     val exitConfirm = Flag("exit_confirm", true)

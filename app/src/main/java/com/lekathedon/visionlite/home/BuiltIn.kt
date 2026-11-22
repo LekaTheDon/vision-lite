@@ -544,6 +544,45 @@ object People {
         person to all
     }
 
+    /** Person page (Vision's look): Known for first, then a row per role they had (Actor, Director, Creator, Writer, Producer). */
+    data class Roles(val person: Person?, val knownFor: List<MetaPreview>, val rows: List<Pair<String, List<MetaPreview>>>)
+
+    suspend fun roles(id: String): Roles = withContext(Dispatchers.IO) {
+        val node = "category { id } title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } }"
+        val q = "{ name(id: \"$id\") { nameText { text } primaryImage { url } " +
+            "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\", \"producer\"]}) { edges { node { $node } } } " +
+            "knownFor(first: 30) { edges { node { title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } } } } } } }"
+        val d = runCatching {
+            Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
+                .header("x-imdb-client-name", "imdb-web-next-localized").build()).execute().use { JSONObject(it.body!!.string()).optJSONObject("data")?.optJSONObject("name") }
+        }.getOrNull() ?: return@withContext Roles(null, emptyList(), emptyList())
+        val person = Person(id, d.optJSONObject("nameText")?.optString("text").orEmpty(), d.optJSONObject("primaryImage")?.optString("url")?.let(::small))
+        fun meta(t: JSONObject): MetaPreview? {
+            val tid = t.optString("id").takeIf { it.startsWith("tt") } ?: return null
+            val kind = t.optJSONObject("titleType")?.optString("id").orEmpty()
+            if (kind !in setOf("movie", "tvSeries", "tvMiniSeries", "tvMovie")) return null
+            return MetaPreview(tid, if (kind.startsWith("tvS") || kind == "tvMiniSeries") "series" else "movie", t.optJSONObject("titleText")?.optString("text") ?: return null,
+                t.optJSONObject("primaryImage")?.optString("url")?.let(::small) ?: "https://images.metahub.space/poster/medium/$tid/img",
+                "https://images.metahub.space/background/medium/$tid/img",
+                releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
+                imdbRating = t.optJSONObject("ratingsSummary")?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toString())
+        }
+        val known = d.optJSONObject("knownFor")?.optJSONArray("edges").objects().mapNotNull { e -> e.optJSONObject("node")?.optJSONObject("title")?.let(::meta) }.distinctBy { it.id }
+        val byRole = LinkedHashMap<String, MutableList<MetaPreview>>()
+        d.optJSONObject("credits")?.optJSONArray("edges").objects().forEach { e ->
+            val n = e.optJSONObject("node") ?: return@forEach
+            val m = n.optJSONObject("title")?.let(::meta) ?: return@forEach
+            val role = when (n.optJSONObject("category")?.optString("id")) {
+                "actor", "actress" -> "Actor"; "director" -> "Director"; "creator" -> "Creator"; "writer" -> "Writer"; "producer" -> "Producer"; else -> return@forEach
+            }
+            byRole.getOrPut(role) { mutableListOf() }.add(m)
+        }
+        val order = listOf("Actor", "Director", "Creator", "Writer", "Producer")
+        val rows = order.mapNotNull { r -> byRole[r]?.distinctBy { it.id }?.sortedByDescending { it.releaseInfo?.toIntOrNull() ?: 0 }?.takeIf { it.isNotEmpty() }?.let { r to it } }
+            .sortedByDescending { it.second.size }
+        Roles(person, known.ifEmpty { rows.firstOrNull()?.second.orEmpty().sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }.take(15) }, rows)
+    }
+
     /** Each person's titles, asked once per app run (one IMDb request each). */
     private val titlesCache = java.util.concurrent.ConcurrentHashMap<String, List<MetaPreview>>()
 

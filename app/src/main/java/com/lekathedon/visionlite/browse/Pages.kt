@@ -389,12 +389,16 @@ private fun ServiceRail(title: String, nav: Nav, d: RailData, firstFocus: FocusR
         firstFocus = firstFocus, onEnd = { next() }, key = title, loading = !d.end && d.items.isEmpty())
 }
 
-/** A person's films and shows, newest first (IMDb); Follow makes them a favourite: they steer the engine and get "Because you like" rows on Home. */
+/**
+ * A person (Vision's look, user 2026-11-22): Known for first so you recognise them, then a row for every role they had
+ * (Actor, Director, Creator, Writer, Producer; the biggest first), newest first. Follow makes them a favourite: they
+ * steer the engine and get "Because you like" rows on Home. One IMDb request per page opened.
+ */
 @Composable
 fun PersonPage(nav: Nav, id: String, name: String) {
     val people = com.lekathedon.visionlite.home.People
-    var data by remember(id) { mutableStateOf<Pair<com.lekathedon.visionlite.home.People.Person?, List<MetaPreview>>?>(null) }
-    LaunchedEffect(id) { data = people.titles(id) }
+    var data by remember(id) { mutableStateOf<com.lekathedon.visionlite.home.People.Roles?>(null) }
+    LaunchedEffect(id) { data = people.roles(id) }
     val list by people.list.collectAsState()
     // Follow makes them a favourite in this hub only (Anime: voice actors, directors you follow there).
     val hubKey = com.lekathedon.visionlite.anime.Hubs.content.collectAsState().value.key
@@ -402,17 +406,22 @@ fun PersonPage(nav: Nav, id: String, name: String) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val d = data
-    val mine = hubOnly(d?.second.orEmpty())
-    Page(d?.first?.name?.ifBlank { null } ?: name, if (d == null) "Loading…" else "${mine.size} titles") {
+    val shownName = d?.person?.name?.ifBlank { null } ?: name
+    val sub = when {
+        d == null -> "Loading…"
+        d.rows.isEmpty() -> "Nothing found"
+        else -> d.rows.joinToString(" · ") { it.first }
+    }
+    Page(shownName, sub) {
         Row(Modifier.padding(top = 10.dp)) {
             Button(if (following) "Following ✓" else "Follow", {
-                people.toggle(d?.first?.copy(name = d.first!!.name.ifBlank { name }, hub = hubKey) ?: com.lekathedon.visionlite.home.People.Person(id, name, hub = hubKey))
+                people.toggle(d?.person?.copy(name = shownName, hub = hubKey) ?: com.lekathedon.visionlite.home.People.Person(id, name, hub = hubKey))
             }, Modifier.focusRequester(first))
         }
-        val all = d?.second.orEmpty()
+        val subOf: (MetaPreview) -> String = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
-            item { Rail("Movies", all.filter { it.type == "movie" }, nav, subOf = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }) }
-            item { Rail("Series", all.filter { it.type == "series" }, nav, subOf = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }) }
+            if (d != null && d.knownFor.isNotEmpty()) item(key = "known") { Rail("Known for", d.knownFor, nav, subOf = subOf, key = "known") }
+            d?.rows?.forEach { (role, items) -> item(key = role) { Rail(role, items, nav, subOf = subOf, key = role) } }
         }
     }
 }

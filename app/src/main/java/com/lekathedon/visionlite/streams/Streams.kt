@@ -33,7 +33,8 @@ import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
 import kotlinx.coroutines.launch
 
-data class Link(val source: String, val stream: Stream, val tb: com.lekathedon.visionlite.tb.VisionTb.Pick? = null) {
+/** [vod]: an IPTV VOD file matched by Vision TB (streams/VodLinks.kt). */
+data class Link(val source: String, val stream: Stream, val tb: com.lekathedon.visionlite.tb.VisionTb.Pick? = null, val vod: Boolean = false) {
     val playable get() = !stream.url.isNullOrBlank() || tb != null || (!stream.infoHash.isNullOrBlank() && Debrid.any())
     /** 2160 / 1080 / 720 / 480 read from the add-on's text; 0 if not given. */
     val height: Int get() {
@@ -128,7 +129,9 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         }
         val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
         val servers = MediaServers.plexOn() || MediaServers.jellyfinOn()
-        val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + (if (tbOn) 1 else 0) + (if (servers) 1 else 0)
+        // IPTV VOD in Vision TB's group (user 2026-11-22): only when a playlist listed films / series.
+        val vodOn = app.prefs.vodInTb.value && (s.type == "movie" || s.type == "series") && s.id.startsWith("tt") && VodLinks.available()
+        val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + (if (tbOn) 1 else 0) + (if (servers) 1 else 0) + (if (vodOn) 1 else 0)
         pending = asked
         kotlinx.coroutines.coroutineScope {
             // Add-on subtitles for the player, asked alongside the links (nothing before Play was pressed).
@@ -146,6 +149,11 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                         }
                     }
                 }
+                pending--
+            }
+            if (vodOn) launch {
+                val vod = runCatching { VodLinks.links(s.type, s.id) }.getOrDefault(emptyList())
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { links.addAll(vod) }
                 pending--
             }
             // Your own Plex / Jellyfin files (only when signed in).
@@ -195,16 +203,13 @@ fun Streams(nav: Nav, s: Screen.Streams) {
     if (auto) {
         val pick = remember { FocusRequester() }
         LaunchedEffect(Unit) { runCatching { pick.requestFocus() } }
-        Box(Modifier.fillMaxSize().background(LocalLook.current.page), contentAlignment = androidx.compose.ui.Alignment.Center) {
-            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                Text(s.title, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                Text(getting.ifEmpty { "Finding the best link…" }, color = Palette.Text, fontSize = 17.sp, modifier = Modifier.padding(top = 14.dp))
-                Text(if (pending > 0) "${links.size} links · waiting for $pending source(s)" else "${links.size} links · choosing",
-                    color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp, bottom = 22.dp))
-                Focusable({ auto = false }, Modifier.focusRequester(pick)) { f ->
-                    Text("Choose a link myself", color = Palette.Text, fontSize = 15.sp,
-                        modifier = Modifier.background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(horizontal = 20.dp, vertical = 10.dp))
-                }
+        // The title's big backdrop while autoplay looks (user 2026-11-22: never a black page).
+        com.lekathedon.visionlite.ui.LoadingHero(s.metaId.ifBlank { s.id }.let { if (s.id.startsWith("tt")) s.id else it }, s.title,
+            getting.ifEmpty { "Finding the best link…" },
+            if (pending > 0) "${links.size} links · waiting for $pending source(s)" else "${links.size} links · choosing") {
+            Focusable({ auto = false }, Modifier.padding(top = 22.dp).focusRequester(pick), shape = androidx.compose.foundation.shape.RoundedCornerShape(50)) { f ->
+                Text("Choose a link myself", color = if (f) Color.Black else Palette.Text, fontSize = 15.sp,
+                    modifier = Modifier.background(if (f) Color.White else Color(0x33FFFFFF)).padding(horizontal = 20.dp, vertical = 10.dp))
             }
         }
         return

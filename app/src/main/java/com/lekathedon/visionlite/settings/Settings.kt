@@ -38,6 +38,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -226,6 +228,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Hide cinema recordings", "CAM and TS copies", p.hideCam, m) }
         head("Autoplay")
         row { m -> Toggle("Smart autoplay", "Plays the right episode, 4K first, then the biggest file. Off until Vision TB is autoplay safe", p.autoplay, m) }
+        row { m -> Toggle("IPTV VOD in Vision TB", "Your playlists' films and series join the links; autoplay picks them when they're best or the only one", p.vodInTb, m) }
         head("Debrid accounts (torrent links from your add-ons)")
         row { m -> ServiceRow("realdebrid", nav, m) }
         row { m -> ServiceRow("alldebrid", nav, m) }
@@ -298,8 +301,16 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings, m) }
         head("Look")
         row { m -> Choice("Home look", "", p.homeLook, LookOpts, m) }
+        row { m ->
+            val rows by com.lekathedon.visionlite.home.BillboardRows.rows.collectAsState()
+            Choice("Billboard titles", "Which row feeds the big billboard on Home", p.billboardSource,
+                listOf("" to "Continue watching, then first row", "random" to "A random row each visit") + rows, m)
+        }
         row { m -> Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack, m) }
         row { m -> Toggle("Clock", "Time in the top bar", p.clock, m) }
+        row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
+            listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"), m) }
+        row { m -> Toggle("Fast horizontal navigation", "Held Left / Right moves quicker along the rows", p.fastHorizontal, m) }
         row { m -> Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm, m) }
     }
     pages += page("Spoilers and trailers", "What stays hidden, when trailers play", {
@@ -478,7 +489,19 @@ fun Settings(nav: Nav, start: String? = null) {
             Clock()
         }
     Row(Modifier.fillMaxSize()) {
-        Column(Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState())) {
+        // Focus stays where you are (user 2026-11-22): the rail leaves only to the right (into the page), the page only
+        // to the left (back to the rail); Up/Down at either end stop there instead of jumping to another page.
+        Column(Modifier.width(300.dp).fillMaxHeight()
+            .focusProperties { onExit = {
+                when (requestedFocusDirection) {
+                    androidx.compose.ui.focus.FocusDirection.Right -> { cancelFocusChange(); runCatching { paneFirst.requestFocus() } }
+                    androidx.compose.ui.focus.FocusDirection.Up, androidx.compose.ui.focus.FocusDirection.Down,
+                    androidx.compose.ui.focus.FocusDirection.Left -> cancelFocusChange()
+                    else -> {}
+                }
+            } }
+            .focusGroup()
+            .verticalScroll(rememberScrollState())) {
             pages.forEachIndexed { i, pg ->
                 GroupItem(pg, i == sel, Modifier.focusRequester(groupReq[i])
                     .onFocusChanged { if (it.isFocused) picked = i }
@@ -492,9 +515,15 @@ fun Settings(nav: Nav, start: String? = null) {
         LazyColumn(
             Modifier.weight(1f).fillMaxHeight().padding(start = 36.dp)
                 .onFocusChanged { inPane = it.hasFocus }
-                .onPreviewKeyEvent { e ->
-                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { runCatching { groupReq[sel].requestFocus() }; true } else false
-                },
+                .focusProperties { onExit = {
+                    when (requestedFocusDirection) {
+                        androidx.compose.ui.focus.FocusDirection.Left -> { cancelFocusChange(); runCatching { groupReq[sel].requestFocus() } }
+                        androidx.compose.ui.focus.FocusDirection.Up, androidx.compose.ui.focus.FocusDirection.Down,
+                        androidx.compose.ui.focus.FocusDirection.Right -> cancelFocusChange()
+                        else -> {}
+                    }
+                } }
+                .focusGroup(),
             contentPadding = PaddingValues(bottom = 48.dp)
         ) {
             item(key = "head$sel") {

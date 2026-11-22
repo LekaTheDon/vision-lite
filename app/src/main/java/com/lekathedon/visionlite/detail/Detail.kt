@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -169,7 +171,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         alignment = Alignment.BottomStart, onError = { logoFailed = true })
                     else Text(name, color = Palette.Text, fontSize = 34.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                     Facts(m, t, isSeries)
-                    Ratings(t, traktRating)
+                    val more by androidx.compose.runtime.produceState(MoreRatings.R(), imdbId) { imdbId?.let { value = MoreRatings.of(it, isSeries) } }
+                    Ratings(t, traktRating, more)
                     val plot = m?.description ?: t?.plot
                     plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.85f), fontSize = 14.sp, lineHeight = 20.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
                     val crew = t?.let { (if (isSeries) it.creators else it.directors).take(2).joinToString(", ") { p -> p.name } }.orEmpty()
@@ -179,17 +182,19 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     GuideChips(t?.guide.orEmpty())
 
                     // Back up at the buttons: the whole billboard shows again (logo, facts, plot), not just the buttons' line.
-                    Row(Modifier.padding(top = 18.dp).onFocusChanged {
+                    // Vision's hero actions: accent Play pill, round icon buttons, Sequel / Connections pills with a yellow
+                    // count; the row scrolls sideways instead of squeezing the last button (user 2026-11-22).
+                    Row(Modifier.padding(top = 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
                         heroFocused = it.hasFocus
                         if (it.hasFocus && (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0)) scope.launch { list.animateScrollToItem(0) }
-                    }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    }, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         val heroMod = Modifier
                         val playLabel = when {
                             !isSeries -> "Play"
                             next != null -> "Play S${next.season} E${next.number}"
                             else -> eps.firstOrNull { it.season == seasons.firstOrNull() }?.let { "Play S${it.season} E${it.episode}" } ?: "Play"
                         }
-                        Button(playLabel, {
+                        PlayPill(playLabel, {
                             if (!isSeries) nav.push(Screen.Streams(s.type, if (AnimeMeta.isAnimeId(s.id)) m?.id ?: s.id else s.id, name, s.id))
                             else {
                                 val e = (next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
@@ -198,25 +203,25 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                                 e?.let { nav.push(Screen.Streams("series", it.videoId, "$name S${it.season}E${it.episode}", s.id)) }
                             }
                         }, heroMod.focusRequester(play))
-                        if (imdbId != null) Button(if (trailer != null) "Stop trailer" else "Trailer", {
+                        if (imdbId != null) RoundAction(com.lekathedon.visionlite.ui.Icons.Theaters, if (trailer != null) "Stop trailer" else "Trailer", trailer != null, {
                             if (trailer != null) { trailer = null; trailerNow = false } else trailerNow = true
                         }, heroMod)
                         var saved by remember(s.id) { mutableStateOf(Saves.has(s.id)) }
-                        Button(if (saved) "In Library ✓" else "Library", {
+                        RoundAction(if (saved) com.lekathedon.visionlite.ui.Icons.Check else com.lekathedon.visionlite.ui.Icons.Bookmark, if (saved) "In Library" else "Add to Library", saved, {
                             saved = Saves.toggle(Saved(s.type, s.id, name, m?.poster ?: t?.poster))
                         }, heroMod)
                         // Love it / Like / Not for me: the one engine behind every recommendation.
                         val rc by com.lekathedon.visionlite.recs.Recs.changed.collectAsState()
                         val verdict = remember(s.id, rc) { com.lekathedon.visionlite.recs.Recs.verdict(s.id) }
-                        Button(when (verdict) { "love" -> "Loved ♥"; "like" -> "Liked 👍"; "nope" -> "Not for me ✕"; "watched" -> "Watched ✓"; else -> "♥ Like" }, {
+                        RoundAction(com.lekathedon.visionlite.ui.Icons.Favorite, when (verdict) { "love" -> "Loved"; "like" -> "Liked"; "nope" -> "Not for me"; "watched" -> "Watched"; else -> "Like" }, verdict != null, {
                             com.lekathedon.visionlite.home.TasteMenu.show(com.lekathedon.visionlite.addons.MetaPreview(s.id, s.type, name, m?.poster ?: t?.poster))
                         }, heroMod)
                         val sp by prefs.sequelPrequel.flow.collectAsState()
                         val cn by prefs.connections.flow.collectAsState()
-                        if (sp && t != null && t.sequels.isNotEmpty()) Button("Sequel / Prequel ${t.sequels.size}", {
+                        if (sp && t != null && t.sequels.isNotEmpty()) CountPill(com.lekathedon.visionlite.ui.Icons.Swap, "Sequel / Prequel", t.sequels.size, {
                             sheet = Sheet.Links("Sequel / Prequel", listOf("Follows" to t.follows, "Followed by" to t.followedBy).filter { it.second.isNotEmpty() })
                         }, heroMod)
-                        if (cn && t != null && t.connections.isNotEmpty()) Button("Connections ${t.connections.size}", {
+                        if (cn && t != null && t.connections.isNotEmpty()) CountPill(com.lekathedon.visionlite.ui.Icons.AccountTree, "Connections", t.connections.size, {
                             sheet = Sheet.Links("Connections", t.connections.groupBy { it.link!! }.toSortedMap().map { (l, v) -> l.heading to v })
                         }, heroMod)
                     }
@@ -362,23 +367,67 @@ private fun Facts(m: Meta?, t: Imdb.Title?, series: Boolean) {
     }
 }
 
+/** Vision's ratings row: up to 8 sources, each a small mark plus its value; the ones without a value stay out. */
 @Composable
-private fun Ratings(t: Imdb.Title?, trakt: Double?) {
-    if (t?.rating == null && t?.metascore == null && trakt == null) return
-    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        t?.rating?.let { r ->
+private fun Ratings(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
+    val chips = buildList<Triple<String, Color, String>> {
+        t?.rating?.let { add(Triple("IMDb", ImdbYellow, "%.1f".format(it) + (Imdb.votes(t.votes)?.let { v -> " ($v)" } ?: ""))) }
+        more.tmdb?.let { add(Triple("TMDB", Color(0xFF01B4E4), it)) }
+        trakt?.let { add(Triple("Trakt", Color(0xFFED1C24), "${(it * 10).toInt()}%")) }
+        more.letterboxd?.let { add(Triple("LB", Color(0xFF00C030), "%.1f".format(it))) }
+        more.tomatoes?.let { add(Triple(if (it >= 60) "RT 🍅" else "RT", Color(0xFFFA320A), "$it%")) }
+        more.audience?.let { add(Triple("RT 🍿", Color(0xFFFFB800), "$it%")) }
+        t?.metascore?.let { add(Triple("MC", if (it >= 61) Color(0xFF54A72A) else if (it >= 40) Color(0xFFFFCC33) else Color(0xFFFF0000), "$it")) }
+        more.mal?.let { add(Triple("MAL", Color(0xFF2E51A2), "%.2f".format(it))) }
+    }
+    if (chips.isEmpty()) return
+    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        chips.forEach { (mark, color, value) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("IMDb", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black,
-                    modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(ImdbYellow).padding(horizontal = 4.dp, vertical = 1.dp))
-                Text(" %.1f".format(r), color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Imdb.votes(t.votes)?.let { Text(" ($it)", color = Palette.TextDim, fontSize = 13.sp) }
+                Text(mark, color = if (color == ImdbYellow || color == Color(0xFFFFB800) || color == Color(0xFFFFCC33)) Color.Black else Color.White,
+                    fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(color).padding(horizontal = 4.dp, vertical = 1.dp))
+                Text(" $value", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
         }
-        t?.metascore?.let { ms ->
-            Text("$ms", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(3.dp))
-                .background(if (ms >= 61) Color(0xFF54A72A) else if (ms >= 40) Color(0xFFFFCC33) else Color(0xFFFF0000)).padding(horizontal = 5.dp, vertical = 1.dp))
+    }
+}
+
+/** Vision's PlayButton: a filled pill, play icon and label; white when focused. */
+@Composable
+private fun PlayPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    com.lekathedon.visionlite.ui.Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
+        Row(Modifier.height(48.dp).background(if (f) Color.White else Color(0xFFE6E6E6).copy(alpha = 0.92f)).padding(horizontal = 22.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Play, null, Modifier.size(24.dp), tint = Color.Black)
+            Text(label, color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 8.dp))
         }
-        trakt?.let { Text("Trakt ${(it * 10).toInt()}%", color = Color(0xFFED1C24), fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+    }
+}
+
+/** Vision's ActionIconButton: round, the icon only; its name shows beside it while focused. [on] tints the icon. */
+@Composable
+private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    com.lekathedon.visionlite.ui.Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
+        Row(Modifier.height(48.dp).background(if (f) Color.White else Color(0x2EFFFFFF)).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Icon(icon, label, Modifier.size(24.dp), tint = if (f) Color.Black else if (on) Color(0xFFF5C518) else Color.White)
+            if (f) Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
+        }
+    }
+}
+
+/** Vision's SequelPrequelPill (also Connections): card pill, icon, label, then the count in a yellow circle. */
+@Composable
+private fun CountPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    com.lekathedon.visionlite.ui.Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
+        Row(Modifier.height(48.dp).background(if (f) Color.White else Color(0x2EFFFFFF)).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Icon(icon, null, Modifier.size(20.dp), tint = if (f) Color.Black else Color.White)
+            Text(label, color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false,
+                modifier = Modifier.padding(horizontal = 8.dp))
+            Box(Modifier.size(24.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFF5C518)), contentAlignment = Alignment.Center) {
+                Text("$count", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 

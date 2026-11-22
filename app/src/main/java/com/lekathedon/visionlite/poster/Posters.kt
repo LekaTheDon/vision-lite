@@ -36,4 +36,10 @@ object Posters {
         val on by App.instance.prefs.customPosters.flow.collectAsState()
         return custom(on, id, type, "landscape") ?: original
     }
+
+    /** True when the wide card shows the custom art, which has the title written on it already (no logo over it then). */
+    @Composable fun wideHasTitle(id: String, type: String): Boolean {
+        val on by App.instance.prefs.customPosters.flow.collectAsState()
+        return custom(on, id, type, "landscape") != null
+    }
 }
