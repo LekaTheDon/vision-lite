@@ -38,8 +38,8 @@ object VisionRows {
     const val IMDB = "v/imdb"
     /** "Because you watched X": two rows, which titles they follow change every 12 h. */
     val BECAUSE = listOf("v/because1", "v/because2")
-    /** Mood rows (Feel-good, Laugh out loud, Edge of your seat…): three, a different three every 12 h. */
-    val MOODS = listOf("v/mood1", "v/mood2", "v/mood3")
+    /** Moods: one row of tiles, every mood (Scout's 12 + Vision's 11); a tile opens that mood's page. */
+    const val MOODS = "v/moods"
     const val SERVICES = "v/services"
     const val PEOPLE = "v/people"
     /** WuPlay's Genres and Decades as rows of tiles (were their own pages before 0.26). */
@@ -49,8 +49,7 @@ object VisionRows {
     /** key to title, in Vision's order. */
     val all: List<Pair<String, String>> = listOf(
         COMING_UP to "Coming up", PICKS to "Vision Picks", IMDB to "IMDb Picks",
-        BECAUSE[0] to "Because you watched · 1", MOODS[0] to "Mood · 1", BECAUSE[1] to "Because you watched · 2",
-        MOODS[1] to "Mood · 2", MOODS[2] to "Mood · 3",
+        BECAUSE[0] to "Because you watched · 1", MOODS to "Moods", BECAUSE[1] to "Because you watched · 2",
         SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades", PEOPLE to "Favourite people"
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
@@ -73,7 +72,7 @@ object VisionRows {
 
     fun isPicks(key: String) = key == PICKS || key == IMDB
     /** Rows the engine fills (their titles are recommendations: Love / Like / Not for me on hold). */
-    fun isEngine(key: String) = isPicks(key) || key in BECAUSE || key in MOODS
+    fun isEngine(key: String) = isPicks(key) || key in BECAUSE
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
     val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}",
         "c/${Charts.Chart.ANIME_TODAY_SERIES.id}", "c/${Charts.Chart.ANIME_TODAY_MOVIES.id}")

@@ -63,7 +63,7 @@ internal class Phone(private val secret: () -> String) {
                     sports.forEach { put(JSONObject().put("e", it.eventId).put("t", it.title).put("s", it.startMs)) }
                 })))
             .put("scoutRatings", JSONArray().apply {
-                Recs.feedback().sortedByDescending { it.at }.forEach { f ->
+                Recs.feedback().filter { !it.watched }.sortedByDescending { it.at }.forEach { f ->
                     put(JSONObject().put("id", f.id).put("rating", if (!f.like) "NOT_FOR_ME" else if (f.love) "LOVE" else "LIKE")
                         .put("type", if (f.tv) "series" else "movie").put("name", f.name)
                         .put("poster", if (f.id.startsWith("tt")) com.lekathedon.visionlite.library.posterOf(f.id) else JSONObject.NULL))
@@ -179,6 +179,7 @@ internal class Phone(private val secret: () -> String) {
                     "love" -> Recs.love(id, tv, item.optString("name"))
                     "like" -> Recs.moreLikeThis(id, tv, item.optString("name"))
                     "forget" -> Recs.forget(id)
+                    "watched" -> Recs.watched(id, tv, item.optString("name"))
                     else -> Recs.notForMe(id, tv, item.optString("name"))
                 }
             }

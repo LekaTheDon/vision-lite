@@ -46,6 +46,27 @@ object TasteMenu {
     fun isTitle(m: MetaPreview) = m.type == "movie" || m.type == "series"
 }
 
+/** Watched titles (from the engine's feedback) plus ones just pressed: the cards' tick. */
+object Ticks {
+    private val pending = MutableStateFlow<Set<String>>(emptySet())
+    private val all = MutableStateFlow<Set<String>>(emptySet())
+    val ids: kotlinx.coroutines.flow.StateFlow<Set<String>> get() = all
+    init {
+        TasteMenu.scope.launch {
+            kotlinx.coroutines.flow.combine(Recs.changed, pending) { _, p -> Recs.watchedIds() + p }.collect { all.value = it }
+        }
+    }
+    /** The tick shows at once; ~1.2 s later the title is marked, and recommendation rows drop it. */
+    fun watched(m: MetaPreview) {
+        pending.value = pending.value + m.id
+        TasteMenu.scope.launch {
+            kotlinx.coroutines.delay(1200)
+            Recs.watched(m.id, m.type == "series", m.name)
+            pending.value = pending.value - m.id
+        }
+    }
+}
+
 /** Drawn once at the app's root: the menu over whatever page asked. A dialog, so focus comes back to the poster. */
 @Composable
 fun TasteMenuHost() {
@@ -72,7 +93,7 @@ fun TasteMenuHost() {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(cur.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("Love and Like steer every recommendation; Not for me is never recommended again.", color = Color(0x99FFFFFF), fontSize = 13.sp)
+            Text("Love and Like steer every recommendation; Not for me and Watched are never recommended again.", color = Color(0x99FFFFFF), fontSize = 13.sp)
             com.lekathedon.visionlite.ui.Button(if (verdict == "love") "Loved ✓ (undo)" else "Love it", {
                 if (verdict == "love") Recs.forget(cur.id) else Recs.love(cur.id, tv, cur.name); close()
             }, Modifier.fillMaxWidth().focusRequester(first))
@@ -81,6 +102,9 @@ fun TasteMenuHost() {
             }, Modifier.fillMaxWidth())
             com.lekathedon.visionlite.ui.Button(if (verdict == "nope") "Not for me ✓ (undo)" else "Not for me", {
                 if (verdict == "nope") Recs.forget(cur.id) else Recs.notForMe(cur.id, tv, cur.name); close()
+            }, Modifier.fillMaxWidth())
+            com.lekathedon.visionlite.ui.Button(if (verdict == "watched") "Watched ✓ (undo)" else "Watched", {
+                if (verdict == "watched") Recs.forget(cur.id) else Ticks.watched(cur); close()
             }, Modifier.fillMaxWidth())
             com.lekathedon.visionlite.ui.Button(if (saved) "Remove from Library" else "Add to Library", {
                 scope.launch { imdbIdOf(cur)?.let { id -> Saves.toggle(Saved(cur.type, id, cur.name, cur.poster)) } }; close()

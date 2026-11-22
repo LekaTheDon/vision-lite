@@ -135,7 +135,12 @@ object Recs {
 
     /** Your word on a title: [love] (steers hardest), like, or Not for me (never recommended again). [alt] = the card's other id (TMDB). */
     @Serializable data class Fb(val id: String, val tv: Boolean, val name: String, val like: Boolean, val at: Long,
-                                val love: Boolean = false, val alt: String? = null)
+                                val love: Boolean = false, val alt: String? = null,
+                                /** "Watched": a tick, then never recommended again (counts as finished, no opinion). */
+                                val watched: Boolean = false) {
+        /** Never recommended again: turned down or already watched. */
+        val gone get() = !like || watched
+    }
 
     private val fbSer = ListSerializer(Fb.serializer())
     fun feedback(): List<Fb> = runCatching { Net.json.decodeFromString(fbSer, p.recFeedback.value) }.getOrDefault(emptyList())
@@ -146,17 +151,22 @@ object Recs {
     fun moreLikeThis(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, true, System.currentTimeMillis()))
     /** "Not for me": gone at once from every recommendation (Picks, Because, Moods, AI), for good, and steers away. */
     fun notForMe(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, false, System.currentTimeMillis()))
+    /** "Watched": ticked, then gone from every recommendation for good (Picks, Because, Moods, AI, More like this). */
+    fun watched(id: String, tv: Boolean, name: String) = mark(Fb(id, tv, name, true, System.currentTimeMillis(), watched = true))
     fun forget(id: String) { p.recFeedback.value = Net.json.encodeToString(fbSer, feedback().filter { it.id != id && it.alt != id }); _changed.value++ }
 
     /** What you said about [id] ("love", "like", "nope"), or null. */
-    fun verdict(id: String): String? = feedback().firstOrNull { it.id == id || it.alt == id }?.let { if (!it.like) "nope" else if (it.love) "love" else "like" }
+    fun verdict(id: String): String? = feedback().firstOrNull { it.id == id || it.alt == id }?.let { if (it.watched) "watched" else if (!it.like) "nope" else if (it.love) "love" else "like" }
+
+    /** Titles you marked Watched, by each id they have. */
+    fun watchedIds(): Set<String> = feedback().filter { it.watched }.flatMap { listOfNotNull(it.id, it.alt) }.toSet()
 
     @Volatile private var nopeCache: Pair<String, Set<String>>? = null
     /** Every title turned down, by each id it has (IMDb and TMDB): never recommended again. */
     fun nope(): Set<String> {
         val raw = p.recFeedback.value
         nopeCache?.takeIf { it.first == raw }?.let { return it.second }
-        return feedback().filter { !it.like }.flatMap { listOfNotNull(it.id, it.alt) }.toSet().also { nopeCache = raw to it }
+        return feedback().filter { it.gone }.flatMap { listOfNotNull(it.id, it.alt) }.toSet().also { nopeCache = raw to it }
     }
 
     private fun mark(f: Fb) {
@@ -169,10 +179,10 @@ object Recs {
                 .getOrNull()?.takeIf { it.startsWith("tt") } ?: return@launch
             val list = feedback().map { if (it.id == f.id) it.copy(id = imdb, alt = f.id) else it }.filter { !(it.id == imdb && it.alt == null && it.at < f.at) }
             p.recFeedback.value = Net.json.encodeToString(fbSer, list)
-            if (!f.like) AiPicks.remove(imdb, Hubs.hubOf(imdb))
+            if (f.gone) AiPicks.remove(imdb, Hubs.hubOf(imdb))
             _changed.value++
         }
-        if (!f.like) AiPicks.remove(f.id, Hubs.hubOf(f.id))
+        if (f.gone) AiPicks.remove(f.id, Hubs.hubOf(f.id))
     }
 
     /** One title's "more like this", on demand (a details page): IMDb + Trakt for it alone, same rules. */
@@ -272,7 +282,7 @@ object Recs {
         }
         Saves.all().filter { it.id.startsWith("tt") }.forEach { out += Signal(it.id.substringBefore(':'), it.type != "movie", it.name, Kind.WATCHING, 0) }
         // Your word weighs most: Love = the strongest signal there is (8), Like = a 9-10 rating's (6).
-        feedback().filter { it.id.startsWith("tt") }.forEach { out += Signal(it.id, it.tv, it.name, if (!it.like) Kind.NOT_FOR_ME else if (it.love) Kind.LIKED else Kind.LOVE, it.at) }
+        feedback().filter { it.id.startsWith("tt") }.forEach { out += Signal(it.id, it.tv, it.name, if (it.watched) Kind.FINISHED else if (!it.like) Kind.NOT_FOR_ME else if (it.love) Kind.LIKED else Kind.LOVE, it.at) }
         return out
     }
 
@@ -412,7 +422,7 @@ object Recs {
     private val seenSer = ListSerializer(String.serializer())
     /** Moods: TMDB ids and name|year keys of what you've seen (written by the last build), plus saved / turned down names. */
     fun seenTmdb(): Set<String> = (read("seen_tmdb.json", seenSer)?.toSet() ?: emptySet()) +
-        nope() + feedback().filter { !it.like }.map { RecsLogic.exclusionName(it.name, null) } + Saves.all().map { RecsLogic.exclusionName(it.name, null) }
+        nope() + feedback().filter { it.gone }.map { RecsLogic.exclusionName(it.name, null) } + Saves.all().map { RecsLogic.exclusionName(it.name, null) }
     fun seenName(name: String, year: String?) = RecsLogic.exclusionName(name, year?.take(4)?.toIntOrNull())
 
     /** IMDb keywords the engine already holds for these titles (facts file, no requests). */

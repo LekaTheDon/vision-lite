@@ -286,6 +286,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             "service" -> nav.push(Screen.Service(m.id.removePrefix("svc:")))
             "genre" -> nav.push(Screen.Genre(m.id.removePrefix("genre:")))
             "decade" -> nav.push(Screen.Decade(m.id.removePrefix("decade:")))
+            "mood" -> nav.push(Screen.Mood(m.id.removePrefix("mood:")))
             "person" -> nav.push(Screen.Person(m.id, m.name))
             else -> if (m.id.startsWith("tt")) nav.push(Screen.Detail(m.type, m.id, m.name)) else scope.launch { openTitle(nav, m) }
         }
@@ -485,7 +486,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
 }
 
 /** Cards that aren't a title (no billboard, details line or hold menu). */
-private val NotTitles = setOf("service", "person", "genre", "decade")
+private val NotTitles = setOf("service", "person", "genre", "decade", "mood")
 
 /** Hubs whose Home has shown its first screens this app start (the loading cover shows only before that). */
 internal object HomeReady { val done = HashSet<com.lekathedon.visionlite.anime.Hub>() }
@@ -993,7 +994,7 @@ private fun EchoCard(
 @Composable
 private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit, onHold: (() -> Unit)? = null) {
     EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, modifier, onFocus = onFocus, onClick = onClick,
-        openWidth = dims.posterOpenWidth, onHold = onHold) { f ->
+        openWidth = dims.posterOpenWidth, onHold = onHold) { f -> Box(Modifier.fillMaxSize()) {
         if (!f) {
             val art = com.lekathedon.visionlite.poster.Posters.poster(m.id, m.type, m.poster)
             if (art.isNullOrBlank()) Fallback(m.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = m.poster)
@@ -1011,7 +1012,8 @@ private fun PosterCard(m: MetaPreview, dims: EchoDims, modifier: Modifier, onFoc
                 CardLogo(m.logoUrl(), m.name, 0.55f, 0.4f, dims.posterOpenWidth, dims.posterHeight, 14.dp, 20f)
             }
         }
-    }
+        WatchedTick(m.id, Modifier.align(Alignment.TopEnd))
+    } }
 }
 
 /**
@@ -1036,6 +1038,7 @@ private fun RankedCard(rank: Int, m: MetaPreview, dims: EchoDims, modifier: Modi
                     Brush.verticalGradient(0f to Color.Transparent, 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))
                 ))
                 CardLogo(m.logoUrl(), m.name, 0.55f, 0.4f, dims.highlightWidth, dims.highlightHeight, 14.dp, 20f)
+                WatchedTick(m.id, Modifier.align(Alignment.TopEnd))
             }
         }
     }
@@ -1090,7 +1093,10 @@ fun EchoPoster(m: MetaPreview, modifier: Modifier = Modifier, expand: Boolean = 
             if (expand) PosterCard(mm, dims, modifier, onFocus = {}, onClick = onClick, onHold = onHold)
             else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, modifier, onFocus = {}, onClick = onClick, onHold = onHold) {
                 val art = com.lekathedon.visionlite.poster.Posters.poster(mm.id, mm.type, mm.poster)
-                if (art.isNullOrBlank()) Fallback(mm.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = mm.poster)
+                Box(Modifier.fillMaxSize()) {
+                    if (art.isNullOrBlank()) Fallback(mm.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = mm.poster)
+                    WatchedTick(mm.id, Modifier.align(Alignment.TopEnd))
+                }
             }
         }
         if (sub != null) Text(sub, color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -1516,6 +1522,8 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
                 Choice(if (verdict == "like") "Liked ✓ (undo)" else "Like · more like this") { if (verdict == "like") Recs.forget(m.id) else Recs.moreLikeThis(m.id, tv, m.name) }
                 // Gone from the engine's rows at once and never recommended again; other rows (charts, services) keep it.
                 Choice("Not for me", removes = VisionRows.isEngine(row.key)) { Recs.notForMe(m.id, tv, m.name) }
+                // A tick on the card, then gone from every recommendation for good; lists (charts, services, Library) keep it.
+                Choice(if (verdict == "watched") "Watched ✓ (undo)" else "Watched") { if (verdict == "watched") Recs.forget(m.id) else Ticks.watched(m) }
             }
             if (row.key == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
             // Wrong hub: the title moves to the other one, everywhere (its IMDb id too, when the card has another id).
@@ -1537,5 +1545,15 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
             }
             Choice("Cancel") {}
         }
+    }
+}
+
+/** The white tick on a card you said you watched (it shows ~1 s, then the card leaves the recommendation rows). */
+@Composable
+fun WatchedTick(id: String, modifier: Modifier = Modifier) {
+    val ticks by Ticks.ids.collectAsStateWithLifecycle()
+    if (id !in ticks) return
+    Box(modifier.padding(8.dp).size(30.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+        Text("✓", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
     }
 }

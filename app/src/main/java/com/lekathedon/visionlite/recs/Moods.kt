@@ -22,9 +22,14 @@ enum class Mood(
     /** IMDb keywords that place a title here even without the genre (read where the engine has them). */
     val words: Set<String> = emptySet(),
     val minRating: Float = 0f,
-    /** Scout's TMDB filters: movie, then TV (genre and keyword ids as in ScoutSlices). */
-    val tmdbMovie: String,
-    val tmdbTv: String,
+    /** Scout's TMDB filters: movie, then TV (genre and keyword ids as in ScoutSlices). Vision's moods build theirs. */
+    val tmdbMovie: String = "",
+    val tmdbTv: String = "",
+    /** Vision's moods (ExploreRules): KW = its TMDB/IMDb keywords decide, GEN = genres only, BOTH = genre and keyword. */
+    val vision: VMode? = null,
+    /** Vision: the genre that must also be there when a title's keywords aren't known (Drama for "Food for thought"). */
+    val alsoGenre: String? = null,
+    val seriesOnly: Boolean = false,
 ) {
     FEEL_GOOD("Feel-good", "Warm and easy to watch.", setOf("Comedy", "Family", "Animation", "Romance"),
         setOf("Horror", "Thriller", "Crime", "Mystery", "War"), setOf("feel good", "heartwarming", "friendship", "uplifting"),
@@ -69,16 +74,52 @@ enum class Mood(
     WEIRD("Weird and wonderful", "Unusual in a good way.", emptySet(), setOf("Horror", "Family", "Animation"),
         setOf("surrealism", "absurdism", "dark comedy", "quirky", "bizarre", "cult film"), 6.8f,
         tmdbMovie = "with_genres=35|878|14|18&with_keywords=9887|3307|210710|312814|362252&without_genres=27,10751,16&vote_average.gte=6.8&vote_count.gte=100",
-        tmdbTv = "with_keywords=9887|3307|210710|312814|362252&without_genres=10751,10762&vote_average.gte=7&vote_count.gte=30");
+        tmdbTv = "with_keywords=9887|3307|210710|312814|362252&without_genres=10751,10762&vote_average.gte=7&vote_count.gte=30"),
+
+    // ---- Vision's eleven (ExploreRules.MOODS); none shares a name with Scout's twelve ----
+    FOOD_FOR_THOUGHT("Food for thought", "Endings that stay with you", setOf("Mystery", "Thriller"), words = setOf("plot twist", "twist ending", "memory", "obsession"),
+        vision = VMode.KW, alsoGenre = "Drama"),
+    TANGLED_TIME("Tangled time", "Past and future blurring together", setOf("Sci-Fi"), words = setOf("time travel", "time loop", "parallel world"),
+        vision = VMode.KW, alsoGenre = "Mystery"),
+    FAR_FROM_EARTH("Far from Earth", "Space, solitude and first contact", setOf("Sci-Fi"), words = setOf("space", "space travel", "first contact", "astronaut"),
+        vision = VMode.KW, alsoGenre = "Adventure"),
+    SURVIVING("Surviving together", "When the group is the only way out", setOf("Adventure", "Action"), words = setOf("survival", "survivor", "zombie apocalypse"),
+        vision = VMode.KW, alsoGenre = "Drama"),
+    SMALL_TOWN("Small town, big secret", "Everyone knows everyone, nobody knows anything", setOf("Mystery"), words = setOf("small town", "family secrets"),
+        vision = VMode.KW, alsoGenre = "Drama"),
+    FAMILIES("Complicated families", "Bonds, grief and what was left unsaid", setOf("Family"),
+        words = setOf("dysfunctional family", "father son relationship", "grief", "sibling relationship"), vision = VMode.KW, alsoGenre = "Drama"),
+    BINGE("Mysteries to binge", "Series with a why that won't let go", setOf("Mystery"), vision = VMode.GEN, seriesOnly = true),
+    CRIME_GUILT("Crime and guilt", "Who does what, and at what cost", setOf("Crime"), vision = VMode.GEN),
+    NERVOUS("Nervous laughter", "Comedy with one foot in the weird", setOf("Comedy"), words = setOf("dark comedy", "satire", "absurd"), vision = VMode.BOTH),
+    QUIET_HORROR("Understated horror", "Fear that comes from the atmosphere", setOf("Horror"),
+        words = setOf("supernatural", "haunted house", "psychological horror"), vision = VMode.BOTH),
+    WORLD_AFTER("The world after", "What's left when something goes wrong", setOf("Sci-Fi"),
+        words = setOf("post-apocalyptic future", "dystopia", "climate change"), vision = VMode.KW, alsoGenre = "Drama");
+
+    val key get() = name.lowercase()
 
     /** Does the engine's title fit? Genres decide; keywords add a title the genres miss ([WEIRD] is keywords only). */
-    fun fits(genres: List<String>, keywords: List<String>, rating: Float?): Boolean {
+    fun fits(genres: List<String>, keywords: List<String>, rating: Float?, tv: Boolean = false): Boolean {
+        if (vision != null) {
+            if (seriesOnly && !tv) return false
+            val g = genres.any { it in any }
+            val kw = keywords.map { it.lowercase() }
+            val hasKw = kw.any { it in words }
+            return when (vision) {
+                VMode.GEN -> g
+                VMode.BOTH -> if (kw.isEmpty()) g else g && hasKw
+                VMode.KW -> if (kw.isEmpty()) g && (alsoGenre == null || alsoGenre in genres) else hasKw
+            }
+        }
         if (genres.any { it in none }) return false
         if (minRating > 0 && (rating ?: 0f) < minRating) return false
         val kw = keywords.map { it.lowercase() }
         return genres.any { it in any } || (words.isNotEmpty() && kw.any { k -> words.any { k.contains(it) } })
     }
 }
+
+enum class VMode { KW, GEN, BOTH }
 
 object Moods {
     private val topUp = HashMap<Pair<Mood, com.lekathedon.visionlite.anime.Hub>, List<MetaPreview>>()
@@ -94,7 +135,7 @@ object Moods {
         val all = (pool?.picks.orEmpty() + ai + pool?.because.orEmpty().flatMap { it.picks }).distinctBy { it.imdb }
             .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) && com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.imdb) }
         val kw = Recs.keywordsOf(all.map { it.imdb })
-        return all.filter { mood.fits(it.genres, kw[it.imdb].orEmpty(), it.rating) }
+        return all.filter { mood.fits(it.genres, kw[it.imdb].orEmpty(), it.rating, it.type == "series") }
     }
 
     /** More for [mood] from TMDB with Scout's filters (needs a TMDB key); nothing the engine already shows or you've seen. */
@@ -108,8 +149,8 @@ object Moods {
         val list = withContext(Dispatchers.IO) {
             coroutineScope {
                 val adult = Adult.tmdbWithout()
-                val m = async { Tmdb.items(Tmdb.get("discover/movie?include_adult=false&sort_by=popularity.desc&${mood.tmdbMovie}$kw$adult"), false) }
-                val t = async { Tmdb.items(Tmdb.get("discover/tv?include_adult=false&sort_by=popularity.desc&${notTalk(mood.tmdbTv)}$kw$adult"), true) }
+                val m = async { query(mood, false)?.let { q -> Tmdb.items(Tmdb.get("discover/movie?include_adult=false&sort_by=popularity.desc&$q$kw$adult"), false) }.orEmpty() }
+                val t = async { query(mood, true)?.let { q -> Tmdb.items(Tmdb.get("discover/tv?include_adult=false&sort_by=popularity.desc&$q$kw$adult"), true) }.orEmpty() }
                 val a = m.await(); val b = t.await()
                 if (adult.isNotEmpty()) Adult.clean((a + b).map { it.id })
                 // Films and shows taken in turn, so neither side fills the row.
@@ -124,6 +165,67 @@ object Moods {
     /** News, reality, soaps and talk shows are never a mood (Scout's NOT_SHOWS_PEOPLE_MEAN). */
     private fun notTalk(q: String): String = if ("without_genres=" in q) q.replace("without_genres=", "without_genres=10763,10764,10766,10767,")
         else "$q&without_genres=10763,10764,10766,10767"
+
+    // ---- a mood's page: films and shows from TMDB, page by page (Scout's filters; Vision's genre + keyword rules) ----
+
+    /** TMDB genre ids of the genres Vision's moods use: movie, then TV (TV has no Horror or Thriller). */
+    private val GEN = mapOf("Mystery" to (9648 to 9648), "Thriller" to (53 to 0), "Drama" to (18 to 18), "Sci-Fi" to (878 to 10765),
+        "Adventure" to (12 to 10759), "Action" to (28 to 10759), "Family" to (10751 to 10751), "Crime" to (80 to 80),
+        "Comedy" to (35 to 35), "Horror" to (27 to 0))
+
+    /** A Vision mood's keywords as TMDB ids (looked up once, kept on the TV). */
+    private fun keywordIds(words: Collection<String>): List<Int> {
+        val sp = com.lekathedon.visionlite.App.instance.prefs.sp
+        return words.mapNotNull { w ->
+            val k = "mood_kw_" + w
+            sp.getInt(k, -1).takeIf { it != -1 }?.let { return@mapNotNull it.takeIf { id -> id > 0 } }
+            val r = Tmdb.get("search/keyword?query=" + java.net.URLEncoder.encode(w, "UTF-8")) ?: return@mapNotNull null
+            val id = r.optJSONArray("results")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+                .firstOrNull { it.optString("name").equals(w, true) }?.optInt("id") } ?: 0
+            sp.edit().putInt(k, id).apply()
+            id.takeIf { it > 0 }
+        }
+    }
+
+    /** The mood's TMDB filters for films ([tv] false) or shows; null = the mood has none for that kind. */
+    private fun query(mood: Mood, tv: Boolean): String? {
+        val v = mood.vision ?: return if (tv) notTalk(mood.tmdbTv) else mood.tmdbMovie
+        if (mood.seriesOnly && !tv) return null
+        val gen = GEN[mood.any.first()]?.let { if (tv) it.second else it.first } ?: 0
+        val parts = ArrayList<String>()
+        if (v != VMode.KW) { if (gen == 0 && v == VMode.GEN) return null; if (gen != 0) parts += "with_genres=$gen" }
+        if (v != VMode.GEN) {
+            val ids = keywordIds(mood.words)
+            if (ids.isEmpty()) return null
+            parts += "with_keywords=" + ids.joinToString("%7C")
+        }
+        parts += "vote_count.gte=" + if (tv) "30" else "100"
+        return if (tv) notTalk(parts.joinToString("&")) else parts.joinToString("&")
+    }
+
+    /** Page [page] of the mood's films or shows (needs a TMDB key): nothing seen, saved, watched or turned down. */
+    suspend fun page(mood: Mood, tv: Boolean, page: Int, hub: com.lekathedon.visionlite.anime.Hub): List<MetaPreview> = withContext(Dispatchers.IO) {
+        if (Tmdb.key() == null) return@withContext emptyList()
+        val q = query(mood, tv) ?: return@withContext emptyList()
+        val kw = if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "&with_keywords=210024" else "&without_keywords=210024"
+        val adult = Adult.tmdbWithout()
+        val list = Tmdb.items(Tmdb.get("discover/${if (tv) "tv" else "movie"}?include_adult=false&sort_by=popularity.desc&page=$page&$q$kw$adult"), tv)
+        if (adult.isNotEmpty()) Adult.clean(list.map { it.id })
+        val seen = Recs.seenTmdb(); val nope = Recs.nope()
+        list.filter { com.lekathedon.visionlite.anime.Hubs.keeps(hub, it) && it.id !in seen && it.id !in nope && Recs.seenName(it.name, it.releaseInfo) !in seen }
+    }
+
+    /** Home's Moods tiles: every mood, each with a picture from its first title the engine has (none = its colour). */
+    fun tiles(hub: com.lekathedon.visionlite.anime.Hub): List<MetaPreview> {
+        val used = HashSet<String>()
+        return Mood.entries.map { m ->
+            // Each tile its own picture: the first title no earlier tile took.
+            val art = fromEngine(m, hub).firstOrNull { used.add(it.imdb) }?.imdb?.let { com.lekathedon.visionlite.library.backdropOf(it) }
+            MetaPreview("mood:${m.key}", "mood", m.label, null, art, description = m.why)
+        }
+    }
+
+    fun byKey(key: String) = Mood.entries.firstOrNull { it.key == key }
 
     /** Home's mood rows now: [n] moods with enough to show, a different set every 12 hours. */
     fun forHomeNow(n: Int, hub: com.lekathedon.visionlite.anime.Hub, now: Long = System.currentTimeMillis()): List<Mood> {

@@ -172,7 +172,7 @@ object AiPicks {
         val recent = (t?.movies.orEmpty().map { it.lastWatchedAt to name(it.movie, null) } + t?.shows.orEmpty().map { it.lastWatchedAt to name(null, it.show) })
             .sortedByDescending { it.first }.mapNotNull { it.second }.take(30)
         val fb = Recs.feedback().filter { Hubs.keepsId(hub, it.id) }
-        val more = fb.filter { it.like }.map { it.name }.take(15)
+        val more = fb.filter { it.like && !it.watched }.map { it.name }.take(15)
         val less = fb.filter { !it.like }.map { it.name }.take(15)
         val saved = Saves.all().filter { Hubs.keepsId(hub, it.id) }.map { it.name }.take(20)
         if (loved.isEmpty() && liked.isEmpty() && recent.isEmpty() && more.isEmpty() && saved.isEmpty()) return null

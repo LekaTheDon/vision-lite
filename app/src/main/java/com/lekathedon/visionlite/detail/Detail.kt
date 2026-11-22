@@ -203,7 +203,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         // Love it / Like / Not for me: the one engine behind every recommendation.
                         val rc by com.lekathedon.visionlite.recs.Recs.changed.collectAsState()
                         val verdict = remember(s.id, rc) { com.lekathedon.visionlite.recs.Recs.verdict(s.id) }
-                        Button(when (verdict) { "love" -> "Loved ♥"; "like" -> "Liked 👍"; "nope" -> "Not for me ✕"; else -> "♥ Like" }, {
+                        Button(when (verdict) { "love" -> "Loved ♥"; "like" -> "Liked 👍"; "nope" -> "Not for me ✕"; "watched" -> "Watched ✓"; else -> "♥ Like" }, {
                             com.lekathedon.visionlite.home.TasteMenu.show(com.lekathedon.visionlite.addons.MetaPreview(s.id, s.type, name, m?.poster ?: t?.poster))
                         }, heroMod)
                         val sp by prefs.sequelPrequel.flow.collectAsState()

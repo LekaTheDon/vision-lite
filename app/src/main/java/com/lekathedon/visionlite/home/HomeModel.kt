@@ -52,7 +52,6 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private val rowOrder get() = Hubs.rowOrder(hub)
     private val engineKeys = listOf(VisionRows.PICKS, VisionRows.IMDB) + VisionRows.BECAUSE + VisionRows.MOODS
     /** Mood rows' TMDB top-up, once per mood per app run (2 TMDB requests; nothing without a key). */
-    private val moodMore = HashMap<com.lekathedon.visionlite.recs.Mood, List<MetaPreview>>()
     val rows: StateFlow<List<Row>> get() = state
     private val loading = HashMap<String, Job>()
     private val needed = HashSet<String>()
@@ -132,7 +131,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val vision = VisionRows.forHub(hub).map { (key, title) ->
             old[key] ?: Row(key, title, null, null, emptyList(), done = false, kind = when (key) {
                 VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES; VisionRows.PEOPLE -> RowKind.PEOPLE
-                VisionRows.GENRES, VisionRows.DECADES -> RowKind.TILES
+                VisionRows.GENRES, VisionRows.DECADES, VisionRows.MOODS -> RowKind.TILES
                 in VisionRows.ranked -> RowKind.RANKED; else -> RowKind.POSTER
             })
         }
@@ -195,7 +194,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val key = row.key
         when (key) {
             VisionRows.COMING_UP -> ComingUp.onHome()
-            VisionRows.PICKS, VisionRows.IMDB, in VisionRows.BECAUSE, in VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
+            VisionRows.PICKS, VisionRows.IMDB, in VisionRows.BECAUSE, VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             VisionRows.PEOPLE -> {}
             // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
@@ -241,21 +240,8 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 val b = Recs.becauseNow(VisionRows.BECAUSE.size, hub).getOrNull(VisionRows.BECAUSE.indexOf(key))
                 set(key, b?.picks.orEmpty().map(::meta), b?.let { "Because you watched ${it.seed}" }); return
             }
-            in VisionRows.MOODS -> {
-                val mood = com.lekathedon.visionlite.recs.Moods.forHomeNow(VisionRows.MOODS.size, hub).getOrNull(VisionRows.MOODS.indexOf(key))
-                if (mood == null) { set(key, emptyList()); return }
-                val own = com.lekathedon.visionlite.recs.Moods.engineMetas(mood, hub)
-                val nope = Recs.nope()
-                val more = moodMore[mood]?.filter { it.id !in nope }
-                set(key, (own + more.orEmpty()).distinctBy { it.name.lowercase() + it.releaseInfo }.take(40), mood.label)
-                if (more == null && !loading.containsKey(key)) loading[key] = viewModelScope.launch {
-                    val got = runCatching { com.lekathedon.visionlite.recs.Moods.discover(mood, own.map { it.name }.toSet(), hub) }.getOrDefault(emptyList())
-                    moodMore[mood] = got
-                    loading.remove(key)
-                    if (got.isNotEmpty()) fill(key)
-                }
-                return
-            }
+            // Every mood a tile (its picture: the engine's first title for it, none = its colour). No requests.
+            VisionRows.MOODS -> com.lekathedon.visionlite.recs.Moods.tiles(hub)
             // Each hub its own services: the anime-only ones (Crunchyroll, HIDIVE, RetroCrush, d Anime Store, U-NEXT, ADN, Anime Times, Toei, Anime Generation) only in Anime.
             VisionRows.SERVICES -> if (!Services.on()) emptyList() else Services.S.entries.filter { it.anime == (hub == Hub.ANIME) }.map { s ->
                 val art = Services.art.value.firstOrNull { it.id == s.id }

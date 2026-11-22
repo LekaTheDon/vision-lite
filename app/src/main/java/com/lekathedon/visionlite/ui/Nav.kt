@@ -25,6 +25,7 @@ sealed interface Screen {
     data object Discover : Screen
     data class Genre(val slug: String) : Screen
     data class Decade(val slug: String) : Screen
+    data class Mood(val key: String) : Screen
     data object Calendar : Screen
     data class Service(val id: String) : Screen
     data class Person(val id: String, val name: String) : Screen

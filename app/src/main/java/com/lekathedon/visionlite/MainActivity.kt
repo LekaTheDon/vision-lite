@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Recordings -> com.lekathedon.visionlite.iptv.RecordingsScreen(nav)
                         Screen.Discover -> com.lekathedon.visionlite.browse.Discover(nav)
                         is Screen.Genre -> com.lekathedon.visionlite.browse.GenrePage(nav, s.slug)
+                        is Screen.Mood -> com.lekathedon.visionlite.browse.MoodPage(nav, s.key)
                         is Screen.Decade -> com.lekathedon.visionlite.browse.DecadePage(nav, s.slug)
                         Screen.Calendar -> com.lekathedon.visionlite.browse.CalendarPage(nav)
                         is Screen.Service -> com.lekathedon.visionlite.browse.ServicePage(nav, s.id)

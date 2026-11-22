@@ -242,6 +242,37 @@ fun LoadingRail(title: String, nav: Nav, store: MutableMap<String, RailData>, ke
 private val media = listOf("all" to "All", "movie" to "Movies", "series" to "Shows")
 private fun mediaOf(k: String) = when (k) { "movie" -> Wuplay.Media.MOVIES; "series" -> Wuplay.Media.SHOWS; else -> Wuplay.Media.ALL }
 
+/**
+ * A mood tile's page: first what the one engine has for it (Vision Picks + Scout's finds + every "because you watched" +
+ * the AIs, nothing you watched, saved or turned down), then its films and its shows from TMDB, page by page.
+ */
+@Composable
+fun MoodPage(nav: Nav, key: String) {
+    val mood = remember(key) { com.lekathedon.visionlite.recs.Moods.byKey(key) } ?: return
+    val hub = remember { com.lekathedon.visionlite.anime.Hubs.now() }
+    val changed by com.lekathedon.visionlite.recs.Recs.changed.collectAsState()
+    val pool by com.lekathedon.visionlite.recs.Recs.pool(hub).collectAsState()
+    val adult by com.lekathedon.visionlite.recs.Adult.revision.collectAsState()
+    val own = remember(changed, pool, adult) { com.lekathedon.visionlite.recs.Adult.visible(com.lekathedon.visionlite.recs.Moods.engineMetas(mood, hub)) }
+    val store = rememberRails(key, changed)
+    val tmdb = com.lekathedon.visionlite.home.Tmdb.key() != null
+    Page(mood.label, mood.why + if (!tmdb) "  ·  Add your TMDB key (Settings › Integrations) for more." else "") {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 60.dp)) {
+            if (own.isNotEmpty()) item(key = "own") {
+                Rail("Picked for you", own, nav, subOf = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } }, key = "own")
+            }
+            if (tmdb) {
+                if (!mood.seriesOnly) item(key = "films") {
+                    LoadingRail("Films", nav, store, key = "films") { _, page -> com.lekathedon.visionlite.recs.Moods.page(mood, false, page, hub) }
+                }
+                item(key = "shows") {
+                    LoadingRail("Shows", nav, store, key = "shows") { _, page -> com.lekathedon.visionlite.recs.Moods.page(mood, true, page, hub) }
+                }
+            }
+        }
+    }
+}
+
 /** A genre tile's page (WuPlay): Popular, Latest, Most Rated, then its subgenres, each a row; Anime: one subgenre's rows. */
 @Composable
 fun GenrePage(nav: Nav, slug: String) {

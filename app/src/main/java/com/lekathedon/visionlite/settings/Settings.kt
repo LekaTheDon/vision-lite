@@ -309,7 +309,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Link("Start over", "Forgets the picks; keeps Love, Like and Not for me", m) { com.lekathedon.visionlite.recs.Recs.reset() } }
         row { m ->
             val n = com.lekathedon.visionlite.recs.Recs.changed.collectAsState().value.let { com.lekathedon.visionlite.recs.Recs.feedback() }
-            Link("Your Love / Like / Not for me", "${n.count { it.love }} loved · ${n.count { it.like && !it.love }} liked · ${n.count { !it.like }} not for me · hold OK on any title to change", m, value = "") {}
+            Link("Your Love / Like / Not for me / Watched", "${n.count { it.love }} loved · ${n.count { it.like && !it.love && !it.watched }} liked · ${n.count { !it.like }} not for me · ${n.count { it.watched }} watched · hold OK on any title to change", m, value = "") {}
         }
         head("Hide adult titles")
         row { m -> Toggle("Hide adult titles", "Explicit films (9 Songs, softcore, porn) leave every row, page, search and pick; R-rated stays. Each title is checked once", p.hideAdult, m) }
