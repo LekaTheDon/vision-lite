@@ -363,7 +363,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     // Vision's page scroll: just enough for the focused card to rest a margin above the screen's bottom.
     val pageSpec = remember(density) {
-        val margin = with(density) { 30.dp.toPx() }
+        val margin = with(density) { 84.dp.toPx() } // the focused card's text (rating, reason, 2 lines of plot) stays on screen
         object : androidx.compose.foundation.gestures.BringIntoViewSpec {
             @Suppress("OVERRIDE_DEPRECATION")
             override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> = androidx.compose.animation.core.snap()
@@ -445,7 +445,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                 }
                 if (cw.isNotEmpty()) item(key = "cw") {
                     val cwBlur by prefs.blurUnwatched.flow.collectAsStateWithLifecycle()
-                    EchoRow("cw", "Continue watching", dims, dims.cwHeight, shown?.m) {
+                    EchoRow("cw", "Continue watching", dims, dims.cwHeight, shown?.m, plot = shown?.m?.let { enriched[it.id]?.description }) {
                         itemsIndexed(cw, key = { _, r -> r.streamId }) { i, r -> Slot(i) {
                             val e = remember(r) { HeroEntry(MetaPreview(r.imdb, r.type, r.name, posterOf(r.imdb), backdropOf(r.imdb)), r.season, r.episode) }
                             ContinueWatchingCard(
@@ -467,7 +467,11 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                         else -> row.title
                     }
                     val items = if (watchedMode == "hide" && watched.isNotEmpty() && row.kind == RowKind.POSTER) row.items.filter { it.id !in watched } else row.items
-                    EchoRow(row.key, title, dims, h, shown?.m?.takeIf { it.type !in NotTitles }, lead = if (ranked) dims.rankPad else 0.dp) {
+                    val sm = shown?.m?.takeIf { it.type !in NotTitles }
+                    val picks = VisionRows.isPicks(row.key)
+                    val reason = if (sm == null) null else if (picks) sm.description else row.title.takeIf { it.startsWith("Because you") }
+                    val plot = sm?.let { enriched[it.id]?.description ?: if (picks) null else it.description }?.takeIf { it.isNotBlank() }
+                    EchoRow(row.key, title, dims, h, sm, lead = if (ranked) dims.rankPad else 0.dp, reason = reason, plot = plot) {
                         if ((row.items.isEmpty() && !row.done) || LoadingHold.key == row.key) item(key = "loading") { Slot(0) {
                             LoadingCard(row.key, if (ranked) dims.highlightWidth else if (wide) dims.cwWidth else dims.posterWidth, h, dims.radius,
                                 below = { visible.map { it.key }.let { k -> k.drop(k.indexOf(row.key) + 1) } }, scope = scope,
@@ -897,6 +901,9 @@ private fun EchoRow(
     shown: MetaPreview?,
     /** Room kept left of the focused card when the row snaps (a ranked card's number). */
     lead: Dp = 0.dp,
+    /** Old Vision's text for the focused card: why it's here ("Because you watched X") and its plot (2 lines). */
+    reason: String? = null,
+    plot: String? = null,
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
@@ -937,8 +944,16 @@ private fun EchoRow(
                 content = content
             )
         }
-        Box(Modifier.height(dims.posterMeta).padding(start = Start, top = 6.dp)) {
-            if (hasFocus && shown != null) DetailsLine(shown)
+        // The focused row alone has the text (rating line, reason, 2 lines of plot); the others keep the short gap.
+        Column(Modifier.then(if (hasFocus && shown != null) Modifier.heightIn(min = dims.posterMeta) else Modifier.height(dims.posterMeta))
+            .padding(start = Start, top = 6.dp, end = 48.dp).widthIn(max = 900.dp)) {
+            if (hasFocus && shown != null) {
+                DetailsLine(shown)
+                reason?.let { Text(it, color = Color(0xFFF5C518), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
+                plot?.let { Text(it, color = Color(0xFFBDBDBD), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp, bottom = 4.dp)) }
+            }
         }
     }
 }

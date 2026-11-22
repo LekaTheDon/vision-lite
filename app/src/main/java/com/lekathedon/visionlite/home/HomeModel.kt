@@ -288,7 +288,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     }
 
     private fun meta(p: Pick) = MetaPreview(p.imdb, p.type, p.name, p.poster ?: posterOf(p.imdb), backdropOf(p.imdb),
-        description = p.why, releaseInfo = p.year?.toString(), imdbRating = p.rating?.let { "%.1f".format(it) }, genres = p.genres)
+        description = listOfNotNull(p.because?.let { "Because you watched $it" }, p.why).joinToString(" · ").ifBlank { null }, releaseInfo = p.year?.toString(), imdbRating = p.rating?.let { "%.1f".format(it) }, genres = p.genres)
 
     /** An add-on page; when none of it is this hub's, the next pages are asked (up to 4) so the row isn't left empty. */
     private fun load(row: Row, skip: Int) {
