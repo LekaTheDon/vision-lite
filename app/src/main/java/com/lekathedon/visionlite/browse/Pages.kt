@@ -257,6 +257,12 @@ private fun AnimeGenrePage(nav: Nav, name: String) {
         r("Top rated shows") { s -> ab.page("series", "SCORE_DESC", sub = sub, skip = s) },
         r("Top rated movies") { s -> ab.page("movie", "SCORE_DESC", sub = sub, skip = s) },
         r("Latest shows") { s -> ab.page("series", "START_DATE_DESC", sub = sub, skip = s) })
+    // Every rail's first page in one request (cached 7 days), not one request each.
+    androidx.compose.runtime.LaunchedEffect(name) {
+        ab.warm(if (sub.format != null) listOf("POPULARITY_DESC", "SCORE_DESC", "START_DATE_DESC").map { com.lekathedon.visionlite.anime.AniBrowse.Ask("series", it, sub) }
+            else listOf("series" to "POPULARITY_DESC", "movie" to "POPULARITY_DESC", "series" to "SCORE_DESC", "movie" to "SCORE_DESC", "series" to "START_DATE_DESC")
+                .map { (t, so) -> com.lekathedon.visionlite.anime.AniBrowse.Ask(t, so, sub) })
+    }
     Page(name) {
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
             items(rails, key = { it.first }) { (t, load) -> LoadingRail(t, nav, store, key = "$name|$t") { skip, _ -> load(skip) } }
@@ -271,6 +277,11 @@ private fun AnimeDecadePage(nav: Nav, decade: Int) {
     val to = minOf(decade + 9, year)
     val store = rememberRails(decade)
     val ab = com.lekathedon.visionlite.anime.AniBrowse
+    // 2 + 52 rails: first pages in 7 requests of 8 (cached 7 days) instead of 54 (AniList allows 30 a minute).
+    androidx.compose.runtime.LaunchedEffect(decade) {
+        ab.warm(listOf("series", "movie").map { com.lekathedon.visionlite.anime.AniBrowse.Ask(it, "POPULARITY_DESC", from = decade, to = to) } +
+            ab.subgenres.map { com.lekathedon.visionlite.anime.AniBrowse.Ask("series", "POPULARITY_DESC", it, decade, to) })
+    }
     Page("${decade}s") {
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
             listOf("series" to "Popular shows", "movie" to "Popular movies").forEach { (t, title) ->

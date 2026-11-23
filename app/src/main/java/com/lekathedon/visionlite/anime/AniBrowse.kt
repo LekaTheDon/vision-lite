@@ -4,6 +4,7 @@ import com.lekathedon.visionlite.addons.MetaPreview
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.home.Charts
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -82,26 +83,79 @@ object AniBrowse {
         "source: \$source, seasonYear: \$year, startDate_greater: \$after, startDate_lesser: \$before, format_in: \$format, sort: \$sort) { " +
         "id format title { english userPreferred } coverImage { large extraLarge } bannerImage seasonYear averageScore genres } } }"
 
+    /** One rail's first-page ask: [type] "movie"/"series", [sort] an AniList sort, [sub] a subgenre, [from]..[to] years. */
+    data class Ask(val type: String, val sort: String, val sub: Sub? = null, val from: Int? = null, val to: Int? = null) {
+        val key get() = "$type|$sort|${sub?.name}|$from|$to"
+    }
+
+    // First pages, kept 7 days on disk (user 2026-11-23: genre and decade pages took ages; AniList allows 30 requests a
+    // minute and a decade page has 54 rails, each its own request). Later pages are asked one by one as you scroll.
+    private const val KEEP_MS = 7 * 24 * 3600_000L
+    @kotlinx.serialization.Serializable private data class Kept(val at: Long, val items: List<MetaPreview>)
+    private val keptSer = kotlinx.serialization.builtins.MapSerializer(kotlinx.serialization.builtins.serializer<String>(), Kept.serializer())
+    private val keptFile get() = java.io.File(com.lekathedon.visionlite.App.instance.filesDir, "anime_pages.json")
+    @Volatile private var kept: MutableMap<String, Kept>? = null
+    private val keptLock = Any()
+    private fun keptMap(): MutableMap<String, Kept> = kept ?: synchronized(keptLock) {
+        kept ?: (runCatching { Net.json.decodeFromString(keptSer, keptFile.readText()) }.getOrNull().orEmpty()
+            .filterValues { System.currentTimeMillis() - it.at < KEEP_MS }.toMutableMap()).also { kept = it }
+    }
+    private fun keep(add: Map<String, List<MetaPreview>>) = synchronized(keptLock) {
+        val m = keptMap(); val now = System.currentTimeMillis()
+        add.forEach { (k, v) -> if (v.isNotEmpty()) m[k] = Kept(now, v) }
+        runCatching { java.io.File(keptFile.path + ".tmp").apply { writeText(Net.json.encodeToString(keptSer, m)) }.renameTo(keptFile) }
+    }
+    private val inflight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Unit>>()
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    private fun args(a: Ask, page: Int): String {
+        fun q(v: String) = JSONObject.quote(v)
+        val formats = a.sub?.format ?: if (a.type == "movie") "MOVIE" else "TV, TV_SHORT, ONA"
+        return buildString {
+            append("page: $page, perPage: $PER_PAGE) { media(type: ANIME, isAdult: false, sort: [${a.sort}], format_in: [$formats]")
+            a.sub?.genres?.let { g -> append(", genre_in: [${g.joinToString { q(it) }}]") }
+            // A tag must matter to the show (rank 60+), not be a passing scene.
+            a.sub?.tag?.let { append(", tag: ${q(it)}, minimumTagRank: 60") }
+            a.sub?.source?.let { append(", source: $it") }
+            if (a.from != null && a.to != null) append(", startDate_greater: ${a.from * 10000 - 1}, startDate_lesser: ${(a.to + 1) * 10000}")
+            append(") { id format title { english userPreferred } coverImage { large extraLarge } bannerImage seasonYear averageScore genres } }")
+        }
+    }
+
+    private fun post(query: String): JSONObject? {
+        val body = JSONObject().put("query", query).toString().toRequestBody("application/json".toMediaType())
+        return Net.http.newCall(Request.Builder().url("https://graphql.anilist.co").post(body).header("Accept", "application/json").build()).execute().use { r ->
+            if (!r.isSuccessful) null else JSONObject(r.body!!.string()).optJSONObject("data")
+        }
+    }
+
     /**
-     * [type] "movie" or "series" (ignored by a format subgenre); [sort] "POPULARITY_DESC" or "SCORE_DESC"; [sub] a
-     * subgenre; [from]..[to] years (a decade); [skip] = cards already shown.
+     * A page's rails, first pages only, in a few requests (8 rails each, aliases) instead of one each; kept 7 days.
+     * Called when a genre / decade page opens; the rails then take theirs from here.
      */
+    fun warm(asks: List<Ask>) {
+        val todo = asks.distinctBy { it.key }.filter { keptMap()[it.key] == null && inflight[it.key]?.isActive != true }
+        todo.chunked(8).forEach { chunk ->
+            val job = scope.async {
+                runCatching {
+                    val d = post("{ " + chunk.mapIndexed { i, a -> "t$i: Page(${args(a, 1)}" }.joinToString(" ") + " }") ?: return@runCatching
+                    keep(chunk.indices.associate { i -> chunk[i].key to Charts.ani(d, "t$i") })
+                }
+                Unit
+            }
+            chunk.forEach { inflight[it.key] = job }
+        }
+    }
+
     suspend fun page(type: String, sort: String, sub: Sub? = null, from: Int? = null, to: Int? = null, skip: Int = 0): List<MetaPreview> = withContext(Dispatchers.IO) {
         if (skip % PER_PAGE != 0) return@withContext emptyList()
-        val vars = JSONObject().put("page", skip / PER_PAGE + 1).put("sort", JSONArray().put(sort))
-            .put("format", JSONArray().apply { when { sub?.format != null -> put(sub.format); type == "movie" -> put("MOVIE"); else -> { put("TV"); put("TV_SHORT"); put("ONA") } } })
-        sub?.genres?.let { vars.put("genres", JSONArray(it)) }
-        // A tag must matter to the show (rank 60+), not be a passing scene.
-        sub?.tag?.let { vars.put("tag", it).put("rank", 60) }
-        sub?.source?.let { vars.put("source", it) }
-        if (from != null && to != null) vars.put("after", from * 10000 - 1).put("before", (to + 1) * 10000)
-        runCatching {
-            val body = JSONObject().put("query", Q).put("variables", vars).toString().toRequestBody("application/json".toMediaType())
-            Net.http.newCall(Request.Builder().url("https://graphql.anilist.co").post(body).header("Accept", "application/json").build()).execute().use { r ->
-                if (!r.isSuccessful) return@use emptyList()
-                JSONObject(r.body!!.string()).optJSONObject("data")?.let { Charts.ani(it, "list") }.orEmpty()
-            }
-        }.getOrDefault(emptyList())
+        val a = Ask(type, sort, sub, from, to)
+        if (skip == 0) {
+            keptMap()[a.key]?.let { return@withContext it.items }
+            inflight[a.key]?.let { runCatching { it.await() }; keptMap()[a.key]?.let { k -> return@withContext k.items } }
+        }
+        runCatching { post("{ list: Page(${args(a, skip / PER_PAGE + 1)} }")?.let { Charts.ani(it, "list") }.orEmpty() }
+            .getOrDefault(emptyList()).also { if (skip == 0) keep(mapOf(a.key to it)) }
     }
 
     // ---- tile pictures: each subgenre's / decade's highest-rated anime (AniList score, 20k+ members), no repeats ----
