@@ -3,6 +3,7 @@ package com.lekathedon.visionlite.detail
 import android.util.Log
 import com.lekathedon.visionlite.data.Net
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -67,7 +68,12 @@ object Imdb {
         titles[id]?.takeIf { now() - it.at < CACHE_MS }?.let { return it.v }
         return locks.getOrPut(id) { Mutex() }.withLock {
             titles[id]?.takeIf { now() - it.at < CACHE_MS }?.v ?: withContext(Dispatchers.IO) {
-                runCatching { fetchTitle(id) }.onFailure { Log.w(TAG, "$id: ${it.message}") }.getOrNull()?.also { titles[id] = Cached(it, now()) }
+                // Lite's own server (cast + sequels) asked alongside IMDb; either alone still makes the page (Meta.kt).
+                kotlinx.coroutines.coroutineScope {
+                    val srv = async { Meta.title(id) }
+                    val imdb = runCatching { fetchTitle(id) }.onFailure { Log.w(TAG, "$id: ${it.message}") }.getOrNull()
+                    Meta.merge(id, imdb, srv.await())
+                }?.also { titles[id] = Cached(it, now()) }
             }
         }
     }
