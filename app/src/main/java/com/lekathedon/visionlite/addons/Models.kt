@@ -133,12 +133,17 @@ data class Addon(
 ) {
     /** Whether this add-on answers [resource] ("meta", "stream", ...) for [type] and [id]. */
     fun serves(resource: String, type: String, id: String): Boolean {
+        if (!AddonRoles.allows(base, resource)) return false
         val entry = manifest.resources.firstOrNull { nameOf(it) == resource } ?: return false
         val obj = entry as? JsonObject
         val types = obj?.strings("types") ?: manifest.types
         val prefixes = obj?.strings("idPrefixes") ?: manifest.idPrefixes
         return type in types && (prefixes == null || prefixes.any { id.startsWith(it) })
     }
+
+    /** Has Home rows (catalogs with no required extra). */
+    val rowCatalogs get() = manifest.catalogs.filter { it.isBoardRow }
+    fun gives(resource: String) = manifest.resources.any { nameOf(it) == resource }
 
     private fun nameOf(e: JsonElement): String? = when (e) {
         is JsonPrimitive -> e.content

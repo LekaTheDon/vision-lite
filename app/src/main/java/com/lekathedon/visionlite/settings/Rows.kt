@@ -71,6 +71,13 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathed
                 Button("Reset order", { rowOrder.value = ""; rowsHidden.value = "" })
                 val addonRows by prefs.addonRows.flow.collectAsState()
                 Button(if (addonRows) "Add-on rows: On" else "Add-on rows: Off", { prefs.addonRows.value = !addonRows })
+                val vodAr by prefs.vodArabic.flow.collectAsState()
+                Button(if (vodAr) "Arabic VOD rows: On" else "Arabic VOD rows: Off", {
+                    prefs.vodArabic.value = !vodAr
+                    msg = if (vodAr) "Arabic VOD rows off" else com.lekathedon.visionlite.iptv.VodArabic.groups().let { g ->
+                        if (g.isEmpty()) "No Arabic categories in your VOD" else "${g.count { !it.anime }} rows in Films & TV, ${g.count { it.anime }} in Anime: hide any below"
+                    }
+                })
                 Button("Add a catalog", { adding = true })
                 val rotation by prefs.rotation.flow.collectAsState()
                 Button(if (rotation) "Rotating rows: On" else "Rotating rows: Off", {

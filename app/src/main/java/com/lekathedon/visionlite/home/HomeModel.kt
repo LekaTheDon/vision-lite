@@ -29,7 +29,7 @@ data class Row(
 ) {
     val builtIn get() = addon == null
     /** Where it comes from, for Settings › Home rows. */
-    val source get() = addon?.manifest?.name ?: if (key.startsWith("rot/")) "Rotating" else "Vision"
+    val source get() = addon?.manifest?.name ?: if (key.startsWith("rot/")) "Rotating" else if (key.startsWith("vod/")) "VOD" else "Vision"
 }
 
 /**
@@ -85,8 +85,10 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch {
             AnimeIds.warm()
             app.addons.ensureDefaults()
-            combine(app.addons.addons, rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow, com.lekathedon.visionlite.integrations.Integrations.changed) { list, _, _, _, _ -> list }
+            combine(kotlinx.coroutines.flow.combine(app.addons.addons, app.addons.version) { l, _ -> l }, rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow, com.lekathedon.visionlite.integrations.Integrations.changed) { list, _, _, _, _ -> list }
                 .combine(Rotation.rows(hub)) { list, _ -> list }
+                .combine(app.prefs.vodArabic.flow) { list, _ -> list }
+                .combine(com.lekathedon.visionlite.iptv.Vod.version) { list, _ -> list }
                 .collect { list -> rebuild(list) }
         }
         // Rotating rows: the set built last time shows at once (disk); the next one builds a minute after Home shows.
@@ -156,19 +158,23 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             raw[key] = r.items
             Row(key, r.title, null, null, keep(r.items), done = true)
         }
-        val addons = if (!app.prefs.addonRows.value) emptyList() else list.flatMap { a ->
+        val addons = if (!app.prefs.addonRows.value) emptyList() else list.filter { com.lekathedon.visionlite.addons.AddonRoles.allows(it.base, "catalog") }.flatMap { a ->
             a.manifest.catalogs.filter { it.isBoardRow }.map { c ->
                 val key = "${a.manifest.id}/${c.type}/${c.id}"
                 old[key] ?: Row(key, title(a, c), a, c, emptyList(), done = false)
             }
         }
+        // Arabic VOD categories (this profile switched them on): anime ones in the Anime hub, the rest in Films & TV.
+        val vod = if (!app.prefs.vodArabic.value) emptyList() else com.lekathedon.visionlite.iptv.VodArabic.groups()
+            .filter { it.anime == (hub == com.lekathedon.visionlite.anime.Hub.ANIME) }
+            .map { g -> old[g.key] ?: Row(g.key, g.grp, null, null, emptyList(), done = false) }
         // Rows new since you arranged Home (Genres, Decades) sit right after Streaming services, not at the bottom.
         val svc = order[VisionRows.SERVICES]
         fun place(i: Int, r: Row): Double = order[r.key]?.toDouble()
             ?: if (svc != null && r.key == VisionRows.GENRES) svc + 0.1 else if (svc != null && r.key == VisionRows.DECADES) svc + 0.2
             // Because you like · 1 / 2 (new in 0.28): right under Because you watched · 1 / 2.
             else VisionRows.FAVS.indexOf(r.key).takeIf { it >= 0 }?.let { order[VisionRows.BECAUSE[it]] }?.let { it + 0.1 } ?: (order.size + i).toDouble()
-        state.value = (vision + imported + rotating + addons).withIndex().sortedBy { (i, r) -> place(i, r) }.map { it.value }
+        state.value = (vision + imported + rotating + vod + addons).withIndex().sortedBy { (i, r) -> place(i, r) }.map { it.value }
     }
 
     private fun title(a: Addon, c: CatalogDef): String {
@@ -209,6 +215,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.PICKS, in VisionRows.BECAUSE, VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             in VisionRows.FAVS -> { loadFav(key); return }
+            in vodKeys() -> { loadVod(key); return }
             // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
             VisionRows.GENRES, VisionRows.DECADES -> viewModelScope.launch { runCatching { if (hub == Hub.FILMS) com.lekathedon.visionlite.browse.Wuplay.loadArt() else com.lekathedon.visionlite.anime.AniBrowse.loadArt() } }
             SERVER_ROW -> {
@@ -281,9 +288,24 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         }
     }
 
+    private fun vodKeys(): Set<String> = state.value.filter { it.key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX) }.map { it.key }.toSet()
+
+    /** An Arabic VOD row: its cards at once (from vod.db), then again once new titles are matched to TMDB. */
+    private fun loadVod(key: String) {
+        val g = com.lekathedon.visionlite.iptv.VodArabic.byKey(key) ?: return
+        loading.remove(key)?.cancel()
+        loading[key] = viewModelScope.launch {
+            set(key, kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.iptv.VodArabic.cards(g, false) }.getOrDefault(emptyList()) })
+            if (runCatching { com.lekathedon.visionlite.iptv.VodArabic.match(g) }.getOrDefault(false))
+                set(key, kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.iptv.VodArabic.cards(g, true) }.getOrDefault(emptyList()) })
+            loading.remove(key)
+        }
+    }
+
     private fun set(key: String, items: List<MetaPreview>, title: String? = null) {
         raw[key] = items
-        val kept = keep(items)
+        // VOD rows were already split by hub (their TMDB ids aren't known to the anime lists).
+        val kept = if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) } else keep(items)
         state.value = state.value.map { r -> if (r.key == key) r.copy(items = kept, done = true, title = title ?: r.title) else r }
     }
 

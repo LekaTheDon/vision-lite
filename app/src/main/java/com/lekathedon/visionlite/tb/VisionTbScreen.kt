@@ -78,12 +78,30 @@ private fun Sources() {
     var adding by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var open by remember { mutableStateOf<String?>(null) }
+    var arab by remember { mutableStateOf(false) }
+    var arabUser by remember { mutableStateOf(ArabP2P.user()) }
+    // An add-on just added here that also has rows / details: offered to this profile's Home.
+    var offer by remember { mutableStateOf<com.lekathedon.visionlite.addons.Addon?>(null) }
     val keys = remember(tick) { TbSources.keys() }
     val reports = remember(tick) { keys.map { TbSources.report(it) } }
     Text("Sources", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp))
     Text("Add your own add-ons here: they only feed Vision TB (no rows, no link group of their own). Each source is scored from " +
         "the searches you make: what only it found, how long autoplay waits on it, and whether it still answers. A source that " +
         "stops working is paused and you're told.", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp).fillMaxWidth(0.7f))
+    Row("ArabP2P account", if (arabUser.isBlank()) "Arabic films and series (the tracker Aradeb uses), with your own account: no add-on, no key that expires"
+        else "Signed in as $arabUser · only links TorBox already has are used (no ratio)") { arab = true }
+    if (arab) PhoneBox("ArabP2P", listOf(PhoneForm.Field("Username", "arabp2p.net", initial = arabUser), PhoneForm.Field("Password", "", secret = true,
+        note = "Kept on the TV only. Free sign-up at arabp2p.net (confirm the e-mail)")),
+        onSave = { v ->
+            arab = false
+            val u = v.getOrNull(0).orEmpty(); val pw = v.getOrNull(1).orEmpty()
+            if (u.isNotBlank() && pw.isNotBlank()) {
+                ArabP2P.save(u, pw); arabUser = u; msg = "Checking ArabP2P…"
+                scope.launch { msg = if (ArabP2P.check()) "ArabP2P works: used from the next search" else "ArabP2P didn't accept this account (or the site is down)" }
+            }
+        },
+        onCancel = { arab = false })
+    if (arabUser.isNotBlank()) Row("Sign out of ArabP2P", "Stops searching it") { ArabP2P.forget(); arabUser = ""; msg = "" }
     Row("Add an add-on", "From your phone: any Stremio stream add-on (Torrentio, Comet, MediaFusion, AIOStreams…, your own instance)") { adding = true }
     if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
     if (adding) PhoneBox("Vision TB add-on", listOf(PhoneForm.Field("Add-on URL", "https://…/manifest.json", note = "Configured links are fine; they stay on the TV and are never logged")),
@@ -91,10 +109,32 @@ private fun Sources() {
             adding = false
             v.firstOrNull()?.takeIf { it.isNotBlank() }?.let { u ->
                 msg = "Adding…"
-                scope.launch { msg = runCatching { TbSources.add(u) }.fold({ "Added ${it.name}: scored after ${TbSources.LEARN} searches" }, { "Could not add: ${it.message}" }) }
+                scope.launch {
+                    msg = runCatching { TbSources.add(u) }.fold({ "Added ${it.name}: scored after ${TbSources.LEARN} searches" }, { "Could not add: ${it.message}" })
+                    // Rows or details too (Aradeb: 16 Arabic rows, Arabic details)? Offered once.
+                    runCatching { Net.getJson<com.lekathedon.visionlite.addons.Manifest>("${com.lekathedon.visionlite.addons.AddonStore.normalize(u)}/manifest.json", timeoutSec = 15) }.getOrNull()
+                        ?.let { m -> com.lekathedon.visionlite.addons.Addon(com.lekathedon.visionlite.addons.AddonStore.normalize(u), m) }
+                        ?.takeIf { it.rowCatalogs.isNotEmpty() || it.gives("meta") }?.let { offer = it }
+                }
             }
         },
         onCancel = { adding = false })
+    offer?.let { a ->
+        Text("${a.manifest.name} also has ${a.rowCatalogs.size} rows${if (a.gives("meta")) " and its own details" else ""}. Use them in this profile?",
+            color = Palette.Text, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp).fillMaxWidth(0.7f))
+        Row("Yes: rows and details (links stay with Vision TB)", "Its links aren't shown as a group of their own; you pick its rows next") {
+            scope.launch {
+                val inst = runCatching { App.instance.addons.install(a.base) }.getOrNull()
+                if (inst != null) {
+                    com.lekathedon.visionlite.addons.AddonRoles.set(inst.base, com.lekathedon.visionlite.addons.AddonRoles.Role.LINKS, false)
+                    if (inst.rowCatalogs.isNotEmpty()) com.lekathedon.visionlite.settings.RowsAsk.flow.value = inst
+                    msg = "${inst.manifest.name}: rows and details on in this profile"
+                } else msg = "Couldn't add its rows"
+                offer = null
+            }
+        }
+        Row("No, only links for Vision TB", "") { offer = null }
+    }
     reports.forEach { r ->
         val mine = r.key.startsWith("addon:")
         val on = TbSources.isOn(r.key)

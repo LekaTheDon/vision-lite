@@ -120,8 +120,23 @@ internal fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyLis
 
 /** Opens a card: IMDb ids at once; TMDB and AniList ids are first turned into IMDb ids (one small lookup). */
 suspend fun openTitle(nav: Nav, m: MetaPreview) {
-    val id = imdbIdOf(m) ?: return
+    // A VOD card TMDB didn't know: a film plays straight away, a series opens its episodes.
+    if (m.id.startsWith("vod:")) { openVod(nav, m.id, m.name); return }
+    val id = imdbIdOf(m)?.takeIf { it.startsWith("tt") }
+    if (id == null) {
+        // Matched to TMDB but no IMDb id (common for Arabic series): back to its VOD copy.
+        val v = withContext(Dispatchers.IO) { runCatching { com.lekathedon.visionlite.iptv.Vod.metaGet("vodtm|${m.id}") }.getOrNull() }
+        if (v != null) openVod(nav, "vod:$v", m.name) else imdbIdOf(m)?.let { nav.push(Screen.Detail(m.type, it, m.name)) }
+        return
+    }
+    if (m.id.startsWith("tmdb:")) withContext(Dispatchers.IO) { com.lekathedon.visionlite.iptv.VodArabic.remember(m.id, id) }
     nav.push(Screen.Detail(m.type, id, m.name))
+}
+
+private suspend fun openVod(nav: Nav, id: String, name: String) {
+    val v = withContext(Dispatchers.IO) { com.lekathedon.visionlite.iptv.VodArabic.item(id) } ?: return
+    if (v.kind == "series") nav.push(Screen.VodSeries(v.pl, v.id, v.name))
+    else v.url?.let { nav.push(Screen.Player(it, v.name.ifBlank { name }, type = "vod")) }
 }
 
 /** The IMDb id behind a card (TMDB / AniList ids looked up once); the card's own id otherwise. */

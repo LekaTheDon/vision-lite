@@ -115,7 +115,7 @@ object DiscoverSources {
             out += DiscoverCat("kitsu.popular", "Most Popular · Kitsu", g) { genre, skip -> kitsu(tv, "popularityRank", genre, skip) }
         }
         // Your add-ons (optional): every catalog of this type that needs no search term.
-        App.instance.addons.addons.value.forEach { a ->
+        App.instance.addons.addons.value.filter { com.lekathedon.visionlite.addons.AddonRoles.allows(it.base, "catalog") }.forEach { a ->
             a.manifest.catalogs.filter { c -> c.type == type && !c.needsSearch && c.extraRequired.all { it == "genre" } && c.extra.none { it.isRequired && it.name != "genre" } }
                 .forEach { c ->
                     val genres = c.extra.firstOrNull { it.name == "genre" }?.options.orEmpty()

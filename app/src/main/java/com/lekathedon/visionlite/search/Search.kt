@@ -76,7 +76,7 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         recent = (listOf(term) + recent.filterNot { it.equals(term, true) }).take(8)
         recentPref.value = recent.joinToString("\n")
         job = scope.launch {
-            app.addons.addons.value.flatMap { a -> a.manifest.catalogs.filter { it.supportsSearch }.map { a to it } }
+            app.addons.addons.value.filter { com.lekathedon.visionlite.addons.AddonRoles.allows(it.base, "catalog") }.flatMap { a -> a.manifest.catalogs.filter { it.supportsSearch }.map { a to it } }
                 .map { (a, c) -> async { searchRowName(c.name, c.type, a.manifest.name) to runCatching { app.client.catalog(a, c, search = term) }.getOrDefault(emptyList()) } }
                 .forEach { d -> d.await().takeIf { it.second.isNotEmpty() }?.let { results.add(it) } }
         }

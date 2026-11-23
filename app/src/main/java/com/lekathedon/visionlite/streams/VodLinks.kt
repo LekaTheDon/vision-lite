@@ -23,7 +23,8 @@ object VodLinks {
     /** "EN - Dune: Part Two (2024) 4K" → "dune part two". */
     internal fun clean(name: String): String =
         name.replace(PREFIX, "").replace(TAGS, " ").replace(YEAR, " ").lowercase()
-            .replace("&", " and ").replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
+            .replace("&", " and ").replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا').replace('ة', 'ه').replace('ى', 'ي')
+            .replace(Regex("[^a-z0-9\\u0621-\\u064A]+"), " ").trim().replace(Regex("\\s+"), " ")
 
     private fun height(name: String): Int {
         val t = name.lowercase()
@@ -52,11 +53,13 @@ object VodLinks {
             titles = EpisodeFacts.titlesOf(target); year = null
         }
         val wanted = titles.map(::clean).filter { it.length >= 2 }.toSet()
-        if (wanted.isEmpty()) return@withContext emptyList()
+        if (wanted.isEmpty() && com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb) == null) return@withContext emptyList()
         val names = Iptv.playlists().associate { it.id to it.name }
         val kind = if (type == "movie") "movie" else "series"
-        val hits = wanted.flatMap { w -> Vod.search(kind, w.split(' ').maxBy { it.length }) }.distinctBy { it.pl + it.id }
-            .filter { clean(it.name) in wanted && yearOk(it.name, year) }
+        // Plus the VOD title a Home VOD card was opened from (Arabic names don't match the English ones).
+        val saved = com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb)?.takeIf { it.kind == kind }
+        val hits = (listOfNotNull(saved) + wanted.flatMap { w -> Vod.search(kind, w.split(' ').maxBy { it.length }) }
+            .filter { clean(it.name) in wanted && yearOk(it.name, year) }).distinctBy { it.pl + it.id }
         if (type == "movie") hits.mapNotNull { v ->
             val url = v.url ?: return@mapNotNull null
             link(url, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV")

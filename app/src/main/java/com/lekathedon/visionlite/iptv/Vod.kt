@@ -194,6 +194,16 @@ object Vod {
         }
     }
 
+    /** One title by its keys (a Home VOD card opens it). */
+    fun item(pl: String, kind: String, id: String): VodItem? = db.readableDatabase.rawQuery(
+        "SELECT pl,kind,id,name,grp,poster,url,rating FROM items WHERE pl=? AND kind=? AND id=?", arrayOf(pl, kind, id)).use { c ->
+        if (c.moveToFirst()) VodItem(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), c.getString(7)) else null
+    }
+
+    /** Small saved facts (VOD → TMDB matches); kept across refreshes. */
+    fun metaGet(k: String): String? = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k=?", arrayOf(k)).use { if (it.moveToFirst()) it.getString(0) else null }
+    fun metaPut(k: String, v: String) { db.writableDatabase.execSQL("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", arrayOf(k, v)) }
+
     /** How many films and series vod.db holds (0 = no VOD: Vision TB doesn't look here). */
     fun count(): Long = db.readableDatabase.rawQuery("SELECT COUNT(*) FROM items", null).use { if (it.moveToFirst()) it.getLong(0) else 0L }
 
@@ -294,7 +304,7 @@ private fun VodRail(nav: Nav, kind: String, group: String, count: Int, store: Mu
 }
 
 @Composable
-private fun Episodes(nav: Nav, s: VodItem) {
+internal fun Episodes(nav: Nav, s: VodItem) {
     val eps by produceState<List<VodEpisode>?>(null, s) { value = Vod.episodes(s) }
     val seasons = eps.orEmpty().map { it.season }.distinct()
     var season by remember(s) { mutableStateOf<Int?>(null) }
@@ -319,4 +329,12 @@ private fun Episodes(nav: Nav, s: VodItem) {
             }
         }
     }
+}
+
+/** A VOD series opened from a Home row (no TMDB match): its episodes. */
+@Composable
+fun VodSeriesScreen(nav: Nav, pl: String, id: String) {
+    val item = remember(pl, id) { Vod.item(pl, "series", id) }
+    if (item == null) { Text("Not in your VOD any more", color = Palette.TextDim, modifier = Modifier.padding(48.dp)); return }
+    Episodes(nav, item)
 }

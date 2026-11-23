@@ -175,6 +175,17 @@ object VisionTb {
                     val a = anime.await()
                     if (a.isAnime) DiscoveryPipeline.planAnime(a, null).forEach { launch { run(it, false, anime) } }
                 }
+                // ArabP2P with your account (Arabic titles first): searched once the titles are known.
+                if (ArabP2P.configured()) launch {
+                    val f = full.await()
+                    if (f.titles.isEmpty() || !asks(ArabP2P.KEY)) return@launch
+                    search.started(ArabP2P.KEY)
+                    kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.let { j -> synchronized(jobs) { jobs.getOrPut(ArabP2P.KEY) { ArrayList() } += j } }
+                    val asked = SystemClock.elapsedRealtime()
+                    val got = withTimeoutOrNull(SOURCE_MS + 4_000) { ArabP2P.search(ArabP2P.queries(f)) }
+                    search.ended(ArabP2P.KEY, got, timedOut = got == null && SystemClock.elapsedRealtime() - asked >= SOURCE_MS)
+                    if (!got.isNullOrEmpty()) pass(DiscoverySource.ARABP2P, got, f, ArabP2P.KEY)
+                }
                 // Your add-ons' torrents (any add-on that returns hashes): checked against TorBox like any source.
                 harvest?.let { ch -> launch { for (b in ch) if (b.isNotEmpty()) launch { pass(DiscoverySource.ADDONS, b, full.await()) } } }
             }

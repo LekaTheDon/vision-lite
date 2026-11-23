@@ -18,6 +18,12 @@ class AddonStore(private val prefs: Prefs) {
 
     fun isOn(base: String) = base !in off
 
+    /** A role changed (AddonRoles): everything reading the add-on list redraws. */
+    fun touch() { versionFlow.value++ }
+    private val versionFlow = MutableStateFlow(0)
+    /** Bumped when an add-on's roles change (the list itself stays equal). */
+    val version: StateFlow<Int> get() = versionFlow
+
     /** Off = kept installed, but asked for nothing (no rows, links, search or subtitles). */
     fun setOn(base: String, on: Boolean) {
         off = if (on) off - base else off + base

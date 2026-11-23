@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                                 else com.lekathedon.visionlite.home.EchoHome(nav)
                             }
                         is Screen.Detail -> Detail(nav, s)
+                        is Screen.VodSeries -> com.lekathedon.visionlite.iptv.VodSeriesScreen(nav, s.pl, s.id)
                         is Screen.Streams -> Streams(nav, s)
                         is Screen.Player -> Player(nav, s)
                         Screen.Search -> Search(nav)
@@ -149,6 +150,7 @@ class MainActivity : ComponentActivity() {
                   // Vision's Ambient Mode: idle minutes off the player → 4K backdrops from your rows.
                   com.lekathedon.visionlite.ui.ScreensaverHost(nav)
                   // Vision TB: a source that stopped working (or came back), told once.
+                  com.lekathedon.visionlite.settings.RowsAskHost()
                   com.lekathedon.visionlite.tb.TbAlertHost(nav.current is Screen.Player || nav.current is Screen.YtPlay)
                   if (hub != null) {
                       val pillHome = remember { androidx.compose.ui.focus.FocusRequester() }

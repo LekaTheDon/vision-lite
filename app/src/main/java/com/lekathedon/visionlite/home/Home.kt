@@ -1,5 +1,6 @@
 package com.lekathedon.visionlite.home
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +82,7 @@ fun Home(nav: Nav) {
 @Composable
 private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val vm = homeModel(hub)
+    val homeScope = androidx.compose.runtime.rememberCoroutineScope()
     val rows by vm.rows.collectAsStateWithLifecycle()
     val look = LocalLook.current
     val prefs = com.lekathedon.visionlite.App.instance.prefs
@@ -154,7 +156,7 @@ private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                                                     focused = m
                                                     if (i >= row.items.size - 6) vm.more(row.key)
                                                 },
-                                                onClick = { nav.push(Screen.Detail(m.type, m.id, m.name)) }
+                                                onClick = { if (m.id.startsWith("tt")) nav.push(Screen.Detail(m.type, m.id, m.name)) else homeScope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) } }
                                             )
                                         }
                                     }

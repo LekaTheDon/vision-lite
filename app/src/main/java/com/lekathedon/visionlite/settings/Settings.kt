@@ -872,9 +872,10 @@ fun Addons() {
     var url by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf("") }
     var byPhone by remember { mutableStateOf(false) }
+    var prompt by remember { mutableStateOf<com.lekathedon.visionlite.addons.Addon?>(null) }
     fun install(u: String) { scope.launch {
         msg = "Installing…"
-        msg = runCatching { store.install(u) }.fold({ url = ""; "Installed ${it.manifest.name}" }, { "Could not install: ${it.message}" })
+        msg = runCatching { store.install(u) }.fold({ url = ""; if (it.rowCatalogs.isNotEmpty()) prompt = it; "Installed ${it.manifest.name}" }, { "Could not install: ${it.message}" })
     } }
     LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp)) {
         item {
@@ -906,12 +907,23 @@ fun Addons() {
                     Text(a.base.substringBefore("/", a.base).let { a.base.removePrefix("https://").substringBefore('/') }, color = Palette.TextDim, fontSize = 12.sp)
                 }
                 Button(if (store.isOn(a.base)) "On" else "Off", { store.setOn(a.base, !store.isOn(a.base)) })
+                // What it's used for in this profile: rows, details, links (AddonRoles).
+                store.version.collectAsState().value
+                com.lekathedon.visionlite.addons.AddonRoles.Role.values().forEach { r ->
+                    val res = r.resources.first()
+                    if (a.gives(res)) {
+                        val on = com.lekathedon.visionlite.addons.AddonRoles.isOn(a.base, r)
+                        Button((if (on) "✓ " else "✗ ") + r.label, { com.lekathedon.visionlite.addons.AddonRoles.set(a.base, r, !on) })
+                    }
+                }
+                if (a.rowCatalogs.isNotEmpty()) Button("Choose rows", { prompt = a })
                 Button("Up", { store.move(a.base, -1) })
                 Button("Down", { store.move(a.base, 1) })
                 Button("Remove", { store.remove(a.base) })
             }
         }
     }
+    prompt?.let { a -> RowsPrompt(a) { prompt = null } }
 }
 
 /** How the AIs agree (moved here from Scout's page): Vote, each AI by its weight (OK cycles the weights), or one Boss decides. */
@@ -933,4 +945,54 @@ private fun AiModeRow(modifier: Modifier) {
             }
         }
     }
+}
+
+
+/**
+ * After adding an add-on with rows (user 2026-11-23): which of its rows go on this profile's Home. All are ticked;
+ * untick what you don't want. Turns add-on rows on for this profile; Settings › Home rows arranges them later.
+ */
+@Composable
+fun RowsPrompt(a: com.lekathedon.visionlite.addons.Addon, onDone: () -> Unit) {
+    val p = App.instance.prefs
+    val cats = a.rowCatalogs
+    fun key(c: com.lekathedon.visionlite.addons.CatalogDef) = "${a.manifest.id}/${c.type}/${c.id}"
+    val hidden = remember { (p.rowsHidden.value.split('\n') + p.rowsHiddenAnime.value.split('\n')).toSet() }
+    val picked = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>().apply {
+        cats.forEach { c -> put(key(c), !(p.addonRows.value && key(c) in hidden)) }
+    } }
+    val first = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)), contentAlignment = Alignment.Center) {
+        LazyColumn(Modifier.fillMaxWidth(0.6f).fillMaxSize(0.9f).background(Color(0xFF1C1C1F)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Text("${a.manifest.name} has ${cats.size} rows", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("Add which to this profile's Home? Arrange them later in Settings › Home rows.", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button("Add selected", {
+                        val off = cats.map(::key).filter { picked[it] != true }.toSet(); val on = cats.map(::key).toSet() - off
+                        fun upd(t: com.lekathedon.visionlite.data.Prefs.Text) { t.value = ((t.value.split('\n').filter { it.isNotEmpty() }.toSet() - on) + off).joinToString("\n") }
+                        upd(p.rowsHidden); upd(p.rowsHiddenAnime)
+                        if (on.isNotEmpty()) { p.addonRows.value = true; com.lekathedon.visionlite.addons.AddonRoles.set(a.base, com.lekathedon.visionlite.addons.AddonRoles.Role.ROWS, true) }
+                        onDone()
+                    }, Modifier.focusRequester(first))
+                    Button("Select none", { cats.forEach { picked[key(it)] = false } })
+                    Button("Not now", onDone)
+                }
+            }
+            items(cats.size) { i ->
+                val c = cats[i]; val k = key(c); val on = picked[k] == true
+                Button((if (on) "✓  " else "     ") + (c.name ?: c.id) + "  ·  " + (if (c.type == "movie") "Movies" else if (c.type == "series") "Series" else c.type), { picked[k] = !on }, Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+/** The rows prompt from anywhere (Vision TB's page asks after adding an add-on with rows). */
+object RowsAsk { val flow = kotlinx.coroutines.flow.MutableStateFlow<com.lekathedon.visionlite.addons.Addon?>(null) }
+
+@Composable
+fun RowsAskHost() {
+    val a = RowsAsk.flow.collectAsState().value ?: return
+    RowsPrompt(a) { RowsAsk.flow.value = null }
 }

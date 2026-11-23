@@ -161,6 +161,8 @@ class Prefs(context: Context) {
     val animeMoves = Text("anime_moves", "")
     /** Add-on catalogs as Home rows (Vision's "Add-on rows"); off like the user's Vision. */
     val addonRows = Flag("home_addon_rows", false)
+    /** Arabic VOD categories as Home rows (iptv/VodArabic), per profile; off = no reads, no TMDB matching. */
+    val vodArabic = Flag("vod_arabic", false)
     /** Rotating rows (home/Rotation.kt): a fresh set of themed rows under your own every start. */
     val rotation = Flag("home_rotation", true)
     // Library + search

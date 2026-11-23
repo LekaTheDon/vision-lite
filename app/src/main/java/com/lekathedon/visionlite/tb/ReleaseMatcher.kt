@@ -177,6 +177,8 @@ object ReleaseMatcher {
 
     internal fun tokens(value: String): List<String> {
         val folded = Normalizer.normalize(value, Normalizer.Form.NFD).replace(MARKS, "")
+            // Arabic spelling variants read as one: أ إ آ → ا, ة → ه, ى → ي (release names and TMDB differ here).
+            .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا').replace('ة', 'ه').replace('ى', 'ي')
         return folded.lowercase()
             .replace(ANIME_VERSION, "")
             .replace("&", " and ")
@@ -204,7 +206,8 @@ object ReleaseMatcher {
     private val SPLIT_EPISODE = Regex("(?<![a-z0-9])s(\\d{1,2}) ?(?:ep|e) ?(\\d{1,3})(?![0-9])")
     private val WORD_EPISODE = Regex("(?<![a-z])season ?(\\d{1,2}) ?episode ?(\\d{1,3})(?![0-9])")
     private val APOSTROPHES = Regex("['’`]")
-    private val NON_ALNUM = Regex("[^a-z0-9]+")
+    // Arabic letters count as title letters (ArabP2P names Arabic titles in Arabic); other scripts as before.
+    private val NON_ALNUM = Regex("[^a-z0-9\\u0621-\\u064A]+")
     private val LEADING_GROUPS = Regex("^(?:\\s*[\\[(【][^\\])】]*[\\])】]\\s*)+")
     private val LEADING_SITE = Regex("^(?:www\\.)?[a-z0-9-]+\\.(?:com|org|net|to|cc|me|io|tv)\\s*-\\s*", RegexOption.IGNORE_CASE)
     private val MARKER_TOKEN = Regex(

@@ -248,7 +248,7 @@ object TbSources {
     /** Every source on the page: yours first, then the built-in ones Vision TB has used. */
     fun keys(): List<String> {
         load()
-        val builtIn = DiscoverySource.values().filter { it != DiscoverySource.USER_ADDON }.map { keyOf(it) }
+        val builtIn = DiscoverySource.values().filter { it != DiscoverySource.USER_ADDON && it != DiscoverySource.ADDONS }.map { keyOf(it) }
         val used = synchronized(stats) { stats.keys.toSet() }
         return addons().map(::keyOf) + builtIn.filter { it in used || !isOn(it) }
     }

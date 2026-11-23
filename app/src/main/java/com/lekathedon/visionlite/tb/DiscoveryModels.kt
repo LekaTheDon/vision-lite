@@ -66,7 +66,9 @@ enum class DiscoverySource(val label: String) {
     /** Experimental engine only: hashes the user's own add-ons returned (no request of its own). */
     ADDONS("Add-ons"),
     /** One of your own add-ons added in Settings › Vision TB (feeds only Vision TB). */
-    USER_ADDON("Your add-on")
+    USER_ADDON("Your add-on"),
+    /** ArabP2P with your own account (Arabic tracker; Settings › Vision TB). */
+    ARABP2P("ArabP2P")
 }
 
 /** One release as a source reported it, before matching. */

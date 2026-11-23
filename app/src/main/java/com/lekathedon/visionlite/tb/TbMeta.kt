@@ -98,7 +98,10 @@ object TbMeta {
         // Latin-script alternatives first (release names are mostly Latin); at most 8.
         val alts = (0 until (list?.length() ?: 0)).mapNotNull { list?.optJSONObject(it)?.optString("title")?.takeIf { t -> t.isNotBlank() } }
             .sortedByDescending { t -> t.count { it.code < 0x250 } * 2 >= t.length }.distinct().take(8)
-        titles.keep(imdb, (listOfNotNull(original) + alts).distinct() to anime)
+        // Plus up to 2 Arabic titles (ArabP2P names releases in Arabic), even past the 8.
+        val arabic = (0 until (list?.length() ?: 0)).mapNotNull { list?.optJSONObject(it)?.optString("title") }
+            .filter { t -> t.any { it in '\u0621'..'\u064A' } }.distinct().take(2)
+        titles.keep(imdb, (listOfNotNull(original) + alts + arabic).distinct() to anime)
     }
 
     /** Titles already read for [imdb] (TMDB's original + alternatives, the anime lists'); no request. */

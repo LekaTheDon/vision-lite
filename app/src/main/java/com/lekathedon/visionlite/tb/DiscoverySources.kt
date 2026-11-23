@@ -254,7 +254,7 @@ object DiscoverySources {
             DiscoverySource.NYAA -> parseNyaa(body)
             DiscoverySource.STREMTHRU -> parseStremThru(StringReader(body))
             DiscoverySource.ZILEAN -> parseZilean(body)
-            DiscoverySource.ADDONS -> emptyList()
+            DiscoverySource.ADDONS, DiscoverySource.ARABP2P -> emptyList()
             // Same Stremio shape as Comet, but not trusted: Comet returns other arcs' same episode number by Kitsu id.
             DiscoverySource.COMET_KITSU -> parseStremioStreams(body, source).map { it.copy(trustedMatch = false) }
             DiscoverySource.TSUKIHIME -> AnimeSources.parseTsukiHime(body)
