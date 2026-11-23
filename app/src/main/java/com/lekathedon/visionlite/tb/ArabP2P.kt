@@ -15,6 +15,7 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -38,21 +39,43 @@ object ArabP2P {
     fun configured() = user().isNotBlank() && pass().isNotBlank()
     fun save(u: String, p: String) {
         prefs.edit().putString("arabp2p_user", u.trim()).putString("arabp2p_pass", p).apply()
-        loggedIn = false; jar.clear(); TbSources.unpause(KEY)
+        loggedIn = false; retryAt = 0L; jar.clear(); TbSources.unpause(KEY)
     }
     fun forget() { prefs.edit().remove("arabp2p_user").remove("arabp2p_pass").apply(); loggedIn = false; jar.clear() }
 
+    /**
+     * The site's session, kept on disk (user 2026-11-23: "sign one time"). The site locks you out for 30 min after a
+     * few logins, so the app signs in once and reuses the session across runs; it logs in again only when the site
+     * no longer accepts it (and never twice inside 31 min).
+     */
     private val jar = object : CookieJar {
         private val store = HashMap<String, Cookie>()
-        fun clear() = synchronized(store) { store.clear() }
-        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = synchronized(store) { cookies.forEach { store[it.name] = it } }
-        override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(store) { store.values.filter { it.matches(url) } }
+        private var loaded = false
+        private fun load() {
+            if (loaded) return; loaded = true
+            runCatching {
+                val a = org.json.JSONArray(prefs.getString("arabp2p_session", "[]"))
+                val u = "$BASE/".toHttpUrl()
+                for (i in 0 until a.length()) Cookie.parse(u, a.getString(i))?.let { store[it.name] = it }
+            }
+        }
+        private fun save() = prefs.edit().putString("arabp2p_session", org.json.JSONArray(store.values.map { c ->
+            // A session cookie (no expiry) is kept 30 days on disk; the site says when it's no longer good.
+            if (c.persistent) c.toString() else c.toString() + "; Max-Age=2592000"
+        }).toString()).apply()
+        fun clear() = synchronized(store) { store.clear(); loaded = true; prefs.edit().remove("arabp2p_session").apply() }
+        fun has() = synchronized(store) { load(); store.isNotEmpty() }
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = synchronized(store) { load(); cookies.forEach { store[it.name] = it }; save() }
+        override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(store) {
+            load(); store.values.removeAll { it.expiresAt < System.currentTimeMillis() }; store.values.filter { it.matches(url) }
+        }
     }
     private val http by lazy {
         Net.http.newBuilder().cookieJar(jar).followRedirects(true).connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS).build()
     }
     @Volatile private var loggedIn = false
+    @Volatile private var retryAt = 0L
     private val lock = Mutex()
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Safari/537.36"
 
@@ -65,12 +88,15 @@ object ArabP2P {
         lock.withLock {
             if (loggedIn && !force) return@withLock true
             if (!configured()) return@withLock false
+            // The site locks the IP for 30 min after a few failed logins: never try again inside that window.
+            if (android.os.SystemClock.elapsedRealtime() < retryAt) return@withLock false
             runCatching {
                 get("$BASE/index.php") // session cookie
                 val body = FormBody.Builder().add("uid", user()).add("pwd", pass()).build()
                 http.newCall(Request.Builder().url("$BASE/index.php?page=login").header("User-Agent", UA).post(body).build()).execute().close()
                 loggedIn = get("$BASE/index.php").contains("logout.php?t=")
             }.onFailure { Log.w(TAG, "login: ${it::class.simpleName}") }
+            if (!loggedIn) retryAt = android.os.SystemClock.elapsedRealtime() + 31 * 60_000L
             loggedIn
         }
     }
@@ -80,14 +106,19 @@ object ArabP2P {
 
     /** One search page → candidates (hash + normalized name). Null = failed (not signed in, site down). */
     suspend fun search(queries: List<String>): List<DiscoveryCandidate>? = withContext(Dispatchers.IO) {
-        if (!login()) return@withContext null
+        // A saved session is tried as is (no login call); the app signs in only when the site says signed out.
+        if (!loggedIn && !jar.has() && !login()) return@withContext null
         val out = LinkedHashMap<String, DiscoveryCandidate>()
         var anyOk = false
         for (q in queries.distinct().take(3)) {
-            val html = runCatching { page(q) }.getOrNull() ?: continue
-            val final = if (!html.contains("logout.php?t=") && login(force = true)) runCatching { page(q) }.getOrNull() ?: continue else html
-            anyOk = true
-            rows(final).forEach { if (it.hash !in out) out[it.hash] = it }
+            var html = runCatching { page(q) }.getOrNull() ?: continue
+            if (!html.contains("logout.php?t=")) {
+                loggedIn = false; jar.clear()
+                if (!login()) return@withContext null
+                html = runCatching { page(q) }.getOrNull() ?: continue
+            }
+            loggedIn = true; anyOk = true
+            rows(html).forEach { if (it.hash !in out) out[it.hash] = it }
             if (out.size >= 40) break
         }
         if (!anyOk) null else out.values.toList()
@@ -101,7 +132,8 @@ object ArabP2P {
     private val BTIH = Regex("""btih:([0-9a-fA-F]{40}|[A-Z2-7]{32})""")
     private val DOWNLOAD = Regex("""href="(download\.php\?id=[^"]+)"""", RegexOption.IGNORE_CASE)
     private val SIZE = Regex("""<span[^>]*class="size"[^>]*>\s*([\d.,]+)\s*([KMGT]i?B)""", RegexOption.IGNORE_CASE)
-    private val SEEDS = Regex("""<span[^>]*title="Seeders"[^>]*>\s*(\d+)""", RegexOption.IGNORE_CASE)
+    // <span title="Seeders">▲ <a href='index.php?page=peers…'>12</a></span>
+    private val SEEDS = Regex("""title="Seeders"[^>]*>[^<\d]*(?:<a[^>]*>)?\s*(\d+)""", RegexOption.IGNORE_CASE)
     private val TAGS = Regex("<[^>]+>")
 
     private suspend fun rows(html: String): List<DiscoveryCandidate> = coroutineScope {
@@ -120,14 +152,30 @@ object ArabP2P {
         }.toList().take(30)
         // Rows without a magnet: their .torrent gives the hash (at most 12 a search, 4 at a time).
         val gate = kotlinx.coroutines.sync.Semaphore(4)
-        val fetchable = found.filter { it.second.first == null && it.second.second != null }.take(12).map { it.second.second }.toSet()
+        val fetchable = found.filter { it.second.first == null && it.second.second != null && cachedHash(it.second.second!!) == null }
+            .take(12).map { it.second.second }.toSet()
         found.map { (name, hd, ss) ->
             val (hash, dl) = hd
             async {
-                val h = hash ?: if (dl != null && dl in fetchable) gate.withPermit { runCatching { hashOfTorrent("$BASE/$dl") }.getOrNull() } else null
+                val h = hash ?: dl?.let(::cachedHash) ?: if (dl != null && dl in fetchable)
+                    gate.withPermit { runCatching { hashOfTorrent("$BASE/$dl") }.getOrNull() }?.also { keepHash(dl, it) } else null
                 h?.let { DiscoveryCandidate(it, name, ss.first, ss.second, DiscoverySource.ARABP2P) }
             }
         }.awaitAll().filterNotNull()
+    }
+
+    /** Torrent id → hash, kept on disk (a .torrent is ~50 KB; each is fetched once ever). Last 3000. */
+    private val hashes: LinkedHashMap<String, String> by lazy {
+        val m = object : LinkedHashMap<String, String>(256, 0.75f, true) { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, String>?) = size > 3000 }
+        runCatching { org.json.JSONObject(hashFile.readText()).let { o -> o.keys().forEach { k -> m[k] = o.getString(k) } } }
+        m
+    }
+    private val hashFile get() = java.io.File(App.instance.filesDir, "arabp2p_hashes.json")
+    private fun idOf(dl: String) = Regex("id=(\\d+)").find(dl)?.groupValues?.get(1)
+    private fun cachedHash(dl: String): String? = idOf(dl)?.let { synchronized(hashes) { hashes[it] } }
+    private fun keepHash(dl: String, h: String) {
+        val id = idOf(dl) ?: return
+        synchronized(hashes) { hashes[id] = h; runCatching { hashFile.writeText(org.json.JSONObject(hashes as Map<*, *>).toString()) } }
     }
 
     private fun hashOfTorrent(url: String): String? {

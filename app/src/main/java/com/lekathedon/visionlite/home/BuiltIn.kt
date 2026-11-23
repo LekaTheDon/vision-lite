@@ -85,8 +85,9 @@ object Tmdb {
     fun key(): String? = if (!Integrations.active("tmdb")) null else Integrations.values(Integrations.byId("tmdb")).firstOrNull()?.takeIf { it.isNotBlank() }
 
     /** GET /3/[path] with your key (an API key or a read token); null on any failure or without a key. */
-    fun get(path: String): JSONObject? {
+    fun get(path0: String): JSONObject? {
         val k = key() ?: return null
+        val path = mergeKeywords(path0)
         val token = k.length > 50
         val url = "https://api.themoviedb.org/3/$path" + if (token) "" else (if ('?' in path) "&" else "?") + "api_key=$k"
         return runCatching {
@@ -94,6 +95,27 @@ object Tmdb {
                 if (r.isSuccessful) JSONObject(r.body!!.string()) else null
             }
         }.getOrNull()
+    }
+
+    /**
+     * TMDB rejects a discover query that names with_keywords / without_keywords twice ("Invalid parameters"): the
+     * anime split, a mood's own words and the adult filter each add one (user 2026-11-23: mood pages lost Films and
+     * Shows). Merged into one each: left-out words as "any of" (|), required groups as "all of" (,).
+     */
+    internal fun mergeKeywords(path: String): String {
+        val q = path.indexOf('?').takeIf { it >= 0 } ?: return path
+        val parts = path.substring(q + 1).split('&').filter { it.isNotEmpty() }
+        val names = listOf("with_keywords", "without_keywords")
+        if (names.none { n -> parts.count { it.startsWith("$n=") } > 1 }) return path
+        val out = ArrayList<String>()
+        for (p in parts) {
+            val n = names.firstOrNull { p.startsWith("$it=") }
+            if (n == null) { out += p; continue }
+            val i = out.indexOfFirst { it.startsWith("$n=") }
+            if (i < 0) out += p
+            else out[i] = out[i] + (if (n == "without_keywords") "%7C" else ",") + p.substringAfter('=')
+        }
+        return path.substring(0, q + 1) + out.joinToString("&")
     }
 
     fun img(path: String?, size: String) = path?.takeIf { it.startsWith("/") }?.let { "https://image.tmdb.org/t/p/$size$it" }
