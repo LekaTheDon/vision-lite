@@ -142,8 +142,12 @@ object CloudSetup {
                         if (!syncs(k)) continue
                         val o = entries.optJSONObject(k) ?: continue
                         val at = o.optLong("at")
-                        if (!first && at <= meta.getLong("$n|$k", 0)) continue
                         val local = prefs.all[k]
+                        // Older than this device's copy: skipped, unless this device has nothing there (a key, sign-in
+                        // or setting it never had). Settings saved before the sync existed carry no time (0), so
+                        // without this a device already signed in to Nuvio never got them (user 2026-11-23: Trakt asked again).
+                        val fills = o.has("v") && blank(local) && !(o.optString("t") == "s" && o.optString("v").isBlank())
+                        if (!first && !fills && at <= meta.getLong("$n|$k", 0)) continue
                         if (!o.has("v")) {
                             if (CRED.containsMatchIn(k) || local == null) continue
                             ed.remove(k)
@@ -163,7 +167,7 @@ object CloudSetup {
             }
         } finally { applying = false }
         meta.edit().putBoolean("seeded", true).putLong("pulled_at", System.currentTimeMillis()).apply()
-        if (changed) Integrations.touch()
+        if (changed) { App.instance.trakt.reload(); Integrations.touch() }
         // This device has newer settings than the account's copy: send them.
         if (meta.all.any { (k, v) -> k.contains('|') && v is Long && v > blob.optLong("at") }) schedulePush()
         changed

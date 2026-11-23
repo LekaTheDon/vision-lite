@@ -67,6 +67,12 @@ class Trakt(private val prefs: Prefs) {
     val configured get() = BuildConfig.TRAKT_ID.isNotBlank()
     private val jsonType = "application/json".toMediaType()
 
+    /** Takes the sign-in from settings again (it came from your Nuvio account after start). */
+    fun reload() {
+        val t = runCatching { prefs.sp.getString("trakt_tokens", null)?.let { Net.json.decodeFromString<Tokens>(it) } }.getOrNull()
+        if (t != null && t != tokens.value) tokens.value = t
+    }
+
     private fun save(t: Tokens?) {
         tokens.value = t
         prefs.sp.edit().apply { if (t == null) remove("trakt_tokens") else putString("trakt_tokens", Net.json.encodeToString(Tokens.serializer(), t)) }.apply()
