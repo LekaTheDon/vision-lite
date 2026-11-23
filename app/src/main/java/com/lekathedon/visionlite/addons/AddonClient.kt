@@ -34,7 +34,11 @@ class AddonClient(private val store: AddonStore) {
     /** Details already fetched (title page open before); no network. */
     fun cachedMeta(type: String, id: String): Meta? = synchronized(metaCache) { metaCache["$type/$id"] }
 
-    /** Details from the first add-on that serves meta for this id (installed order). */
+    /**
+     * Details from the first add-on that serves meta for this id (installed order); with none (user 2026-11-23: no
+     * add-ons needed), the app's own sources: IMDb for tt ids (title, year, genres, every episode), the anime lists for
+     * anime ids. Autoplay, Vision TB, next episode and Home all read their show names and episodes from here.
+     */
     suspend fun meta(type: String, id: String): Meta? {
         val key = "$type/$id"
         synchronized(metaCache) { metaCache[key] }?.let { return it }
@@ -45,7 +49,29 @@ class AddonClient(private val store: AddonStore) {
                 return m
             }
         }
-        return null
+        val m = runCatching { nativeMeta(type, id) }.getOrNull() ?: return null
+        synchronized(metaCache) { metaCache[key] = m }
+        return m
+    }
+
+    private suspend fun nativeMeta(type: String, id: String): Meta? {
+        if (com.lekathedon.visionlite.detail.AnimeMeta.isAnimeId(id)) return com.lekathedon.visionlite.detail.AnimeMeta.meta(id, type)
+        val imdb = id.substringBefore(':')
+        val imdbApi = com.lekathedon.visionlite.detail.Imdb
+        if (!imdbApi.isId(imdb)) return null
+        return coroutineScope {
+            val eps = if (type == "series") async { imdbApi.episodes(imdb) } else null
+            val t = imdbApi.title(imdb) ?: return@coroutineScope null
+            val videos = eps?.await().orEmpty().map { e ->
+                Video(id = "$imdb:${e.season}:${e.episode}", title = e.title, name = e.title, season = e.season, episode = e.episode,
+                    released = e.airedMs?.let { java.time.Instant.ofEpochMilli(it).toString() }, thumbnail = e.image, overview = e.plot)
+            }
+            Meta(id = imdb, type = type, name = t.name, poster = t.poster,
+                background = "https://images.metahub.space/background/large/$imdb/img", logo = "https://images.metahub.space/logo/medium/$imdb/img",
+                description = t.plot, releaseInfo = t.year?.let { y -> t.endYear?.let { "$y-$it" } ?: "$y" },
+                imdbRating = t.rating?.toString(), genres = t.genres, runtime = t.runtimeMin?.let { "$it min" },
+                cast = t.cast.map { it.name }, videos = videos)
+        }
     }
 
     data class SourceStreams(val addon: Addon, val streams: List<Stream>, val failed: Boolean)
