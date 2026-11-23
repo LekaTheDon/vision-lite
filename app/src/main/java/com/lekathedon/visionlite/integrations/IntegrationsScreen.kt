@@ -69,18 +69,29 @@ private fun checkText(s: Service): String = when (Integrations.status(s).value) 
 @Composable
 fun Setup(nav: Nav) {
     watchChanges()
-    val steps = Integrations.all.filter { it.fields.isNotEmpty() || it.signIn }
+    // Nuvio is asked first (user 2026-11-23): signing in brings your whole setup from the account, so it isn't a step.
+    val steps = Integrations.all.filter { (it.fields.isNotEmpty() || it.signIn) && it.id != "nuvio" }
     var step by rememberSaveable { mutableStateOf(-1) }
     val first = remember { FocusRequester() }
-    LaunchedEffect(step) { runCatching { first.requestFocus() } }
+    val nuvio = SignIns.signedIn("nuvio")
+    LaunchedEffect(step, nuvio) { runCatching { first.requestFocus() } }
     androidx.activity.compose.BackHandler(enabled = step >= 0) { step-- }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp).verticalScroll(rememberScrollState())) {
         when {
+            step < 0 && !nuvio -> {
+                Title("Do you have a Nuvio account?")
+                Body("Sign in and everything you set up on another device comes back: keys, sign-ins (Trakt, TorBox…), profiles and rows. " +
+                    "No need to go through the services one by one.")
+                Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button("Sign in to Nuvio", { nav.push(Screen.SignIn("nuvio")) }, Modifier.focusRequester(first))
+                    Button("No, set up here", { step = 0 })
+                    Button("Skip all", { Integrations.setupDone.value = true })
+                }
+            }
             step < 0 -> {
-                Title("Integrations and tracking")
-                Body("One page per service: enter its key from your phone, or skip it. Then pick which one drives each group " +
-                    "(for example Trakt or Simkl for Continue Watching) and which others help. Anything off or not set up makes no calls. " +
-                    "All of this stays in Settings → Integrations.")
+                Title("Signed in to Nuvio")
+                Body("Your account has no saved setup yet. Set up the services here once; they're kept in your account, " +
+                    "so other devices get them when you sign in there.")
                 Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button("Start", { step = 0 }, Modifier.focusRequester(first))
                     Button("Skip all", { Integrations.setupDone.value = true })

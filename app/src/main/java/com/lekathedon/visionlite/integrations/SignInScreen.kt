@@ -79,7 +79,7 @@ fun SignInScreen(nav: Nav, id: String) {
             if (nuvio && App.instance.prefs.cloudSetup.value) {
                 msg = "Bringing your setup from your Nuvio account…"
                 val restored = runCatching { com.lekathedon.visionlite.integrations.CloudSetup.pull(firstTime = true) }.getOrDefault(false)
-                if (restored) { msg = "Your setup is back. Restarting…"; kotlinx.coroutines.delay(1200); com.lekathedon.visionlite.integrations.CloudSetup.restart(ctx) }
+                if (restored) { com.lekathedon.visionlite.integrations.Integrations.setupDone.value = true; msg = "Your setup is back. Restarting…"; kotlinx.coroutines.delay(1200); com.lekathedon.visionlite.integrations.CloudSetup.restart(ctx) }
                 else msg = ""
             }
             else nav.pop()
