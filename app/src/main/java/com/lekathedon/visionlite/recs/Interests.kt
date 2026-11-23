@@ -94,7 +94,13 @@ object Interests {
      * region, so a Hollywood film with a British co-producer isn't "British".
      */
     private fun excluded(family: String): Set<String> =
-        setOf("Animation", "Fantasy", "Sci-Fi", "Action", "Adventure") - family - (if (family == "Action" || family == "Sci-Fi") setOf("Adventure") else emptySet())
+        if (family in setOf("Action", "Sci-Fi", "Adventure", "Fantasy", "Animation")) setOf("Animation") - family
+        else setOf("Animation", "Fantasy", "Sci-Fi", "Action", "Adventure") - family
+
+    /** A subgenre's own IMDb genre (its group), so "Psychological Thriller" is a thriller first; null = no check. */
+    private fun parentGenre(n: Int): String? = GROUPS.firstOrNull { n in it.second }?.first?.let {
+        when (it) { "Martial arts" -> "Action"; "Family & Fantasy", "Game shows", "Lifestyle & Music", "Holiday", "Anime & Asian TV" -> null; else -> it }
+    }
     fun fits(family: String, genres: List<String>) = family in genres && genres.none { it in excluded(family) }
     fun madeIn(region: Region, countries: List<String>) = countries.firstOrNull() in region.countries
 
@@ -218,8 +224,8 @@ object Interests {
             "genreConstraint: { allGenreIds: [\"$f\"], excludeGenreIds: [${excluded(f).joinToString(",") { "\"$it\"" }}] } " +
                 "originCountryConstraint: { anyCountries: [${REGIONS.getValue(r).countries.joinToString(",") { "\"$it\"" }}] }"
         } else "interestConstraint: { allInterestIds: [\"$id\"] }"
-        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } }"
-        val q = "{ advancedTitleSearch(first: ${if (id.startsWith("rg:")) 250 else 100}, constraints: { $constraint " +
+        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } titleGenres { genres { genre { text } } } }"
+        val q = "{ advancedTitleSearch(first: 250, constraints: { $constraint " +
             "titleTypeConstraint: { anyTitleTypeIds: [\"movie\", \"tvSeries\", \"tvMiniSeries\"] } " +
             "userRatingsConstraint: { aggregateRatingRange: { min: ${maxOf(min, 6.0f)} }, ratingsCountRange: { min: 2000 } } }, " +
             "sort: { sortBy: POPULARITY, sortOrder: ASC }) { edges { node { $node } } } }"
@@ -229,6 +235,7 @@ object Interests {
         }.getOrNull() ?: return emptyList()
         val edges = d.optJSONObject("data")?.optJSONObject("advancedTitleSearch")?.optJSONArray("edges") ?: return emptyList()
         val region = if (id.startsWith("rg:")) REGIONS[id.split(':')[1]] else null
+        val parent = if (region == null) num(id)?.let(::parentGenre) else null
         return (0 until edges.length()).mapNotNull { i ->
             val t = edges.optJSONObject(i)?.optJSONObject("node")?.optJSONObject("title") ?: return@mapNotNull null
             val tid = t.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
@@ -238,6 +245,10 @@ object Interests {
             val cs = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("id") } }.orEmpty()
             // Regional rows: made there first, not just co-produced there.
             if (region != null && !madeIn(region, cs)) return@mapNotNull null
+            // Subgenre rows: IMDb tags loosely (The Dark Knight is a "Psychological Drama"), so the title must also be
+            // of the subgenre's own genre and not something else on top (an action blockbuster, a fantasy epic).
+            val gs = t.optJSONObject("titleGenres")?.optJSONArray("genres")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optJSONObject("genre")?.optString("text") } }.orEmpty()
+            if (parent != null && gs.isNotEmpty() && !fits(parent, gs)) return@mapNotNull null
             MetaPreview(tid, if (kind == "movie") "movie" else "series", t.optJSONObject("titleText")?.optString("text") ?: return@mapNotNull null,
                 img ?: "https://images.metahub.space/poster/medium/$tid/img", "https://images.metahub.space/background/medium/$tid/img",
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),

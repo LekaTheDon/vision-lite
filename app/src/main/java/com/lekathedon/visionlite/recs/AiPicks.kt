@@ -214,7 +214,32 @@ object AiPicks {
         append("Use the same JSON reply format.")
     }
 
-    private fun ask(a: Ai, prompt: String): List<Sug> {
+    /**
+     * "Because you watched" helper: for each seed, titles closely like it (same kind of story, tone and audience), from
+     * ONE request to your boss AI (else the first with a key). IMDb ids, matched like the picks. Empty when no AI is set.
+     */
+    internal fun alike(hub: Hub, seeds: List<Seed>, per: Int = 12): Map<String, List<String>> {
+        val a = boss()?.takeIf { it.on } ?: configured().firstOrNull() ?: return emptyMap()
+        val prompt = buildString {
+            appendLine("For each title below, list $per real, released titles that are genuinely like it: the same kind of story, " +
+                "genre, tone and audience (not just popular, not just the same actor or country). Prefer the same type (movie or series).")
+            if (hub == Hub.ANIME) appendLine("Anime only.") else appendLine("No anime.")
+            seeds.forEach { appendLine("- ${it.id}: ${it.name} [${if (it.tv) "series" else "movie"}]") }
+            append("Reply with only JSON: {\"picks\": [{\"for\": \"tt… of the title above\", \"title\": string, \"year\": number, " +
+                "\"type\": \"movie\" or \"series\", \"imdb_id\": string (tt…, empty if unsure), \"reason\": \"\"}]}")
+        }
+        val out = runCatching { askFor(a, prompt) }.onFailure { Log.w(TAG, "alike: ${it.message}") }.getOrDefault(emptyList())
+        return out.groupBy({ it.first }, { it.second }).mapValues { (_, l) -> l.mapNotNull { runCatching { resolve(it) }.getOrNull() }.distinct() }
+    }
+
+    /** [ask] keeping each suggestion's "for" (the seed it answers). */
+    private fun askFor(a: Ai, prompt: String): List<Pair<String, Sug>> {
+        val fors = ArrayList<String>()
+        val l = ask(a, prompt, fors)
+        return l.mapIndexedNotNull { i, s -> fors.getOrNull(i)?.takeIf { it.startsWith("tt") }?.let { it to s } }
+    }
+
+    private fun ask(a: Ai, prompt: String, fors: MutableList<String>? = null): List<Sug> {
         val json = "application/json".toMediaType()
         val (req, read) = when (a) {
             Ai.GEMINI -> Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/models/${a.model}:generateContent").header("x-goog-api-key", a.key)
@@ -235,7 +260,9 @@ object AiPicks {
         val t = text.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
         val arr = runCatching { JSONObject(t).optJSONArray("picks") }.getOrNull() ?: runCatching { JSONArray(t) }.getOrNull() ?: return emptyList()
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.mapNotNull { o ->
-            Sug(o.optString("title").trim().ifBlank { return@mapNotNull null }, o.optInt("year").takeIf { it in 1900..2100 },
+            val title = o.optString("title").trim().ifBlank { return@mapNotNull null }
+            fors?.add(o.optString("for").trim())
+            Sug(title, o.optInt("year").takeIf { it in 1900..2100 },
                 o.optString("type").lowercase().let { it == "series" || it == "tv" || it == "show" },
                 o.optString("imdb_id").trim().takeIf { Regex("tt\\d{5,10}").matches(it) }, o.optString("reason").trim().ifBlank { null })
         }

@@ -271,13 +271,94 @@ object Recs {
         val taste = RecsLogic.taste(learned, loved, favs, Interests.weights(hub))
         val picks = RecsLogic.rank(tally, taste, facts)
         val top = picks.take(20).map { it.imdb }.toSet()
-        val because = seeds.filter { it.weight > 0 }.take(BECAUSE_ROWS).map { seed ->
-            val own = results.filter { it.second.id == seed.id }.flatMap { it.third }.map { it.id }.distinct()
-            Because(seed.name, own.mapNotNull { tally[it] }.filter { it.facts.id !in top }.take(BECAUSE_ITEMS).map { simplePick(it) })
-        }.filter { it.picks.size >= 8 }
+        val because = becauseRows(hub, seeds.filter { it.weight > 0 }.take(BECAUSE_ROWS), results, tally, facts, top, now)
         saveFacts(facts, now)
         return Pool(now, sig, picks, because, seeds.count { it.weight > 0 }, RecsLogic.VERSION).also {
             save(hub, it); Log.i(TAG, "${hub.label}: ${seeds.size} seeds → ${picks.size} picks, ${because.size} because rows")
+        }
+    }
+
+    /**
+     * "Because you watched X" (user 2026-11-23: must be accurate): every source that knows X is asked what is like it
+     * (IMDb's More like this, Trakt related, TMDB recommendations, your AI), and each candidate is scored on how many
+     * agree plus how much it shares with X (IMDb genres, subgenres, keywords). A title that shares no genre with X, or
+     * turns it into something else (an animation, fantasy, sci-fi or horror X isn't) with one source behind it, is out.
+     * Cost per rebuild: TMDB 2 + 8 small calls per seed (kept 30 days), ONE AI request for all seeds (kept 7 days), IMDb
+     * facts for the new candidates.
+     */
+    private suspend fun becauseRows(hub: Hub, seeds: List<Seed>, results: List<Triple<Source, Seed, List<Facts>>>,
+                                    tally: Map<String, RecsLogic.Tallied>, facts: MutableMap<String, Facts>, top: Set<String>, now: Long): List<Because> {
+        if (seeds.isEmpty()) return emptyList()
+        val cache = (read("related.json", relSer) ?: emptyMap()).filterValues { now - it.at in 0 until RELATED_MAX_AGE }.toMutableMap()
+        // TMDB recommendations (with your TMDB key).
+        val tmdb: Map<String, List<String>> = if (com.lekathedon.visionlite.home.Tmdb.key() == null) emptyMap() else coroutineScope {
+            seeds.map { s -> async { s.id to (synchronized(cache) { cache["tmdb:${s.id}"] }?.ids
+                ?: gate.withPermit { tmdbAlike(s) }?.also { synchronized(cache) { cache["tmdb:${s.id}"] = RelatedIds(it, now) } }.orEmpty()) } }
+                .awaitAll().toMap()
+        }
+        // Your AI, one request for every seed not asked in the last 7 days.
+        val aiFresh = seeds.filter { cache["ai:${it.id}"]?.takeIf { c -> now - c.at < 7 * 86_400_000L } == null }
+        if (aiFresh.isNotEmpty()) runCatching { AiPicks.alike(hub, aiFresh) }.getOrNull()?.let { m ->
+            if (m.isNotEmpty()) aiFresh.forEach { s -> cache["ai:${s.id}"] = RelatedIds(m[s.id].orEmpty(), now) }
+        }
+        write("related.json", relSer, cache)
+        val ai = seeds.associate { it.id to cache["ai:${it.id}"]?.ids.orEmpty() }
+
+        // Facts (genres, subgenres, keywords) for every candidate not known well enough yet.
+        val bySeed = seeds.associate { s ->
+            val imdb = results.filter { it.first == Source.IMDB && it.second.id == s.id }.flatMap { it.third }.map { it.id }
+            val trakt = results.filter { it.first == Source.TRAKT && it.second.id == s.id }.flatMap { it.third }.map { it.id }
+            s.id to listOf(imdb, trakt, tmdb[s.id].orEmpty(), ai[s.id].orEmpty())
+        }
+        lookUp(bySeed.values.flatten().flatten().distinct().filter { id -> facts[id]?.let { it.full && it.v >= 2 } != true }, facts)
+
+        val ex = seenIds()
+        val min = minImdb()
+        val turns = setOf("Animation", "Fantasy", "Sci-Fi", "Horror", "Documentary", "Family", "Musical")
+        return seeds.mapNotNull { seed ->
+            val sf = facts[seed.id] ?: return@mapNotNull null
+            val (imdb, trakt, tm, aiL) = bySeed.getValue(seed.id)
+            val weights = doubleArrayOf(2.0, 1.0, 1.0, 1.5)
+            val score = HashMap<String, Double>(); val votes = HashMap<String, Int>()
+            listOf(imdb, trakt, tm, aiL).forEachIndexed { src, list ->
+                list.distinct().forEachIndexed { rank, id ->
+                    score.merge(id, weights[src] * (1.0 - rank / (list.size + 5.0)), Double::plus); votes.merge(id, 1, Int::plus)
+                }
+            }
+            val sGenres = sf.genres.toSet(); val sInt = sf.interests.filter { Interests.name(it) != null && !Interests.isBroad(it) }.toSet()
+            val sKw = sf.keywords.map { it.lowercase() }.toSet()
+            val picks = score.keys.mapNotNull { id ->
+                if (id == seed.id || id in ex || id in top) return@mapNotNull null
+                val f = facts[id] ?: return@mapNotNull null
+                if (!Hubs.keepsId(hub, id) || Adult.hidesId(id)) return@mapNotNull null
+                if (min > 0f && (f.rating ?: 0f) < min) return@mapNotNull null
+                val v = votes[id] ?: 0
+                val shared = f.genres.count { it in sGenres }
+                if (sGenres.isNotEmpty() && f.genres.isNotEmpty() && shared == 0) return@mapNotNull null
+                if (v < 2 && f.genres.any { it in turns && it !in sGenres }) return@mapNotNull null
+                val sim = 2.0 * shared / (sGenres.size + f.genres.size - shared).coerceAtLeast(1) +
+                    0.8 * minOf(3, f.interests.count { it in sInt }) + 0.3 * minOf(5, f.keywords.count { it.lowercase() in sKw }) +
+                    (if (f.tv == sf.tv) 0.4 else 0.0)
+                // One source alone must also look like the seed.
+                if (v < 2 && sim < 1.2) return@mapNotNull null
+                val t = tally[id]
+                Pick(f.id, if (f.tv) "series" else "movie", f.name, f.year, f.rating, f.poster, f.genres, seed.name, null, false, maxOf(v, t?.sources ?: 0)) to
+                    (score.getValue(id) + 1.5 * (v - 1) + sim)
+            }.sortedByDescending { it.second }.map { it.first }.take(BECAUSE_ITEMS)
+            Because(seed.name, picks).takeIf { picks.size >= 8 }
+        }
+    }
+
+    /** TMDB's recommendations for an IMDb title, as IMDb ids (find + recommendations + 8 external ids). */
+    private fun tmdbAlike(s: Seed): List<String>? {
+        val T = com.lekathedon.visionlite.home.Tmdb
+        val f = T.get("find/${s.id}?external_source=imdb_id") ?: return null
+        val (kind, id) = f.optJSONArray("tv_results")?.optJSONObject(0)?.let { "tv" to it.optInt("id") }
+            ?: f.optJSONArray("movie_results")?.optJSONObject(0)?.let { "movie" to it.optInt("id") } ?: return emptyList()
+        val recs = T.get("$kind/$id/recommendations")?.optJSONArray("results") ?: return emptyList()
+        return (0 until minOf(8, recs.length())).mapNotNull { i ->
+            val r = recs.optJSONObject(i) ?: return@mapNotNull null
+            T.get("${r.optString("media_type").ifBlank { kind }}/${r.optInt("id")}/external_ids")?.optString("imdb_id")?.takeIf { it.startsWith("tt") }
         }
     }
 

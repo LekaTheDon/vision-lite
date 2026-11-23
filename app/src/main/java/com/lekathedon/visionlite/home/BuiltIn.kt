@@ -654,9 +654,10 @@ object People {
         fun pick(l: List<MetaPreview>) = l.filter { it.id !in seen && (it.imdbRating?.toFloatOrNull()?.let { x -> x >= min } ?: true) && (it.releaseInfo?.toIntOrNull() ?: 0) <= java.time.LocalDate.now().year }
             .map { it to (it.imdbRating?.toDoubleOrNull() ?: 5.0) + r.nextDouble() * 1.5 }
             .sortedByDescending { it.second }.map { it.first }
-        // Where they lead first; small parts only to reach 8 cards (never ahead of a lead role).
+        // Only where they matter (top-billed, a regular, or directed / wrote / created it), user 2026-11-23: a cameo
+        // isn't "because you like" them. Fewer than 5 such titles = no row this time.
         val main = pick(lead)
-        return (if (main.size >= 8) main else main + pick(minor).take(8 - main.size)).take(30)
+        return if (main.size < 5) emptyList() else main.take(30)
     }
 
     private fun small(url: String) = if ("._V1_" in url) url.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else url

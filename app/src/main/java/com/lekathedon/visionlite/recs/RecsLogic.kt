@@ -77,7 +77,7 @@ enum class Kind { LIKED, NOT_FOR_ME, LOVE, LIKE, REWATCHED, STOPPED, FINISHED, W
 
 object RecsLogic {
     /** 2 (0.27): six "because you watched" rows, Love / Like. */
-    const val VERSION = 4
+    const val VERSION = 5  // 5: Because you watched scored by agreement + likeness (all sources), regional + subgenre rows strict
     const val SEEDS = 20
     const val NEGATIVE = 4
     const val MIN_SEEDS = 3
