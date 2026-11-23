@@ -5,6 +5,7 @@ import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.home.Charts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.serialization.builtins.serializer
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -92,7 +93,7 @@ object AniBrowse {
     // minute and a decade page has 54 rails, each its own request). Later pages are asked one by one as you scroll.
     private const val KEEP_MS = 7 * 24 * 3600_000L
     @kotlinx.serialization.Serializable private data class Kept(val at: Long, val items: List<MetaPreview>)
-    private val keptSer = kotlinx.serialization.builtins.MapSerializer(kotlinx.serialization.builtins.serializer<String>(), Kept.serializer())
+    private val keptSer = kotlinx.serialization.builtins.MapSerializer(String.serializer(), Kept.serializer())
     private val keptFile get() = java.io.File(com.lekathedon.visionlite.App.instance.filesDir, "anime_pages.json")
     @Volatile private var kept: MutableMap<String, Kept>? = null
     private val keptLock = Any()
