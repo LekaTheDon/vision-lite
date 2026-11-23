@@ -240,6 +240,28 @@ object SignIns {
         return call(nuvioReq(path, body, tk))
     }
 
+    /**
+     * Keys you saved in Nuvio itself (its provider credentials for [profile]): TorBox, Premiumize, MDBList. They fill
+     * only blank keys here, so a Vision setup from the account is never overwritten. One call, at Nuvio sign-in.
+     */
+    suspend fun importNuvioKeys(profile: Int): Int {
+        val tk = nuvioToken().ifBlank { return 0 }
+        val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_provider_credentials", JSONObject().put("p_profile_id", profile).toString(), tk))
+        if (c !in 200..299) return 0
+        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return 0
+        val map = mapOf("debrid:torbox" to "torbox", "debrid:premiumize" to "premiumize", "mdblist" to "mdblist")
+        var n = 0
+        for (i in 0 until a.length()) {
+            val row = a.optJSONObject(i) ?: continue
+            val id = map[row.optString("provider").lowercase()] ?: continue
+            val key = row.optJSONObject("credential_json")?.optString("api_key").orEmpty().trim()
+            val svc = Integrations.byId(id)
+            if (key.isBlank() || Integrations.isSet(svc)) continue
+            Integrations.save(svc, listOf(key)); n++
+        }
+        return n
+    }
+
     /** The account's profiles: (number, name). */
     suspend fun nuvioProfiles(): List<Pair<Int, String>> {
         val tk = nuvioToken().ifBlank { return emptyList() }
