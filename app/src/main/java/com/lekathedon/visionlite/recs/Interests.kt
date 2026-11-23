@@ -93,7 +93,9 @@ object Interests {
      * (a fantasy epic, a sci-fi blockbuster, an animation) may be there, and the FIRST country of origin must be in the
      * region, so a Hollywood film with a British co-producer isn't "British".
      */
-    private fun excluded(family: String): Set<String> =
+    /** [anime]: the Anime hub, where every title is an animation, so Animation is required, never left out. */
+    private fun excluded(family: String, anime: Boolean = false): Set<String> = excludedAny(family) - (if (anime) setOf("Animation") else emptySet())
+    private fun excludedAny(family: String): Set<String> =
         if (family in setOf("Action", "Sci-Fi", "Adventure", "Fantasy", "Animation")) setOf("Animation") - family
         else setOf("Animation", "Fantasy", "Sci-Fi", "Action", "Adventure") - family
 
@@ -101,7 +103,8 @@ object Interests {
     private fun parentGenre(n: Int): String? = GROUPS.firstOrNull { n in it.second }?.first?.let {
         when (it) { "Martial arts" -> "Action"; "Family & Fantasy", "Game shows", "Lifestyle & Music", "Holiday", "Anime & Asian TV" -> null; else -> it }
     }
-    fun fits(family: String, genres: List<String>) = family in genres && genres.none { it in excluded(family) }
+    fun fits(family: String, genres: List<String>, anime: Boolean = false) =
+        family in genres && genres.none { it in excluded(family, anime) } && (!anime || "Animation" in genres)
     fun madeIn(region: Region, countries: List<String>) = countries.firstOrNull() in region.countries
 
     private val SPECIAL = mapOf("NORDIC:Crime" to "Nordic Noir", "BRITISH:Crime" to "British Crime Drama", "SPANISH:Crime" to "Spanish Crime",
@@ -159,7 +162,7 @@ object Interests {
         items.filter { it.second > 0 }.forEach { (f, w) ->
             REGIONS.forEach { (rk, r) ->
                 if (!madeIn(r, f.countries)) return@forEach
-                FAMILIES.keys.forEach { fk -> if (fits(fk, f.genres)) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
+                FAMILIES.keys.forEach { fk -> if (fits(fk, f.genres, hub == Hub.ANIME)) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
             }
         }
         // Broad genres left out (Home has their tiles); a subgenre or a regional one is what gets a row.
@@ -209,19 +212,21 @@ object Interests {
      * saved or turned down; titles from the countries you watch most lifted, shuffled a little every 12 hours.
      */
     suspend fun row(hub: Hub, id: String, at: Long = System.currentTimeMillis()): List<MetaPreview> = withContext(Dispatchers.IO) {
-        val all = cache[id] ?: search(id, Recs.minImdb()).also { if (it.isNotEmpty()) cache[id] = it }
+        val ck = "${hub.name}|$id"
+        val all = cache[ck] ?: search(id, Recs.minImdb(), hub == Hub.ANIME).also { if (it.isNotEmpty()) cache[ck] = it }
         val seen = Recs.seenIds()
         val c = countries(hub)
         val r = java.util.Random(at / (12 * 3600_000L) + id.hashCode())
-        all.filter { it.first.id !in seen }
+        // This hub's titles only (Anime gets anime, Films & TV never does).
+        all.filter { it.first.id !in seen && com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.first.id) }
             .map { (m, cs) -> m to (m.imdbRating?.toDoubleOrNull() ?: 6.0) + 2.0 * (cs.maxOfOrNull { c[it] ?: 0.0 } ?: 0.0) + r.nextDouble() * 1.2 }
             .sortedByDescending { it.second }.map { it.first }.take(30)
     }
 
-    private fun search(id: String, min: Float): List<Pair<MetaPreview, List<String>>> {
+    private fun search(id: String, min: Float, anime: Boolean): List<Pair<MetaPreview, List<String>>> {
         val constraint = if (id.startsWith("rg:")) {
             val (_, r, f) = id.split(':')
-            "genreConstraint: { allGenreIds: [\"$f\"], excludeGenreIds: [${excluded(f).joinToString(",") { "\"$it\"" }}] } " +
+            "genreConstraint: { allGenreIds: [\"$f\"${if (anime) ", \"Animation\"" else ""}], excludeGenreIds: [${excluded(f, anime).joinToString(",") { "\"$it\"" }}] } " +
                 "originCountryConstraint: { anyCountries: [${REGIONS.getValue(r).countries.joinToString(",") { "\"$it\"" }}] }"
         } else "interestConstraint: { allInterestIds: [\"$id\"] }"
         val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } titleGenres { genres { genre { text } } } }"
@@ -248,7 +253,7 @@ object Interests {
             // Subgenre rows: IMDb tags loosely (The Dark Knight is a "Psychological Drama"), so the title must also be
             // of the subgenre's own genre and not something else on top (an action blockbuster, a fantasy epic).
             val gs = t.optJSONObject("titleGenres")?.optJSONArray("genres")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optJSONObject("genre")?.optString("text") } }.orEmpty()
-            if (parent != null && gs.isNotEmpty() && !fits(parent, gs)) return@mapNotNull null
+            if (parent != null && gs.isNotEmpty() && !fits(parent, gs, anime)) return@mapNotNull null
             MetaPreview(tid, if (kind == "movie") "movie" else "series", t.optJSONObject("titleText")?.optString("text") ?: return@mapNotNull null,
                 img ?: "https://images.metahub.space/poster/medium/$tid/img", "https://images.metahub.space/background/medium/$tid/img",
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),

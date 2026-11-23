@@ -656,7 +656,8 @@ object People {
             .sortedByDescending { it.second }.map { it.first }
         // Only where they matter (top-billed, a regular, or directed / wrote / created it), user 2026-11-23: a cameo
         // isn't "because you like" them. Fewer than 5 such titles = no row this time.
-        val main = pick(lead)
+        // Only this hub's titles count (a voice actor's anime in Anime, their live-action in Films & TV).
+        val main = pick(lead).filter { com.lekathedon.visionlite.anime.AnimeIds.isAnime(it.id) == (p.hub == "ANIME") }
         return if (main.size < 5) emptyList() else main.take(30)
     }
 
