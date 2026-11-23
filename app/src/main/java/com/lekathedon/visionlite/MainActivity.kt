@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.lekathedon.visionlite.link.LinkService.sync(this)
+        com.lekathedon.visionlite.integrations.CloudSetup.start()
         val app = application as App
         // Vision: the window paints nothing itself (the pages draw their own background), so the player can leave the
         // bars around the film unpainted and the TV shows its true black there (True black bars).

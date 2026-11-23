@@ -435,6 +435,19 @@ fun Settings(nav: Nav, start: String? = null) {
         }
         row { m -> Link("Add a profile", "Starts empty: its own sign-ins, library and settings (This TV and data keys are shared)", m, value = "+") {
             nav.push(Screen.ProfileEdit(com.lekathedon.visionlite.data.Profiles.add("").id)) } }
+        row { m -> Toggle("Keep my setup in my Nuvio account", "Keys, sign-ins, profiles and rows come back on any device you sign in to Nuvio on (This TV's picture and sound settings stay on each box)",
+            App.instance.prefs.cloudSetup, m) }
+        row { m ->
+            var note by remember { mutableStateOf("") }
+            val last = com.lekathedon.visionlite.integrations.CloudSetup.lastSync()
+            Link("Sync my setup now", if (last == 0L) "Not synced yet" else "Last synced " + android.text.format.DateUtils.getRelativeTimeSpanString(last), m, value = note.ifBlank { "›" }) {
+                scope.launch {
+                    if (!com.lekathedon.visionlite.integrations.SignIns.signedIn("nuvio")) { note = "Sign in to Nuvio first"; return@launch }
+                    note = "…"
+                    note = if (runCatching { com.lekathedon.visionlite.integrations.CloudSetup.push() }.getOrDefault(false)) "Synced" else "Couldn't reach Nuvio"
+                }
+            }
+        }
         row { m ->
             var note by remember { mutableStateOf("") }
             Link("Bring in Nuvio's profiles", "Your Nuvio account's profiles as Lite profiles: name, picture, and each follows its own Nuvio profile", m,

@@ -164,6 +164,8 @@ class Prefs(context: Context) {
     /** VOD categories you picked as Home rows (iptv/VodArabic keys, one per line), per profile. None by default (user
      *  2026-11-23: "VOD rows shouldn't appear by default … I'll choose which ones"); empty = no reads, no TMDB matching. */
     val vodRows = Text("vod_rows", "")
+    /** Keep this setup in the Nuvio account (integrations/CloudSetup), box-wide; on = restored on any device you sign in on. */
+    val cloudSetup = Flag("cloud_setup", true)
     /** Rotating rows (home/Rotation.kt): a fresh set of themed rows under your own every start. */
     val rotation = Flag("home_rotation", true)
     // Library + search

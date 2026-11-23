@@ -234,6 +234,12 @@ object SignIns {
         return fresh
     }
 
+    /** An account call with a live token (CloudSetup); (0, "") when not signed in. */
+    internal suspend fun nuvioCall(path: String, body: String): Pair<Int, String> {
+        val tk = nuvioToken().ifBlank { return 0 to "" }
+        return call(nuvioReq(path, body, tk))
+    }
+
     /** The account's profiles: (number, name). */
     suspend fun nuvioProfiles(): List<Pair<Int, String>> {
         val tk = nuvioToken().ifBlank { return emptyList() }

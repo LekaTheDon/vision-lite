@@ -38,6 +38,7 @@ fun SignInScreen(nav: Nav, id: String) {
     val s = Integrations.byId(id)
     val scope = rememberCoroutineScope()
     var msg by remember { mutableStateOf("") }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var round by remember { mutableStateOf(0) }
     var code by remember { mutableStateOf<SignIns.Code?>(null) }
     var pasting by remember { mutableStateOf(false) }
@@ -74,6 +75,13 @@ fun SignInScreen(nav: Nav, id: String) {
             Integrations.touch()
             if (nuvio) App.instance.prefs.sp.edit().putBoolean("comingup_v3", false).apply()
             if (nuvio) { profiles = SignIns.nuvioProfiles(); profiles.firstOrNull()?.let { if (SignIns.nuvioProfileName().isBlank()) SignIns.setNuvioProfile(it.first, it.second) } }
+            // Your setup from the account (keys, sign-ins, profiles, rows): taken whole, then the app starts fresh with it.
+            if (nuvio && App.instance.prefs.cloudSetup.value) {
+                msg = "Bringing your setup from your Nuvio account…"
+                val restored = runCatching { com.lekathedon.visionlite.integrations.CloudSetup.pull(firstTime = true) }.getOrDefault(false)
+                if (restored) { msg = "Your setup is back. Restarting…"; kotlinx.coroutines.delay(1200); com.lekathedon.visionlite.integrations.CloudSetup.restart(ctx) }
+                else msg = ""
+            }
             else nav.pop()
         } else { code = null; msg = "The code expired or was refused. Try again." }
     }
