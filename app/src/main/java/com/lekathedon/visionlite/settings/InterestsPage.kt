@@ -42,8 +42,9 @@ fun InterestsPage() {
     LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("Your interests", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("What you watch most, learned from your history and ratings. Like any genre to give it a row of its own " +
-                "(\"Because you like …\") and more weight in Vision Picks. ♥ = liked.", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+            Text("The subgenres you watch most, learned from your history and ratings, each gets a \"Because you like …\" row " +
+                "(broad genres like Crime have their tiles on Home). Like one to give it a row for sure; liking a broad genre " +
+                "brings your favourite subgenres of it. ♥ = liked.", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
         }
         item {
             Text("Learned from your watching", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -54,6 +55,14 @@ fun InterestsPage() {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
                 items(learned.take(15), key = { it.id }) { l ->
                     Button(label(l.id) + "  · ${l.titles}", { Interests.toggle(l.id) }, if (l == learned.first()) Modifier.focusRequester(first) else Modifier)
+                }
+            }
+        }
+        item { Text("By region", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp)) }
+        Interests.REGIONS.keys.forEach { r ->
+            item(key = "rg:$r") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    items(Interests.FAMILIES.keys.toList(), key = { it }) { f -> val id = Interests.regional(r, f); Button(label(id), { Interests.toggle(id) }) }
                 }
             }
         }

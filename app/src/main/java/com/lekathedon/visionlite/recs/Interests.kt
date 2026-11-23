@@ -68,9 +68,47 @@ object Interests {
         "Western" to 187..191, "Holiday" to 192..196, "Martial arts" to 197..200, "Anime & Asian TV" to 201..210
     )
 
+    /**
+     * Regional subgenres (user 2026-11-23: "I like crime, but it's too broad: Nordic Noir is what I mean"): a genre
+     * family as made in one part of the world, learned when you keep watching it ("rg:NORDIC:Crime" = Nordic Noir).
+     */
+    class Region(val adj: String, val countries: List<String>)
+    val REGIONS: Map<String, Region> = linkedMapOf(
+        "NORDIC" to Region("Nordic", listOf("SE", "DK", "NO", "FI", "IS")), "BRITISH" to Region("British", listOf("GB", "IE")),
+        "KOREAN" to Region("Korean", listOf("KR")), "JAPANESE" to Region("Japanese", listOf("JP")), "SPANISH" to Region("Spanish", listOf("ES")),
+        "LATAM" to Region("Latin American", listOf("MX", "AR", "CO", "BR", "CL")), "FRENCH" to Region("French", listOf("FR", "BE")),
+        "ITALIAN" to Region("Italian", listOf("IT")), "GERMAN" to Region("German", listOf("DE", "AT")), "TURKISH" to Region("Turkish", listOf("TR")),
+        "ARABIC" to Region("Arabic", listOf("EG", "SA", "AE", "LB", "SY", "JO", "KW", "QA", "MA", "TN", "IQ", "BH", "OM")),
+        "INDIAN" to Region("Indian", listOf("IN")), "AUSSIE" to Region("Australian", listOf("AU", "NZ"))
+    )
+    /** Genre families: the interests that make each (crime takes mystery and serial killers along). */
+    val FAMILIES: Map<String, List<Int>> = linkedMapOf(
+        "Crime" to (50..58).toList() + (136..141).toList() + 183, "Thriller" to (176..186).toList(), "Drama" to (72..91).toList(),
+        "Comedy" to (31..49).toList(), "Horror" to (108..122).toList(), "Romance" to (149..156).toList(), "Action" to (1..11).toList(),
+        "Sci-Fi" to (157..166).toList()
+    )
+    private val SPECIAL = mapOf("NORDIC:Crime" to "Nordic Noir", "BRITISH:Crime" to "British Crime Drama", "SPANISH:Crime" to "Spanish Crime",
+        "KOREAN:Thriller" to "Korean Thriller", "ITALIAN:Crime" to "Italian Crime", "FRENCH:Crime" to "French Polar", "JAPANESE:Horror" to "J-Horror",
+        "KOREAN:Drama" to "K-Drama", "TURKISH:Drama" to "Turkish Drama", "ARABIC:Drama" to "Arabic Drama", "ARABIC:Comedy" to "Arabic Comedy")
+    fun regional(region: String, family: String) = "rg:$region:$family"
+
     fun id(n: Int) = "in%07d".format(n)
-    fun num(id: String) = id.removePrefix("in").toIntOrNull()
-    fun name(id: String): String? = num(id)?.let { NAMES[it] }
+    fun num(id: String) = if (id.startsWith("in")) id.removePrefix("in").toIntOrNull() else null
+    fun name(id: String): String? {
+        if (id.startsWith("rg:")) {
+            val (_, r, f) = id.split(':').takeIf { it.size == 3 } ?: return null
+            val reg = REGIONS[r] ?: return null
+            if (f !in FAMILIES) return null
+            return SPECIAL["$r:$f"] ?: "${reg.adj} $f"
+        }
+        return num(id)?.let { NAMES[it] }
+    }
+    /** Broad genres (Crime, Drama…) never get a row: Home has their tiles. A liked one asks for your subgenres of it. */
+    fun isBroad(id: String) = num(id) in BROAD
+    private fun familyOf(id: String): String? = when {
+        id.startsWith("rg:") -> id.split(':').getOrNull(2)
+        else -> num(id)?.let { n -> FAMILIES.entries.firstOrNull { n in it.value }?.key }
+    }
     fun inGroup(r: IntRange): List<String> = r.filter { it in NAMES }.map(::id)
 
     private val sp get() = App.instance.prefs.sp
@@ -99,7 +137,18 @@ object Interests {
             if (w > 0) { total += w; f.countries.forEach { ctry.merge(it, w, Double::plus) } }
         }
         if (score.isEmpty()) return
-        val list = score.entries.map { (i, s) -> Learned(i, s * (if (num(i) in BROAD) 0.33 else 1.0), count[i] ?: 0) }
+        // Regional subgenres: titles of a family (any of its interests) made in one region.
+        val rScore = HashMap<String, Double>(); val rCount = HashMap<String, Int>()
+        items.filter { it.second > 0 }.forEach { (f, w) ->
+            val nums = f.interests.mapNotNull(::num).toSet()
+            REGIONS.forEach { (rk, r) ->
+                if (f.countries.none { it in r.countries }) return@forEach
+                FAMILIES.forEach { (fk, ids) -> if (ids.any { it in nums }) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
+            }
+        }
+        // Broad genres left out (Home has their tiles); a subgenre or a regional one is what gets a row.
+        val list = (score.entries.filter { num(it.key) !in BROAD }.map { (i, s) -> Learned(i, s, count[i] ?: 0) } +
+            rScore.map { (k, s) -> Learned(k, s * 1.2, rCount[k] ?: 0) })
             .filter { it.score > 0 && it.titles >= 3 }.sortedByDescending { it.score }.take(40)
         val o = JSONObject()
         o.put("i", JSONArray(list.map { JSONObject().put("id", it.id).put("s", it.score).put("n", it.titles) }))
@@ -120,14 +169,18 @@ object Interests {
     /** For the engine's scoring: learned (0..1 of the strongest) with liked ones at 1. */
     fun weights(hub: Hub): Map<String, Double> {
         val l = learned(hub); val top = l.firstOrNull()?.score?.coerceAtLeast(1e-6) ?: 1.0
-        return l.associate { it.id to it.score / top } + liked().associateWith { 1.0 }
+        return l.filter { it.id.startsWith("in") }.associate { it.id to it.score / top } + liked().filter { it.startsWith("in") }.associateWith { 1.0 }
     }
 
     /** The [n] genres Home follows now: from your liked ones and your 6 strongest, a different few every 12 hours. */
     fun now(hub: Hub, n: Int, at: Long = System.currentTimeMillis()): List<String> {
         val anime = hub == Hub.ANIME
-        val mine = liked().filter { (num(it) in 201..210) == anime }
-        val pool = (mine + learned(hub).map { it.id }.take(6)).distinct()
+        val learned = learned(hub)
+        val mine = liked().filter { (num(it) in 201..210) == anime }.flatMap { l ->
+            // A liked broad genre (Crime): your strongest subgenres of it instead (Police Procedural, Nordic Noir…).
+            if (!isBroad(l)) listOf(l) else learned.filter { familyOf(it.id) == familyOf(l) }.take(3).map { it.id }
+        }
+        val pool = (mine + learned.map { it.id }.take(6)).filter { !isBroad(it) }.distinct()
         if (pool.size <= n) return pool
         return pool.shuffled(java.util.Random(at / (12 * 3600_000L) * 37 + hub.ordinal)).take(n)
     }
@@ -150,8 +203,13 @@ object Interests {
     }
 
     private fun search(id: String, min: Float): List<Pair<MetaPreview, List<String>>> {
+        val constraint = if (id.startsWith("rg:")) {
+            val (_, r, f) = id.split(':')
+            "interestConstraint: { anyInterestIds: [${FAMILIES.getValue(f).joinToString(",") { "\"${Interests.id(it)}\"" }}] } " +
+                "originCountryConstraint: { anyCountries: [${REGIONS.getValue(r).countries.joinToString(",") { "\"$it\"" }}] }"
+        } else "interestConstraint: { allInterestIds: [\"$id\"] }"
         val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } }"
-        val q = "{ advancedTitleSearch(first: 100, constraints: { interestConstraint: { allInterestIds: [\"$id\"] } " +
+        val q = "{ advancedTitleSearch(first: 100, constraints: { $constraint " +
             "titleTypeConstraint: { anyTitleTypeIds: [\"movie\", \"tvSeries\", \"tvMiniSeries\"] } " +
             "userRatingsConstraint: { aggregateRatingRange: { min: ${maxOf(min, 6.0f)} }, ratingsCountRange: { min: 2000 } } }, " +
             "sort: { sortBy: POPULARITY, sortOrder: ASC }) { edges { node { $node } } } }"
