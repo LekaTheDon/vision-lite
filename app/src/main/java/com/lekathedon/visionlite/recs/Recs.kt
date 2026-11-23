@@ -267,7 +267,8 @@ object Recs {
         val loved = signals.filter { it.kind == Kind.LOVE || it.kind == Kind.LIKED }.map { it.id }.toSet()
         // Your genres (IMDb interests): learned from these seeds, plus the ones you liked yourself (Interests page).
         val learned = seeds.mapNotNull { s -> facts[s.id]?.takeIf { it.full }?.let { it to s.weight } }
-        Interests.learn(hub, learned)
+        if (hub == Hub.ANIME) runCatching { com.lekathedon.visionlite.anime.MalGenres.learn(learned.map { it.first.id to it.second }) }
+        else Interests.learn(hub, learned)
         val taste = RecsLogic.taste(learned, loved, favs, Interests.weights(hub))
         val picks = RecsLogic.rank(tally, taste, facts)
         val top = picks.take(20).map { it.imdb }.toSet()

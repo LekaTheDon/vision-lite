@@ -146,11 +146,13 @@ object AnimeIds {
         runCatching {
             val out = ArrayList<String>(12_000)
             val lc = ArrayList<String>(13_000)
+            val mal = ArrayList<String>(20_000)
             Net.http.newCall(Request.Builder().url(SOURCE).build()).execute().use { r ->
                 if (!r.isSuccessful) return@runCatching
-                JsonReader(r.body!!.charStream()).use { j -> read(j, out, lc) }
+                JsonReader(r.body!!.charStream()).use { j -> read(j, out, lc, mal) }
             }
             if (out.size < 5_000) return@runCatching   // a cut-off download never replaces the list
+            if (mal.size > 5_000) File(malFile.path + ".tmp").apply { writeText(mal.joinToString("\n")) }.renameTo(malFile)
             if (lc.size > 1_000) { File(lcFile.path + ".tmp").apply { writeText(lc.joinToString("\n")) }.renameTo(lcFile); lcMap = null }
             File(file.path + ".tmp").apply { writeText(out.joinToString("\n")) }.renameTo(file)
             index = parse(out); _changed.value++
@@ -162,6 +164,8 @@ object AnimeIds {
     // ---- LiveChart.me ids (its feeds name shows by its own id): "livechart anilist:N" / "mal:N" / "kitsu:N", from the
     // same weekly download (~12k lines, ~250 KB file; loaded only when the LiveChart row is drawn, ~1 MB map).
     private val lcFile get() = File(App.instance.filesDir, "livechart_ids.txt")
+    /** MAL id ↔ IMDb / TMDB ("mal tt123|- tv:N|movie:N|-"), same weekly download; the Anime hub's MAL genres use it. */
+    internal val malFile get() = File(App.instance.filesDir, "mal_ids.txt")
     @Volatile private var lcMap: Map<Int, String>? = null
 
     /** The anime-site id for a LiveChart id (first use without the file downloads the list once). */
@@ -172,11 +176,12 @@ object AnimeIds {
         ids.mapNotNull { id -> m[id]?.let { id to it } }.toMap()
     }
 
-    private fun read(j: JsonReader, out: MutableList<String>, lc: MutableList<String>) {
+    private fun read(j: JsonReader, out: MutableList<String>, lc: MutableList<String>, malOut: MutableList<String>) {
         j.beginArray()
         while (j.hasNext()) {
             j.beginObject()
             var liveChart = 0L; var anilist = 0L; var mal = 0L; var kitsu = 0L
+            var imdb1: String? = null; var tmdb1: String? = null
             while (j.hasNext()) {
                 when (j.nextName()) {
                     "livechart_id" -> if (j.peek() == JsonToken.NUMBER) liveChart = j.nextLong() else j.skipValue()
@@ -184,13 +189,13 @@ object AnimeIds {
                     "mal_id" -> if (j.peek() == JsonToken.NUMBER) mal = j.nextLong() else j.skipValue()
                     "kitsu_id" -> if (j.peek() == JsonToken.NUMBER) kitsu = j.nextLong() else j.skipValue()
                     "imdb_id" -> if (j.peek() == JsonToken.BEGIN_ARRAY) {
-                        j.beginArray(); while (j.hasNext()) { if (j.peek() == JsonToken.STRING) j.nextString().takeIf { it.startsWith("tt") }?.let(out::add) else j.skipValue() }; j.endArray()
-                    } else if (j.peek() == JsonToken.STRING) j.nextString().takeIf { it.startsWith("tt") }?.let(out::add) else j.skipValue()
+                        j.beginArray(); while (j.hasNext()) { if (j.peek() == JsonToken.STRING) j.nextString().takeIf { it.startsWith("tt") }?.let { out += it; if (imdb1 == null) imdb1 = it } else j.skipValue() }; j.endArray()
+                    } else if (j.peek() == JsonToken.STRING) j.nextString().takeIf { it.startsWith("tt") }?.let { out += it; if (imdb1 == null) imdb1 = it } else j.skipValue()
                     "themoviedb_id" -> if (j.peek() == JsonToken.BEGIN_OBJECT) {
                         j.beginObject()
                         while (j.hasNext()) {
                             val k = j.nextName()
-                            if ((k == "tv" || k == "movie") && j.peek() == JsonToken.NUMBER) out += "$k:${j.nextLong()}" else j.skipValue()
+                            if ((k == "tv" || k == "movie") && j.peek() == JsonToken.NUMBER) { val t = "$k:${j.nextLong()}"; out += t; if (tmdb1 == null) tmdb1 = t } else j.skipValue()
                         }
                         j.endObject()
                     } else j.skipValue()
@@ -198,6 +203,7 @@ object AnimeIds {
                 }
             }
             j.endObject()
+            if (mal > 0 && (imdb1 != null || tmdb1 != null)) malOut += "$mal ${imdb1 ?: "-"} ${tmdb1 ?: "-"}"
             if (liveChart > 0) when {
                 anilist > 0 -> lc += "$liveChart anilist:$anilist"
                 mal > 0 -> lc += "$liveChart mal:$mal"

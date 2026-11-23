@@ -115,6 +115,7 @@ object Interests {
     fun id(n: Int) = "in%07d".format(n)
     fun num(id: String) = if (id.startsWith("in")) id.removePrefix("in").toIntOrNull() else null
     fun name(id: String): String? {
+        if (com.lekathedon.visionlite.anime.MalGenres.isMal(id)) return com.lekathedon.visionlite.anime.MalGenres.name(id)
         if (id.startsWith("rg:")) {
             val (_, r, f) = id.split(':').takeIf { it.size == 3 } ?: return null
             val reg = REGIONS[r] ?: return null
@@ -148,6 +149,7 @@ object Interests {
 
     /** From the engine's seeds (full facts, weight): each interest's weight, how many titles carry it, your countries. */
     fun learn(hub: Hub, items: List<Pair<Facts, Double>>) {
+        if (hub == Hub.ANIME) return   // the Anime hub learns MyAnimeList's genres instead (MalGenres)
         val score = HashMap<String, Double>(); val count = HashMap<String, Int>(); val ctry = HashMap<String, Double>()
         var total = 0.0
         items.forEach { (f, w) ->
@@ -176,6 +178,13 @@ object Interests {
         _changed.value++
     }
 
+    /** Saves a hub's learned list (MalGenres for the Anime hub). */
+    fun store(hub: Hub, list: List<Learned>) {
+        val o = JSONObject().put("i", JSONArray(list.map { JSONObject().put("id", it.id).put("s", it.score).put("n", it.titles) }))
+        sp.edit().putString("interests_learned${hub.suffix}", o.toString()).apply()
+        _changed.value++
+    }
+
     private fun stored(hub: Hub): JSONObject? = runCatching { JSONObject(sp.getString("interests_learned${hub.suffix}", null) ?: return null) }.getOrNull()
 
     /** Your genres, strongest first (learned; none until the engine has built once with this version). */
@@ -195,11 +204,12 @@ object Interests {
     fun now(hub: Hub, n: Int, at: Long = System.currentTimeMillis()): List<String> {
         val anime = hub == Hub.ANIME
         val learned = learned(hub)
-        val mine = liked().filter { (num(it) in 201..210) == anime }.flatMap { l ->
+        // Anime: MyAnimeList's genres (mg:…); Films & TV: IMDb's (and the regional ones).
+        val mine = liked().filter { com.lekathedon.visionlite.anime.MalGenres.isMal(it) == anime && (anime || num(it) !in 201..208) }.flatMap { l ->
             // A liked broad genre (Crime): your strongest subgenres of it instead (Police Procedural, Nordic Noir…).
             if (!isBroad(l)) listOf(l) else learned.filter { familyOf(it.id) == familyOf(l) }.take(3).map { it.id }
         }
-        val pool = (mine + learned.map { it.id }.take(6)).filter { !isBroad(it) }.distinct()
+        val pool = (mine + learned.map { it.id }.filter { com.lekathedon.visionlite.anime.MalGenres.isMal(it) == anime }.take(6)).filter { !isBroad(it) }.distinct()
         if (pool.size <= n) return pool
         return pool.shuffled(java.util.Random(at / (12 * 3600_000L) * 37 + hub.ordinal)).take(n)
     }
@@ -212,6 +222,7 @@ object Interests {
      * saved or turned down; titles from the countries you watch most lifted, shuffled a little every 12 hours.
      */
     suspend fun row(hub: Hub, id: String, at: Long = System.currentTimeMillis()): List<MetaPreview> = withContext(Dispatchers.IO) {
+        if (com.lekathedon.visionlite.anime.MalGenres.isMal(id)) return@withContext com.lekathedon.visionlite.anime.MalGenres.row(id, at)
         val ck = "${hub.name}|$id"
         val all = cache[ck] ?: search(id, Recs.minImdb(), hub == Hub.ANIME).also { if (it.isNotEmpty()) cache[ck] = it }
         val seen = Recs.seenIds()

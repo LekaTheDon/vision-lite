@@ -58,6 +58,20 @@ fun InterestsPage() {
                 }
             }
         }
+        if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) {
+            // Anime: MyAnimeList's own Genres, Themes and Demographics.
+            com.lekathedon.visionlite.anime.MalGenres.GROUPS.forEach { (group, ids) ->
+                item(key = "mal:$group") {
+                    Text(group, color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                        items(ids, key = { it }) { id ->
+                            Button(label(id), { Interests.toggle(id) }, if (learned.isEmpty() && group == "Genres" && id == ids.first()) Modifier.focusRequester(first) else Modifier)
+                        }
+                    }
+                }
+            }
+            return@LazyColumn
+        }
         item { Text("By region", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp)) }
         Interests.REGIONS.keys.forEach { r ->
             item(key = "rg:$r") {
