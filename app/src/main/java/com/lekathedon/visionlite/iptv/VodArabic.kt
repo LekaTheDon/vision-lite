@@ -63,33 +63,41 @@ object VodArabic {
     private fun query(name: String) = name.replace(NOISE, " ").replace(YEAR, " ").replace(Regex("[\\-_|:.]+"), " ").replace(Regex("\\s+"), " ").trim()
 
     /** A row's first 40 titles as cards; [matched] = after TMDB matching (two passes: VOD cards at once, matched next). */
-    fun cards(g: Group, matchNow: Boolean): List<MetaPreview> = Vod.items(g.kind, g.grp, 0, 40).map { v ->
+    fun cards(g: Group, matchNow: Boolean): List<MetaPreview> = Vod.items(g.kind, g.grp, 0, 40).map(::card)
+
+    /** A VOD title as a card: its TMDB title (poster, backdrop) once matched, the playlist's own copy before. Reads vod.db. */
+    fun card(v: VodItem): MetaPreview {
         val m = Vod.metaGet(mapKey(v))?.takeIf { it.isNotEmpty() && it != "-" }
-        val type = if (g.kind == "series") "series" else "movie"
-        if (m != null) {
-            val (tm, poster) = m.split('\n', limit = 2).let { it[0] to it.getOrNull(1)?.ifBlank { null } }
-            MetaPreview(tm, type, v.name.replace(NOISE, " ").trim().ifBlank { v.name }, poster ?: v.poster, releaseInfo = YEAR.find(v.name)?.value)
+        val type = if (v.kind == "series") "series" else "movie"
+        return if (m != null) {
+            val p = m.split('\n')
+            MetaPreview(p[0], type, v.name.replace(NOISE, " ").trim().ifBlank { v.name }, p.getOrNull(1)?.ifBlank { null } ?: v.poster,
+                background = p.getOrNull(2)?.ifBlank { null }, releaseInfo = YEAR.find(v.name)?.value)
         } else MetaPreview(vodId(v), type, v.name, v.poster, releaseInfo = YEAR.find(v.name)?.value)
     }
 
     private fun mapKey(v: VodItem) = "tm|${v.pl}|${v.kind}|${v.id}"
 
-    /** Matches this row's unmatched titles to TMDB (Arabic search; saved, never asked again). False = no TMDB key. */
-    suspend fun match(g: Group): Boolean = withContext(Dispatchers.IO) {
+    /** Matches this row's unmatched titles to TMDB (saved, never asked again). False = no TMDB key. */
+    suspend fun match(g: Group): Boolean = match(Vod.items(g.kind, g.grp, 0, 40))
+
+    /** Matches [items] not matched yet to TMDB: Arabic search for Arabic names, English otherwise. */
+    suspend fun match(items: List<VodItem>): Boolean = withContext(Dispatchers.IO) {
         if (Tmdb.key() == null) return@withContext false
-        val todo = Vod.items(g.kind, g.grp, 0, 40).filter { Vod.metaGet(mapKey(it)) == null }
+        val todo = items.filter { Vod.metaGet(mapKey(it)) == null }
         val gate = Semaphore(4)
         coroutineScope {
             todo.map { v -> async { gate.withPermit {
                 val q = query(v.name).takeIf { it.length >= 2 } ?: return@withPermit Vod.metaPut(mapKey(v), "-")
                 val tv = v.kind == "series"
                 val y = YEAR.find(v.name)?.value
-                val path = "search/${if (tv) "tv" else "movie"}?language=ar&query=${URLEncoder.encode(q, "UTF-8")}" +
+                val lang = if (ARABIC.containsMatchIn(v.name)) "ar" else "en-US"
+                val path = "search/${if (tv) "tv" else "movie"}?language=$lang&query=${URLEncoder.encode(q, "UTF-8")}" +
                     (if (y != null) (if (tv) "&first_air_date_year=$y" else "&year=$y") else "")
                 val o = Tmdb.get(path) ?: return@withPermit // network trouble: try again next time
                 val r = o.optJSONArray("results").objects().firstOrNull() ?: return@withPermit Vod.metaPut(mapKey(v), "-")
                 val id = "tmdb:${if (tv) "tv" else "movie"}:${r.optInt("id")}"
-                Vod.metaPut(mapKey(v), id + "\n" + (Tmdb.img(r.optString("poster_path"), "w342") ?: ""))
+                Vod.metaPut(mapKey(v), id + "\n" + (Tmdb.img(r.optString("poster_path"), "w342") ?: "") + "\n" + (Tmdb.img(r.optString("backdrop_path"), "w780") ?: ""))
                 Vod.metaPut("vodtm|$id", "${v.pl}|${v.kind}|${v.id}")
             } } }.awaitAll()
         }

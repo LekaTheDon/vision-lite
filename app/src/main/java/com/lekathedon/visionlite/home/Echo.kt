@@ -1164,7 +1164,9 @@ fun PageRow(
                 .focusGroup()
                 .onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && slots.last >= metas.size - 1 && metas.isNotEmpty() },
             state = state,
-            contentPadding = PaddingValues(end = 600.dp),
+            // A full screen of room after the last card (600 dp wasn't): the last card can rest on the left like every
+            // other, instead of the row stopping short and the previous card's shrink pulling it half off-screen.
+            contentPadding = PaddingValues(end = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp),
             horizontalArrangement = Arrangement.spacedBy(dims.gap)
         ) {
             if (metas.isEmpty()) item(key = "loading") { Slot(0) { LoadingCard(key, dims.posterWidth, dims.posterHeight, dims.radius, { emptyList() }, scope) } }

@@ -292,14 +292,22 @@ private fun VodRail(nav: Nav, kind: String, group: String, count: Int, store: Mu
         }
     }
     LaunchedEffect(group) { if (d.items.isEmpty()) more() }
-    val metas = remember(d.items.size) {
-        d.items.map { v -> com.lekathedon.visionlite.addons.MetaPreview("vod:${v.pl}|${v.kind}|${v.id}", v.kind, v.name, v.poster, imdbRating = v.rating) }
+    // Our look (user 2026-11-23): each title matched to TMDB once (saved in vod.db) shows its poster and opens its
+    // title page (Vision TB + this VOD copy); one TMDB doesn't know keeps the playlist's card and plays from VOD.
+    var matched by remember { mutableStateOf(0) }
+    val size = d.items.size
+    LaunchedEffect(size) { if (size > 0 && VodArabic.match(d.items.toList())) matched++ }
+    val metas by produceState(emptyList<com.lekathedon.visionlite.addons.MetaPreview>(), size, matched) {
+        val list = d.items.toList()
+        value = withContext(Dispatchers.IO) { list.map { v -> VodArabic.card(v).let { if (it.id.startsWith("vod:")) it.copy(imdbRating = v.rating) else it } } }
     }
-    val byId = remember(d.items.size) { d.items.associateBy { "vod:${it.pl}|${it.kind}|${it.id}" } }
-    com.lekathedon.visionlite.home.PageRow("vod|$kind|$group", "$group · $count", metas, loading = !d.end && d.items.isEmpty(),
-        sub = { m -> m.imdbRating?.let { "★ $it" } }, onHoldIn = { }, onEnd = { more() }, expand = false) { m ->
-        val v = byId[m.id] ?: return@PageRow
-        if (v.kind == "series") openSeries(v) else v.url?.let { nav.push(Screen.Player(it, v.name, type = "vod")) }
+    val byId = remember(size) { d.items.associateBy { "vod:${it.pl}|${it.kind}|${it.id}" } }
+    val scope2 = androidx.compose.runtime.rememberCoroutineScope()
+    com.lekathedon.visionlite.home.PageRow("vod|$kind|$group", "$group · $count", metas, loading = !d.end && metas.isEmpty(),
+        sub = { m -> m.imdbRating?.let { "★ $it" } }, onEnd = { more() }) { m ->
+        val v = byId[m.id]
+        if (v == null) scope2.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
+        else if (v.kind == "series") openSeries(v) else v.url?.let { nav.push(Screen.Player(it, v.name, type = "vod")) }
     }
 }
 

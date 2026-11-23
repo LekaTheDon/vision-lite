@@ -76,6 +76,9 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         recent = (listOf(term) + recent.filterNot { it.equals(term, true) }).take(8)
         recentPref.value = recent.joinToString("\n")
         job = scope.launch {
+            // Your playlist's VOD (vod.db, no network) and, for a name not in Latin letters (Arabic…), TMDB's own search:
+            // the add-ons search in English only, so "الهيبة" found nothing (user 2026-11-23).
+            launch { extraRows(term, hub).forEach { results.add(0, it) } }
             app.addons.addons.value.filter { com.lekathedon.visionlite.addons.AddonRoles.allows(it.base, "catalog") }.flatMap { a -> a.manifest.catalogs.filter { it.supportsSearch }.map { a to it } }
                 .map { (a, c) -> async { searchRowName(c.name, c.type, a.manifest.name) to runCatching { app.client.catalog(a, c, search = term) }.getOrDefault(emptyList()) } }
                 .forEach { d -> d.await().takeIf { it.second.isNotEmpty() }?.let { results.add(it) } }
@@ -122,7 +125,10 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             // Only the hub you're in: Anime finds anime, Films & TV everything else.
             val metas = com.lekathedon.visionlite.browse.hubOnly(all)
             if (metas.isEmpty()) return@itemsIndexed
-            com.lekathedon.visionlite.home.PageRow("search:$i:$title", title, metas.distinctBy { it.type + it.id }) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
+            com.lekathedon.visionlite.home.PageRow("search:$i:$title", title, metas.distinctBy { it.type + it.id }) { m ->
+                if (m.id.startsWith("tt") || m.id.startsWith("kitsu:")) nav.push(Screen.Detail(m.type, m.id, m.name))
+                else scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
+            }
         }
     }
 }
@@ -133,3 +139,32 @@ private fun searchRowName(name: String?, type: String, addon: String): String {
     val n = name?.takeIf { it.isNotBlank() } ?: return "${kind.replaceFirstChar { it.uppercase() }} · $addon"
     return if (n.contains(kind, true) || n.contains(type, true)) "$n · $addon" else "$n $kind · $addon"
 }
+
+private val NON_LATIN = Regex("[\\u0600-\\u06FF\\u0400-\\u04FF\\u0590-\\u05FF\\u0E00-\\u0E7F\\u3040-\\u30FF\\u4E00-\\u9FFF\\uAC00-\\uD7AF]")
+private val ARABIC_LETTER = Regex("[\\u0621-\\u064A]")
+
+/** TMDB rows (names not in Latin letters) and VOD rows (any name), in the order they go on top. Cost: 2 TMDB calls when non-Latin. */
+private suspend fun extraRows(term: String, hub: com.lekathedon.visionlite.anime.Hub): List<Pair<String, List<MetaPreview>>> =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val out = ArrayList<Pair<String, List<MetaPreview>>>()
+        val T = com.lekathedon.visionlite.home.Tmdb
+        if (NON_LATIN.containsMatchIn(term) && T.key() != null) {
+            val lang = if (ARABIC_LETTER.containsMatchIn(term)) "ar" else "en-US"
+            for ((path, type, label) in listOf(Triple("tv", "series", "Series · TMDB"), Triple("movie", "movie", "Films · TMDB"))) {
+                val o = runCatching { T.get("search/$path?language=$lang&query=${java.net.URLEncoder.encode(term, "UTF-8")}") }.getOrNull() ?: continue
+                val cards = (0 until (o.optJSONArray("results")?.length() ?: 0)).map { o.getJSONArray("results").getJSONObject(it) }.map { r ->
+                    MetaPreview("tmdb:$path:${r.optInt("id")}", type, r.optString(if (path == "tv") "name" else "title"),
+                        T.img(r.optString("poster_path"), "w342"), background = T.img(r.optString("backdrop_path"), "w780"),
+                        releaseInfo = r.optString(if (path == "tv") "first_air_date" else "release_date").take(4).ifBlank { null })
+                }
+                if (cards.isNotEmpty()) out.add(label to cards)
+            }
+        }
+        if (hub != com.lekathedon.visionlite.anime.Hub.ANIME) runCatching {
+            for (kind in listOf("series", "movie")) {
+                val got = com.lekathedon.visionlite.iptv.Vod.search(kind, term, 40)
+                if (got.isNotEmpty()) out.add((if (kind == "movie") "Films · VOD" else "Series · VOD") to got.map { com.lekathedon.visionlite.iptv.VodArabic.card(it) })
+            }
+        }
+        out.reversed()   // added at the top one by one: TMDB series end up first, then TMDB films, VOD series, VOD films
+    }
