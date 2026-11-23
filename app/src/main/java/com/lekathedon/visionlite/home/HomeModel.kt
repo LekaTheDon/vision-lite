@@ -87,7 +87,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             app.addons.ensureDefaults()
             combine(kotlinx.coroutines.flow.combine(app.addons.addons, app.addons.version) { l, _ -> l }, rowOrder.flow, app.prefs.addonRows.flow, app.prefs.importedLists.flow, com.lekathedon.visionlite.integrations.Integrations.changed) { list, _, _, _, _ -> list }
                 .combine(Rotation.rows(hub)) { list, _ -> list }
-                .combine(app.prefs.vodArabic.flow) { list, _ -> list }
+                .combine(app.prefs.vodRows.flow) { list, _ -> list }
                 .combine(com.lekathedon.visionlite.iptv.Vod.version) { list, _ -> list }
                 .collect { list -> rebuild(list) }
         }
@@ -165,8 +165,8 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 old[key] ?: Row(key, title(a, c), a, c, emptyList(), done = false)
             }
         }
-        // Arabic VOD categories (this profile switched them on): anime ones in the Anime hub, the rest in Films & TV.
-        val vod = if (!app.prefs.vodArabic.value) emptyList() else com.lekathedon.visionlite.iptv.VodArabic.groups()
+        // The VOD categories this profile picked (none by default): anime ones in the Anime hub, the rest in Films & TV.
+        val vod = com.lekathedon.visionlite.iptv.VodArabic.chosen()
             .filter { it.anime == (hub == com.lekathedon.visionlite.anime.Hub.ANIME) }
             .map { g -> old[g.key] ?: Row(g.key, g.grp, null, null, emptyList(), done = false) }
         // Rows new since you arranged Home (Genres, Decades) sit right after Streaming services, not at the bottom.

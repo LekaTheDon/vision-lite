@@ -39,18 +39,24 @@ object VodArabic {
         return ARABIC.containsMatchIn(g) || AR_TAG.containsMatchIn(g)
     }
 
+    private val ADULT = listOf("+18", "18+", "adult", "xxx", "للكبار")
     @Volatile private var cache: Pair<Int, List<Group>>? = null
-    /** The Arabic categories, films first (read from vod.db; cached until VOD reloads). */
-    fun groups(): List<Group> {
+    /** Every VOD category (adult ones left out), Arabic ones first, films before series (vod.db; cached until VOD reloads). */
+    fun all(): List<Group> {
         val v = Vod.version.value
         cache?.takeIf { it.first == v }?.let { return it.second }
-        val list = runCatching { listOf("movie", "series").flatMap { k -> Vod.groups(k).filter { isArabic(it.first) && it.second > 0 }.map { Group(k, it.first, it.second) } } }
-            .getOrDefault(emptyList())
+        val list = runCatching { listOf("movie", "series").flatMap { k -> Vod.groups(k).filter { g -> g.second > 0 && ADULT.none { g.first.contains(it, true) } }.map { Group(k, it.first, it.second) } } }
+            .getOrDefault(emptyList()).sortedBy { if (isArabic(it.grp)) 0 else 1 }
         cache = v to list
         return list
     }
+    /** The categories this profile picked as Home rows; nothing read when none are picked. */
+    fun chosen(): List<Group> {
+        val keys = com.lekathedon.visionlite.App.instance.prefs.vodRows.value.split('\n').filter { it.isNotEmpty() }.toSet()
+        return if (keys.isEmpty()) emptyList() else all().filter { it.key in keys }
+    }
 
-    fun byKey(key: String): Group? = groups().firstOrNull { it.key == key }
+    fun byKey(key: String): Group? = all().firstOrNull { it.key == key }
 
     private fun vodId(v: VodItem) = "vod:${v.pl}|${v.kind}|${v.id}"
     fun item(id: String): VodItem? {
