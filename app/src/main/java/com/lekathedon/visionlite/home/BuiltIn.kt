@@ -42,6 +42,8 @@ object VisionRows {
     const val SERVICES = "v/services"
     /** "Because you like Tom Hardy": two of your favourite people (actors, directors, writers), a different two every 12 h. */
     val FAVS = listOf("v/fav1", "v/fav2")
+    /** "Because you like Police Procedural": two of your genres (learned from what you watch, or liked), a different two every 12 h. */
+    val GENRE_ROWS = listOf("v/genre1", "v/genre2")
     /** WuPlay's Genres and Decades as rows of tiles (were their own pages before 0.26). */
     const val GENRES = "v/genres"
     const val DECADES = "v/decades"
@@ -51,6 +53,7 @@ object VisionRows {
         COMING_UP to "Coming up", PICKS to "Vision Picks",
         BECAUSE[0] to "Because you watched · 1", FAVS[0] to "Because you like · 1", MOODS to "Moods",
         BECAUSE[1] to "Because you watched · 2", FAVS[1] to "Because you like · 2",
+        GENRE_ROWS[0] to "Because you like · genre 1", GENRE_ROWS[1] to "Because you like · genre 2",
         SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades"
     ) + Charts.Chart.entries.map { "c/${it.id}" to it.title }
 
@@ -73,7 +76,7 @@ object VisionRows {
 
     fun isPicks(key: String) = key == PICKS
     /** Rows the engine fills (their titles are recommendations: Love / Like / Not for me on hold). */
-    fun isEngine(key: String) = isPicks(key) || key in BECAUSE || key in FAVS
+    fun isEngine(key: String) = isPicks(key) || key in BECAUSE || key in FAVS || key in GENRE_ROWS
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
     val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}",
         "c/${Charts.Chart.ANIME_TODAY_SERIES.id}", "c/${Charts.Chart.ANIME_TODAY_MOVIES.id}")
@@ -555,30 +558,39 @@ object People {
         }.getOrNull()
     }
 
-    /** A person's titles, newest first (IMDb's credits; known-for when credits don't answer). */
-    suspend fun titles(id: String): Pair<Person?, List<MetaPreview>> = withContext(Dispatchers.IO) {
-        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } }"
+    /**
+     * A person's titles where they really are in it (user 2026-11-23: "Because you like Michael Stuhlbarg" showed films
+     * he's barely in): among the top 4 billed, a regular of a series (6+ episodes), or its director / writer / creator.
+     * Second = the rest (small parts), used only when the first list is short.
+     */
+    suspend fun titles(id: String): Triple<Person?, List<MetaPreview>, List<MetaPreview>> = withContext(Dispatchers.IO) {
+        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } " +
+            "principalCredits(filter: {categories: [\"cast\"]}) { credits(limit: 4) { name { id } } } }"
         val q = "{ name(id: \"$id\") { nameText { text } primaryImage { url } " +
-            "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\"]}) { edges { node { $node } } } " +
-            "knownFor(first: 30) { edges { node { $node } } } } }"
+            "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\"]}) { edges { node { category { id } ... on Cast { episodeCredits(first: 0) { total } } $node } } } } }"
         val d = runCatching {
             Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
                 .header("x-imdb-client-name", "imdb-web-next-localized").build()).execute().use { JSONObject(it.body!!.string()).optJSONObject("data")?.optJSONObject("name") }
-        }.getOrNull() ?: return@withContext null to emptyList()
+        }.getOrNull() ?: return@withContext Triple(null, emptyList(), emptyList())
         val person = Person(id, d.optJSONObject("nameText")?.optString("text").orEmpty(), d.optJSONObject("primaryImage")?.optString("url")?.let(::small))
-        fun list(k: String) = d.optJSONObject(k)?.optJSONArray("edges").objects().mapNotNull { e ->
-            val t = e.optJSONObject("node")?.optJSONObject("title") ?: return@mapNotNull null
-            val tid = t.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
+        val lead = LinkedHashMap<String, MetaPreview>(); val minor = LinkedHashMap<String, MetaPreview>()
+        d.optJSONObject("credits")?.optJSONArray("edges").objects().forEach { e ->
+            val n = e.optJSONObject("node") ?: return@forEach
+            val t = n.optJSONObject("title") ?: return@forEach
+            val tid = t.optString("id").takeIf { it.startsWith("tt") } ?: return@forEach
             val kind = t.optJSONObject("titleType")?.optString("id").orEmpty()
-            if (kind !in setOf("movie", "tvSeries", "tvMiniSeries", "tvMovie")) return@mapNotNull null
-            MetaPreview(tid, if (kind.startsWith("tvS") || kind == "tvMiniSeries") "series" else "movie", t.optJSONObject("titleText")?.optString("text") ?: return@mapNotNull null,
+            if (kind !in setOf("movie", "tvSeries", "tvMiniSeries", "tvMovie")) return@forEach
+            val m = MetaPreview(tid, if (kind.startsWith("tvS") || kind == "tvMiniSeries") "series" else "movie", t.optJSONObject("titleText")?.optString("text") ?: return@forEach,
                 t.optJSONObject("primaryImage")?.optString("url")?.let(::small) ?: "https://images.metahub.space/poster/medium/$tid/img",
                 "https://images.metahub.space/background/medium/$tid/img",
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
                 imdbRating = t.optJSONObject("ratingsSummary")?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toString())
+            val cat = n.optJSONObject("category")?.optString("id").orEmpty()
+            val billed = t.optJSONArray("principalCredits").objects().any { g -> g.optJSONArray("credits").objects().any { it.optJSONObject("name")?.optString("id") == id } }
+            val regular = (n.optJSONObject("episodeCredits")?.optInt("total") ?: 0) >= 6
+            if (cat in setOf("director", "creator", "writer") || billed || regular) lead[tid] = m else minor.putIfAbsent(tid, m)
         }
-        val all = (list("credits").ifEmpty { list("knownFor") }).distinctBy { it.id }.sortedByDescending { it.releaseInfo?.toIntOrNull() ?: 0 }
-        person to all
+        Triple(person, lead.values.toList(), minor.values.filter { it.id !in lead }.toList())
     }
 
     /** Person page (Vision's look): Known for first, then a row per role they had (Actor, Director, Creator, Writer, Producer). */
@@ -620,8 +632,8 @@ object People {
         Roles(person, known.ifEmpty { rows.firstOrNull()?.second.orEmpty().sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }.take(15) }, rows)
     }
 
-    /** Each person's titles, asked once per app run (one IMDb request each). */
-    private val titlesCache = java.util.concurrent.ConcurrentHashMap<String, List<MetaPreview>>()
+    /** Each person's titles (where they lead, then small parts), asked once per app run (one IMDb request each). */
+    private val titlesCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<MetaPreview>, List<MetaPreview>>>()
 
     /** The [n] favourites of [hub] Home follows now: a different few every 12 hours (all of them when there are no more). */
     fun now(hub: String, n: Int, at: Long = System.currentTimeMillis()): List<Person> {
@@ -635,13 +647,16 @@ object People {
      * (over the IMDb minimum when it has a rating), the order shuffled a little every 12 hours so the row changes.
      */
     suspend fun row(p: Person, at: Long = System.currentTimeMillis()): List<MetaPreview> {
-        val all = titlesCache[p.id] ?: titles(p.id).second.also { if (it.isNotEmpty()) titlesCache[p.id] = it }
+        val (lead, minor) = titlesCache[p.id] ?: titles(p.id).let { it.second to it.third }.also { if (it.first.isNotEmpty() || it.second.isNotEmpty()) titlesCache[p.id] = it }
         val seen = com.lekathedon.visionlite.recs.Recs.seenIds()
         val min = com.lekathedon.visionlite.recs.Recs.minImdb()
         val r = java.util.Random(at / (12 * 3600_000L) + p.id.hashCode())
-        return all.filter { it.id !in seen && (it.imdbRating?.toFloatOrNull()?.let { x -> x >= min } ?: true) && (it.releaseInfo?.toIntOrNull() ?: 0) <= java.time.LocalDate.now().year }
+        fun pick(l: List<MetaPreview>) = l.filter { it.id !in seen && (it.imdbRating?.toFloatOrNull()?.let { x -> x >= min } ?: true) && (it.releaseInfo?.toIntOrNull() ?: 0) <= java.time.LocalDate.now().year }
             .map { it to (it.imdbRating?.toDoubleOrNull() ?: 5.0) + r.nextDouble() * 1.5 }
-            .sortedByDescending { it.second }.map { it.first }.take(30)
+            .sortedByDescending { it.second }.map { it.first }
+        // Where they lead first; small parts only to reach 8 cards (never ahead of a lead role).
+        val main = pick(lead)
+        return (if (main.size >= 8) main else main + pick(minor).take(8 - main.size)).take(30)
     }
 
     private fun small(url: String) = if ("._V1_" in url) url.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else url

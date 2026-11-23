@@ -235,7 +235,7 @@ object Recs {
         val min = minImdb()
         // Favourite people steer the picks (Follow / Unfollow rebuilds within the hour, like any change of taste).
         val favs = com.lekathedon.visionlite.home.People.list.value.filter { it.hub == hub.key }.associate { it.id to it.name }
-        val sig = RecsLogic.signature(seeds, min) + favs.keys.sorted().joinToString(",", ",fav:")
+        val sig = RecsLogic.signature(seeds, min) + favs.keys.sorted().joinToString(",", ",fav:") + Interests.liked().sorted().joinToString(",", ",int:")
         if (seeds.none { it.weight > 0 }) return Pool(now, sig, version = RecsLogic.VERSION).also { save(hub, it) }
         if (!force && !RecsLogic.shouldRefresh(pool(hub).value, sig, now)) return pool(hub).value
 
@@ -261,11 +261,14 @@ object Recs {
         var tally = RecsLogic.tally(results, ex, min)
         // Full facts for the best candidates, so taste can judge them.
         val head = tally.values.sortedByDescending { it.score }.take(RecsLogic.LOOKUPS).map { it.facts.id }
-        lookUp(head.filter { facts[it]?.let { f -> f.full && f.v >= 1 } != true }, facts)
+        lookUp(head.filter { facts[it]?.let { f -> f.full && f.v >= 2 } != true }, facts)
         tally = RecsLogic.tally(results.map { (s, seed, list) -> Triple(s, seed, list.map { facts[it.id] ?: it }) }, ex, min)
 
         val loved = signals.filter { it.kind == Kind.LOVE || it.kind == Kind.LIKED }.map { it.id }.toSet()
-        val taste = RecsLogic.taste(seeds.mapNotNull { s -> facts[s.id]?.takeIf { it.full }?.let { it to s.weight } }, loved, favs)
+        // Your genres (IMDb interests): learned from these seeds, plus the ones you liked yourself (Interests page).
+        val learned = seeds.mapNotNull { s -> facts[s.id]?.takeIf { it.full }?.let { it to s.weight } }
+        Interests.learn(hub, learned)
+        val taste = RecsLogic.taste(learned, loved, favs, Interests.weights(hub))
         val picks = RecsLogic.rank(tally, taste, facts)
         val top = picks.take(20).map { it.imdb }.toSet()
         val because = seeds.filter { it.weight > 0 }.take(BECAUSE_ROWS).map { seed ->
@@ -324,7 +327,8 @@ object Recs {
         "directors: credits(first: 2, filter: { categories: [\"director\"] }) { edges { node { name { id nameText { text } } } } } " +
         "writers: credits(first: 2, filter: { categories: [\"writer\"] }) { edges { node { name { id nameText { text } } } } } " +
         "creators: credits(first: 2, filter: { categories: [\"creator\"] }) { edges { node { name { id nameText { text } } } } } " +
-        "cast: credits(first: 5, filter: { categories: [\"actor\", \"actress\"] }) { edges { node { name { id nameText { text } } } } }"
+        "cast: credits(first: 5, filter: { categories: [\"actor\", \"actress\"] }) { edges { node { name { id nameText { text } } } } } " +
+        "interests(first: 15) { edges { node { id } } }"
     private val KINDS = setOf("movie", "tvMovie", "tvSeries", "tvMiniSeries")
 
     /** Each seed's own facts and IMDb's "More like this" for it. */
@@ -398,7 +402,8 @@ object Recs {
             full = full,
             at = now,
             cast = if (!full) emptyList() else people("cast").filter { it.id.isNotBlank() }.distinctBy { it.id },
-            v = if (full) 1 else 0
+            v = if (full) 2 else 0,
+            interests = if (!full) emptyList() else t.optJSONObject("interests")?.optJSONArray("edges").objects().mapNotNull { it.optJSONObject("node")?.optString("id")?.takeIf { s -> s.startsWith("in") } }
         )
     }
 

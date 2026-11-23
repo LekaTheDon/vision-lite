@@ -136,6 +136,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.Music -> com.lekathedon.visionlite.music.MusicScreen(nav, s.tab)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
+                        Screen.Interests -> com.lekathedon.visionlite.settings.InterestsPage()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()
                         Screen.PhoneLink -> com.lekathedon.visionlite.link.PhoneLinkScreen()
                         Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)

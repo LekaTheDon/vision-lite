@@ -113,6 +113,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch { Services.art.collect { fill(VisionRows.SERVICES) } }
         // Favourite people: a follow / unfollow changes the two rows at once (and the engine at its next build).
         viewModelScope.launch { People.list.collect { VisionRows.FAVS.forEach { if (it in needed) loadFav(it) } } }
+        viewModelScope.launch { com.lekathedon.visionlite.recs.Interests.changed.collect { VisionRows.GENRE_ROWS.forEach { if (it in needed) loadGenre(it) } } }
         viewModelScope.launch {
             (if (hub == Hub.ANIME) com.lekathedon.visionlite.anime.AniBrowse.art else com.lekathedon.visionlite.browse.Wuplay.art).collect { fill(VisionRows.GENRES); fill(VisionRows.DECADES) }
         }
@@ -173,7 +174,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         fun place(i: Int, r: Row): Double = order[r.key]?.toDouble()
             ?: if (svc != null && r.key == VisionRows.GENRES) svc + 0.1 else if (svc != null && r.key == VisionRows.DECADES) svc + 0.2
             // Because you like · 1 / 2 (new in 0.28): right under Because you watched · 1 / 2.
-            else VisionRows.FAVS.indexOf(r.key).takeIf { it >= 0 }?.let { order[VisionRows.BECAUSE[it]] }?.let { it + 0.1 } ?: (order.size + i).toDouble()
+            else VisionRows.FAVS.indexOf(r.key).takeIf { it >= 0 }?.let { order[VisionRows.BECAUSE[it]] }?.let { it + 0.1 }
+            // Your genres (new in 0.33): right under Because you like · 1 / 2.
+            ?: VisionRows.GENRE_ROWS.indexOf(r.key).takeIf { it >= 0 }?.let { order[VisionRows.BECAUSE[it]] }?.let { it + 0.2 } ?: (order.size + i).toDouble()
         state.value = (vision + imported + rotating + vod + addons).withIndex().sortedBy { (i, r) -> place(i, r) }.map { it.value }
     }
 
@@ -215,6 +218,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.PICKS, in VisionRows.BECAUSE, VisionRows.MOODS -> viewModelScope.launch { runCatching { Recs.refreshIfDue(hub) } }
             VisionRows.SERVICES -> viewModelScope.launch { runCatching { Services.refresh() } }
             in VisionRows.FAVS -> { loadFav(key); return }
+            in VisionRows.GENRE_ROWS -> { loadGenre(key); return }
             in vodKeys() -> { loadVod(key); return }
             // The tiles' pictures: read from disk, asked again once a week (28 small TMDB calls), never before the row shows.
             VisionRows.GENRES, VisionRows.DECADES -> viewModelScope.launch { runCatching { if (hub == Hub.FILMS) com.lekathedon.visionlite.browse.Wuplay.loadArt() else com.lekathedon.visionlite.anime.AniBrowse.loadArt() } }
@@ -298,6 +302,19 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             set(key, kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.iptv.VodArabic.cards(g, false) }.getOrDefault(emptyList()) })
             if (runCatching { com.lekathedon.visionlite.iptv.VodArabic.match(g) }.getOrDefault(false))
                 set(key, kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.iptv.VodArabic.cards(g, true) }.getOrDefault(emptyList()) })
+            loading.remove(key)
+        }
+    }
+
+    /** "Because you like <genre>": the genre this row follows now (Interests), IMDb's titles with it. */
+    private fun loadGenre(key: String) {
+        val i = VisionRows.GENRE_ROWS.indexOf(key)
+        loading.remove(key)?.cancel()
+        loading[key] = viewModelScope.launch {
+            val g = com.lekathedon.visionlite.recs.Interests.now(hub, VisionRows.GENRE_ROWS.size).getOrNull(i)
+            val name = g?.let { com.lekathedon.visionlite.recs.Interests.name(it) }
+            if (g == null || name == null) set(key, emptyList())
+            else set(key, runCatching { com.lekathedon.visionlite.recs.Interests.row(hub, g) }.getOrDefault(emptyList()), "Because you like $name")
             loading.remove(key)
         }
     }

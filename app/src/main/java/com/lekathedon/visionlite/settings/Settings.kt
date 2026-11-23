@@ -293,6 +293,7 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Rows")
         row { m -> Link("Arrange rows", "Turn rows on or off, change the order, refresh", m) { nav.push(Screen.Rows) } }
+        row { m -> Link("Your interests", "The genres you watch most (learned) and the ones you like: each gets a \"Because you like\" row", m) { nav.push(Screen.Interests) } }
         row { m ->
             var n by remember { mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }
             Link("Dropped from Coming up", if (n == 0) "Hold OK on a Coming up card to drop a show" else "OK brings them all back", m,

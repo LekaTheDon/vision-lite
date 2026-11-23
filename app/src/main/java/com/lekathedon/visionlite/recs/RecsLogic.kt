@@ -33,7 +33,9 @@ import kotlin.math.sqrt
     val at: Long = 0L,
     /** Top-billed actors (full facts from 0.28 on; [v] 1), only to find your favourite people's work. */
     val cast: List<Person> = emptyList(),
-    val v: Int = 0
+    val v: Int = 0,
+    /** IMDb's interests (its genre / subgenre tags, "in0000057" = Police Procedural); full facts from [v] 2. */
+    val interests: List<String> = emptyList()
 )
 
 /** One recommendation. [because] = the watched title that pulled hardest; [why] = a person or theme in common. */
@@ -75,7 +77,7 @@ enum class Kind { LIKED, NOT_FOR_ME, LOVE, LIKE, REWATCHED, STOPPED, FINISHED, W
 
 object RecsLogic {
     /** 2 (0.27): six "because you watched" rows, Love / Like. */
-    const val VERSION = 3
+    const val VERSION = 4
     const val SEEDS = 20
     const val NEGATIVE = 4
     const val MIN_SEEDS = 3
@@ -99,6 +101,7 @@ object RecsLogic {
     private const val W_PEOPLE = 0.5
     /** A favourite person (Follow on their page) in the cast or crew: as strong as a theme you keep coming back to. */
     private const val W_FAV = 0.6
+    private const val W_INTEREST = 0.5
     private const val W_LANGUAGE = 0.15
     private const val W_COUNTRY = 0.075
     private const val W_APPETITE = 0.12
@@ -205,7 +208,9 @@ object RecsLogic {
         val loved: Set<String>, val languages: Map<String, Double>, val countries: Map<String, Double>, val total: Double,
         val logMean: Double, val logSd: Double, val ageFloor: Int?, val ageCeiling: Int?, val avoided: Set<String>,
         /** Your favourite people: IMDb name id to name. */
-        val favs: Map<String, String> = emptyMap()
+        val favs: Map<String, String> = emptyMap(),
+        /** Your genres (IMDb interest id → 0..1): learned from what you watch and rate, liked ones at 1. */
+        val interests: Map<String, Double> = emptyMap()
     )
 
     private fun Facts.words() = keywords.filter { it !in SKIP_KEYWORDS }
@@ -219,7 +224,7 @@ object RecsLogic {
         else -> null
     }
 
-    fun taste(items: List<Pair<Facts, Double>>, loved: Set<String>, favs: Map<String, String> = emptyMap()): Taste {
+    fun taste(items: List<Pair<Facts, Double>>, loved: Set<String>, favs: Map<String, String> = emptyMap(), interests: Map<String, Double> = emptyMap()): Taste {
         val kw = HashMap<String, Double>(); val ppl = HashMap<String, Double>(); val names = HashMap<String, String>()
         val lovedPeople = HashSet<String>(); val lang = HashMap<String, Double>(); val ctry = HashMap<String, Double>()
         val nope = HashMap<String, Double>(); val nopeCount = HashMap<String, Int>(); val logs = ArrayList<Double>()
@@ -241,7 +246,7 @@ object RecsLogic {
         val sd = if (logs.size > 1) max(0.4, sqrt(logs.sumOf { (it - mean).pow(2) } / logs.size)) else 0.8
         val ages = items.filter { it.second > 0 }.mapNotNull { (f, w) -> f.age?.let { it to w } }
         val avoided = nopeCount.filter { (l, c) -> c >= 2 && (lang[l] ?: 0.0) < nope.getValue(l) }.keys
-        return Taste(kw, ppl, names, lovedPeople, lang, ctry, total.coerceAtLeast(1.0), mean, sd, ageFloor(ages), ageCeiling(ages), avoided, favs)
+        return Taste(kw, ppl, names, lovedPeople, lang, ctry, total.coerceAtLeast(1.0), mean, sd, ageFloor(ages), ageCeiling(ages), avoided, favs, interests)
     }
 
     /** The lowest age level really watched; below it a pick is pushed down, never removed. */
@@ -283,6 +288,8 @@ object RecsLogic {
                 s += W_PEOPLE * min(1.0, f.crew.distinctBy { it.id }.sumOf { max(0.0, t.people[it.id] ?: 0.0) } / top)
             }
             if (t.favs.isNotEmpty() && (f.crew.any { it.id in t.favs } || f.cast.any { it.id in t.favs })) s += W_FAV
+            // Your genres have a say: the strongest of yours this title carries.
+            if (t.interests.isNotEmpty()) s += W_INTEREST * (f.interests.maxOfOrNull { t.interests[it] ?: 0.0 } ?: 0.0)
             f.language?.let { s += W_LANGUAGE * (t.languages[it] ?: 0.0) / t.total }
             s += W_COUNTRY * (f.countries.maxOfOrNull { t.countries[it] ?: 0.0 } ?: 0.0) / t.total
             if (f.age != null && t.ageFloor != null && f.age < t.ageFloor) s -= W_AGE * (t.ageFloor - f.age)

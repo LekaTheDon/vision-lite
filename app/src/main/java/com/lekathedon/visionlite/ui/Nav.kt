@@ -42,6 +42,7 @@ sealed interface Screen {
     data object ThisTv : Screen
     data object Trakt : Screen
     data object Rows : Screen
+    data object Interests : Screen
     data object VisionTb : Screen
     data object Integrations : Screen
     data object PhoneLink : Screen
