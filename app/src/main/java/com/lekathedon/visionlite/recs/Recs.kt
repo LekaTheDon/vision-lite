@@ -328,6 +328,8 @@ object Recs {
             }
             val sGenres = sf.genres.toSet(); val sInt = sf.interests.filter { Interests.name(it) != null && !Interests.isBroad(it) }.toSet()
             val sKw = sf.keywords.map { it.lowercase() }.toSet()
+            // What the seed mainly is (a crime drama, a spy thriller…): every pick must mainly be that too (user 2026-11-24).
+            val sMain = Interests.mainKinds(sf.interests)
             val picks = score.keys.mapNotNull { id ->
                 if (id == seed.id || id in ex || id in top) return@mapNotNull null
                 val f = facts[id] ?: return@mapNotNull null
@@ -337,6 +339,7 @@ object Recs {
                 val shared = f.genres.count { it in sGenres }
                 if (sGenres.isNotEmpty() && f.genres.isNotEmpty() && shared == 0) return@mapNotNull null
                 if (v < 2 && f.genres.any { it in turns && it !in sGenres }) return@mapNotNull null
+                if (sMain.isNotEmpty() && f.interests.isNotEmpty() && sMain.none { Interests.isMainly(it, f.interests) }) return@mapNotNull null
                 val sim = 2.0 * shared / (sGenres.size + f.genres.size - shared).coerceAtLeast(1) +
                     0.8 * minOf(3, f.interests.count { it in sInt }) + 0.3 * minOf(5, f.keywords.count { it.lowercase() in sKw }) +
                     (if (f.tv == sf.tv) 0.4 else 0.0)

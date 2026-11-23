@@ -17,10 +17,10 @@ import java.io.File
  * TV genres"): its Genres, Themes (Isekai, Iyashikei, Mecha…) and Demographics (Shounen, Seinen…), not IMDb's.
  * Learned from the anime you watch: each one's IMDb id is matched to MAL through the Fribb anime list (MAL ↔ IMDb ↔
  * TMDB, the same weekly download the hubs use) and MAL's genres are added up by how much you watched it.
- * Rows come from MAL's own API (official, Lite's MAL app id, no sign-in): its 1,500 most popular anime with their
+ * Rows come from MAL's own API (official, Lite's MAL app id, no sign-in): its 3,000 most popular anime with their
  * genres, kept 7 days, filtered by the genre; seen titles left out by their IMDb / TMDB id.
- * Cost: 3 MAL requests a week (~1 MB, only once a genre row shows), up to 25 small ones per engine build for anime
- * outside that list (kept for good); ~450 KB on disk.
+ * Cost: 6 MAL requests a week (~2 MB, only once a genre row or an anime Genres / Decades page shows), up to 25 small ones per engine build for anime
+ * outside that list (kept for good); ~900 KB on disk.
  */
 object MalGenres {
     // MAL's lists (myanimelist.net/anime.php, Genres / Themes / Demographics); the explicit ones left out.
@@ -76,12 +76,12 @@ object MalGenres {
             val disk = runCatching { Net.json.decodeFromString(poolSer, poolFile.readText()) }.getOrNull()
             if (disk != null && System.currentTimeMillis() - poolFile.lastModified() < KEEP_MS) return@withContext disk.also { pool = it }
             val fresh = runCatching {
-                (0 until 3).flatMap { pg ->
+                (0 until 6).flatMap { pg ->
                     Charts.mal("anime/ranking?ranking_type=bypopularity&limit=500&offset=${pg * 500}" +
                         "&fields=main_picture,alternative_titles,mean,media_type,start_season,genres&nsfw=false")
                 }
             }.getOrDefault(emptyList())
-            if (fresh.size >= 1000) {
+            if (fresh.size >= 2000) {
                 runCatching { File(poolFile.path + ".tmp").apply { writeText(Net.json.encodeToString(poolSer, fresh)) }.renameTo(poolFile) }
                 fresh.also { pool = it }
             } else (disk ?: fresh).also { pool = it }
@@ -148,5 +148,36 @@ object MalGenres {
             }
             // A show's seasons share an IMDb id: one card each.
             .distinctBy { it.first.id }.sortedByDescending { it.second }.map { it.first }.take(30)
+    }
+
+    /** All MAL names in tile order (the Anime hub's Genres tiles). */
+    val ALL: List<String> get() = GENRES + THEMES + DEMOGRAPHICS
+
+    /**
+     * The Anime hub's Genres / Decades pages (user 2026-11-24: they took ages: AniList now allows ~24 rows a minute and a
+     * decade page has 50+). Filled from the pool on the box, so a page opens at once and makes no request after the
+     * weekly 6. [sort]: "popular", "top" or "latest"; [type] "movie" / "series" / null for both; [from]..[to] years.
+     */
+    suspend fun browse(genre: String?, type: String?, sort: String, from: Int? = null, to: Int? = null, skip: Int = 0): List<MetaPreview> {
+        val all = pool()
+        val list = all.filter { m ->
+            (genre == null || m.genres.any { it.equals(genre, true) }) && (type == null || m.type == type) &&
+                (from == null || m.releaseInfo?.take(4)?.toIntOrNull()?.let { it in from..(to ?: from + 9) } == true)
+        }
+        val sorted = when (sort) {
+            "top" -> list.sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }
+            "latest" -> list.sortedByDescending { it.releaseInfo?.take(4)?.toIntOrNull() ?: 0 }
+            else -> list
+        }
+        return sorted.drop(skip).take(30)
+    }
+
+    /** A tile picture for a MAL genre from the pool: its best-rated title not already behind another tile. */
+    suspend fun art(names: List<String>, used: MutableSet<String>): Map<String, String> {
+        val byScore = pool().sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }
+        return names.mapNotNull { n ->
+            val l = byScore.filter { m -> m.poster != null && m.genres.any { it.equals(n, true) } }
+            (l.firstOrNull { used.add(it.id) } ?: l.firstOrNull())?.let { n to (it.background ?: it.poster!!) }
+        }.toMap()
     }
 }

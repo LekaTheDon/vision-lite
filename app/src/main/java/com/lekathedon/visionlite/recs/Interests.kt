@@ -96,8 +96,8 @@ object Interests {
     /** [anime]: the Anime hub, where every title is an animation, so Animation is required, never left out. */
     private fun excluded(family: String, anime: Boolean = false): Set<String> = excludedAny(family) - (if (anime) setOf("Animation") else emptySet())
     private fun excludedAny(family: String): Set<String> =
-        if (family in setOf("Action", "Sci-Fi", "Adventure", "Fantasy", "Animation")) setOf("Animation") - family
-        else setOf("Animation", "Fantasy", "Sci-Fi", "Action", "Adventure") - family
+        if (family in setOf("Action", "Sci-Fi", "Adventure", "Fantasy", "Animation")) setOf("Animation", "Family") - family
+        else setOf("Animation", "Fantasy", "Sci-Fi", "Action", "Adventure", "Family") - family
 
     /** A subgenre's own IMDb genre (its group), so "Psychological Thriller" is a thriller first; null = no check. */
     private fun parentGenre(n: Int): String? = GROUPS.firstOrNull { n in it.second }?.first?.let {
@@ -105,7 +105,46 @@ object Interests {
     }
     fun fits(family: String, genres: List<String>, anime: Boolean = false) =
         family in genres && genres.none { it in excluded(family, anime) } && (!anime || "Animation" in genres)
-    fun madeIn(region: Region, countries: List<String>) = countries.firstOrNull() in region.countries
+    /**
+     * Made there: a film only when every producing country is in the region (user 2026-11-24: Marriage Story and Hachi
+     * showed as "British Drama" because IMDb lists a UK co-producer first); a series when its lead country is.
+     */
+    /**
+     * What a title mainly is (user 2026-11-24: "British Drama has to be British AND mainly a drama; Cop Drama counts as
+     * drama; a drama that's 3rd or 4th doesn't"). IMDb lists a title's subgenres alphabetically, so the main kind is
+     * the one most of its subgenres belong to. A subgenre named "… Drama" (Cop Drama, Period Drama) counts as Drama.
+     */
+    private fun kindsOf(n: Int): Set<String> {
+        val nm = NAMES[n] ?: return emptySet()
+        val out = HashSet<String>()
+        if (nm.endsWith("Drama") || nm == "Docudrama") out += "Drama"
+        FAMILIES.entries.firstOrNull { n in it.value }?.key?.let { out += it }
+        if (out.isEmpty()) GROUPS.firstOrNull { n in it.second }?.first?.let { out += if (it == "Martial arts") "Action" else it }
+        return out
+    }
+    private fun kindCounts(interests: List<String>): Map<String, Int> {
+        val c = HashMap<String, Int>()
+        interests.mapNotNull(::num).filter { it !in BROAD }.distinct().forEach { n -> kindsOf(n).forEach { c.merge(it, 1, Int::plus) } }
+        return c
+    }
+    /** [kind] is what this title mainly is: at least one of its subgenres, and no other kind clearly ahead (more than one). */
+    fun isMainly(kind: String, interests: List<String>): Boolean {
+        // A subgenre that is [kind] counts for it only (Cop Drama is drama here, not also crime against it).
+        var mine = 0; val other = HashMap<String, Int>()
+        interests.mapNotNull(::num).filter { it !in BROAD }.distinct().forEach { n ->
+            val k = kindsOf(n)
+            if (kind in k) mine++ else k.forEach { other.merge(it, 1, Int::plus) }
+        }
+        return mine > 0 && mine >= (other.values.maxOrNull() ?: 0) - 1
+    }
+    /** The kinds a title is most (for Because you watched: the picks must mainly be what the seed mainly is). */
+    fun mainKinds(interests: List<String>): Set<String> {
+        val c = kindCounts(interests); val top = c.values.maxOrNull() ?: return emptySet()
+        return c.filterValues { it == top }.keys
+    }
+
+    fun madeIn(region: Region, countries: List<String>, tv: Boolean) =
+        countries.isNotEmpty() && (if (tv) countries.first() in region.countries else countries.all { it in region.countries })
 
     private val SPECIAL = mapOf("NORDIC:Crime" to "Nordic Noir", "BRITISH:Crime" to "British Crime Drama", "SPANISH:Crime" to "Spanish Crime",
         "KOREAN:Thriller" to "Korean Thriller", "ITALIAN:Crime" to "Italian Crime", "FRENCH:Crime" to "French Polar", "JAPANESE:Horror" to "J-Horror",
@@ -163,8 +202,8 @@ object Interests {
         val rScore = HashMap<String, Double>(); val rCount = HashMap<String, Int>()
         items.filter { it.second > 0 }.forEach { (f, w) ->
             REGIONS.forEach { (rk, r) ->
-                if (!madeIn(r, f.countries)) return@forEach
-                FAMILIES.keys.forEach { fk -> if (fits(fk, f.genres, hub == Hub.ANIME)) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
+                if (!madeIn(r, f.countries, f.tv)) return@forEach
+                FAMILIES.keys.forEach { fk -> if (fits(fk, f.genres, hub == Hub.ANIME) && isMainly(fk, f.interests)) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
             }
         }
         // Broad genres left out (Home has their tiles); a subgenre or a regional one is what gets a row.
@@ -240,7 +279,7 @@ object Interests {
             "genreConstraint: { allGenreIds: [\"$f\"${if (anime) ", \"Animation\"" else ""}], excludeGenreIds: [${excluded(f, anime).joinToString(",") { "\"$it\"" }}] } " +
                 "originCountryConstraint: { anyCountries: [${REGIONS.getValue(r).countries.joinToString(",") { "\"$it\"" }}] }"
         } else "interestConstraint: { allInterestIds: [\"$id\"] }"
-        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } titleGenres { genres { genre { text } } } }"
+        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } titleGenres { genres { genre { text } } } interests(first: 20) { edges { node { id } } } }"
         val q = "{ advancedTitleSearch(first: 250, constraints: { $constraint " +
             "titleTypeConstraint: { anyTitleTypeIds: [\"movie\", \"tvSeries\", \"tvMiniSeries\"] } " +
             "userRatingsConstraint: { aggregateRatingRange: { min: ${maxOf(min, 6.0f)} }, ratingsCountRange: { min: 2000 } } }, " +
@@ -260,11 +299,15 @@ object Interests {
                 ?.let { u -> if ("._V1_" in u) u.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else u }
             val cs = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("id") } }.orEmpty()
             // Regional rows: made there first, not just co-produced there.
-            if (region != null && !madeIn(region, cs)) return@mapNotNull null
+            if (region != null && !madeIn(region, cs, kind != "movie")) return@mapNotNull null
             // Subgenre rows: IMDb tags loosely (The Dark Knight is a "Psychological Drama"), so the title must also be
             // of the subgenre's own genre and not something else on top (an action blockbuster, a fantasy epic).
             val gs = t.optJSONObject("titleGenres")?.optJSONArray("genres")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optJSONObject("genre")?.optString("text") } }.orEmpty()
             if (parent != null && gs.isNotEmpty() && !fits(parent, gs, anime)) return@mapNotNull null
+            // …and mainly that kind: a British Drama is mostly drama, a Psychological Thriller mostly a thriller.
+            val ins = t.optJSONObject("interests")?.optJSONArray("edges")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optJSONObject("node")?.optString("id") } }.orEmpty()
+            val main = if (region != null) id.split(':')[2] else parent
+            if (main != null && !isMainly(main, ins)) return@mapNotNull null
             MetaPreview(tid, if (kind == "movie") "movie" else "series", t.optJSONObject("titleText")?.optString("text") ?: return@mapNotNull null,
                 img ?: "https://images.metahub.space/poster/medium/$tid/img", "https://images.metahub.space/background/medium/$tid/img",
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),

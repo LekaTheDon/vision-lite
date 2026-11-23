@@ -240,55 +240,34 @@ fun DecadePage(nav: Nav, slug: String) {
     }
 }
 
-/** Anime hub: one of WuPlay's 52 anime subgenres (AniList): popular, top rated and newest, shows and movies. */
+/** Anime hub: one of MyAnimeList's genres / themes / demographics: popular, top rated and newest, shows and movies. */
 @Composable
 private fun AnimeGenrePage(nav: Nav, name: String) {
-    val sub = remember(name) { com.lekathedon.visionlite.anime.AniBrowse.subgenres.firstOrNull { it.name == name } } ?: return
     val store = rememberRails(name)
-    val ab = com.lekathedon.visionlite.anime.AniBrowse
-    fun r(t: String, f: suspend (Int) -> List<MetaPreview>) = t to f
-    val rails = if (sub.format != null) listOf(
-        r("Popular") { s -> ab.page("series", "POPULARITY_DESC", sub = sub, skip = s) },
-        r("Top rated") { s -> ab.page("series", "SCORE_DESC", sub = sub, skip = s) },
-        r("Latest") { s -> ab.page("series", "START_DATE_DESC", sub = sub, skip = s) })
-    else listOf(
-        r("Popular shows") { s -> ab.page("series", "POPULARITY_DESC", sub = sub, skip = s) },
-        r("Popular movies") { s -> ab.page("movie", "POPULARITY_DESC", sub = sub, skip = s) },
-        r("Top rated shows") { s -> ab.page("series", "SCORE_DESC", sub = sub, skip = s) },
-        r("Top rated movies") { s -> ab.page("movie", "SCORE_DESC", sub = sub, skip = s) },
-        r("Latest shows") { s -> ab.page("series", "START_DATE_DESC", sub = sub, skip = s) })
-    // Every rail's first page in one request (cached 7 days), not one request each.
-    androidx.compose.runtime.LaunchedEffect(name) {
-        ab.warm(if (sub.format != null) listOf("POPULARITY_DESC", "SCORE_DESC", "START_DATE_DESC").map { com.lekathedon.visionlite.anime.AniBrowse.Ask("series", it, sub) }
-            else listOf("series" to "POPULARITY_DESC", "movie" to "POPULARITY_DESC", "series" to "SCORE_DESC", "movie" to "SCORE_DESC", "series" to "START_DATE_DESC")
-                .map { (t, so) -> com.lekathedon.visionlite.anime.AniBrowse.Ask(t, so, sub) })
-    }
+    val mg = com.lekathedon.visionlite.anime.MalGenres
+    val rails = listOf("Popular shows" to ("series" to "popular"), "Popular movies" to ("movie" to "popular"),
+        "Top rated shows" to ("series" to "top"), "Top rated movies" to ("movie" to "top"), "Latest shows" to ("series" to "latest"))
     Page(name) {
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
-            items(rails, key = { it.first }) { (t, load) -> LoadingRail(t, nav, store, key = "$name|$t") { skip, _ -> load(skip) } }
+            items(rails, key = { it.first }) { (t, a) -> LoadingRail(t, nav, store, key = "$name|$t") { skip, _ -> mg.browse(name, a.first, a.second, skip = skip) } }
         }
     }
 }
 
-/** Anime hub: a decade's most popular, then WuPlay's anime subgenres within it, each a row. */
+/** Anime hub: a decade's most popular, then MyAnimeList's genres within it, each a row (from the pool on the box). */
 @Composable
 private fun AnimeDecadePage(nav: Nav, decade: Int) {
     val year = Calendar.getInstance().get(Calendar.YEAR)
     val to = minOf(decade + 9, year)
     val store = rememberRails(decade)
-    val ab = com.lekathedon.visionlite.anime.AniBrowse
-    // 2 + 52 rails: first pages in 7 requests of 8 (cached 7 days) instead of 54 (AniList allows 30 a minute).
-    androidx.compose.runtime.LaunchedEffect(decade) {
-        ab.warm(listOf("series", "movie").map { com.lekathedon.visionlite.anime.AniBrowse.Ask(it, "POPULARITY_DESC", from = decade, to = to) } +
-            ab.subgenres.map { com.lekathedon.visionlite.anime.AniBrowse.Ask("series", "POPULARITY_DESC", it, decade, to) })
-    }
+    val mg = com.lekathedon.visionlite.anime.MalGenres
     Page("${decade}s") {
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
             listOf("series" to "Popular shows", "movie" to "Popular movies").forEach { (t, title) ->
-                item(key = "pop|$t") { LoadingRail(title, nav, store, key = "pop|$t") { skip, _ -> ab.page(t, "POPULARITY_DESC", from = decade, to = to, skip = skip) } }
+                item(key = "pop|$t") { LoadingRail(title, nav, store, key = "pop|$t") { skip, _ -> mg.browse(null, t, "popular", decade, to, skip) } }
             }
-            items(ab.subgenres, key = { it.name }) { sub ->
-                LoadingRail(sub.name, nav, store, key = "sub|${sub.name}") { skip, _ -> ab.page("series", "POPULARITY_DESC", sub = sub, from = decade, to = to, skip = skip) }
+            items(mg.ALL, key = { it }) { g ->
+                LoadingRail(g, nav, store, key = "sub|$g") { skip, _ -> mg.browse(g, null, "popular", decade, to, skip) }
             }
         }
     }
@@ -297,7 +276,7 @@ private fun AnimeDecadePage(nav: Nav, decade: Int) {
 /** Home's Genres / Decades tiles for a hub: (id, name). Films & TV: WuPlay's 19 and 9; Anime: its 52 subgenres and decades. */
 object BrowseTiles {
     fun genres(anime: Boolean): List<Pair<String, String>> =
-        if (anime) com.lekathedon.visionlite.anime.AniBrowse.subgenres.map { "genre:anime:${it.name}" to it.name }
+        if (anime) com.lekathedon.visionlite.anime.MalGenres.ALL.map { "genre:anime:$it" to it }
         else Wuplay.genres.map { "genre:${it.slug}" to it.name }
     fun decades(anime: Boolean): List<Pair<String, String>> {
         if (!anime) return Wuplay.decades.map { "decade:${it.slug}" to it.name }

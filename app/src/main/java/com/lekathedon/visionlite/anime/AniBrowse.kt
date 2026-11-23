@@ -176,9 +176,17 @@ object AniBrowse {
         artLock.lock()
         try {
             val disk = runCatching { JSONObject(artFile.readText()) }.getOrNull()
-            val have = disk?.optJSONObject("art")?.let { a -> a.keys().asSequence().associateWith { a.getString(it) } }.orEmpty()
+            var have = disk?.optJSONObject("art")?.let { a -> a.keys().asSequence().associateWith { a.getString(it) } }.orEmpty()
             if (have.isNotEmpty()) _art.value = have
-            val tiles = com.lekathedon.visionlite.browse.BrowseTiles.genres(true).map { it.first } + com.lekathedon.visionlite.browse.BrowseTiles.decades(true).map { it.first }
+            // Genre tiles are MAL's names now: their pictures come from the MAL pool (no AniList); decades still ask AniList.
+            val malTiles = com.lekathedon.visionlite.browse.BrowseTiles.genres(true).map { it.first }
+            if (malTiles.any { it !in have }) runCatching {
+                val m = MalGenres.art(malTiles.filter { it !in have }.map { it.removePrefix("genre:anime:") }, HashSet(have.values))
+                    .mapKeys { "genre:anime:${it.key}" }
+                if (m.isNotEmpty()) { val all = have + m; _art.value = all; have = all
+                    artFile.writeText(JSONObject().put("at", disk?.optLong("at") ?: 0L).put("art", JSONObject(all)).toString()) }
+            }
+            val tiles = com.lekathedon.visionlite.browse.BrowseTiles.decades(true).map { it.first }
             if (have.keys.containsAll(tiles) && System.currentTimeMillis() - (disk?.optLong("at") ?: 0L) < ART_FRESH_MS) return@withContext
             fun q(v: String) = JSONObject.quote(v)
             fun filter(id: String): String? {
