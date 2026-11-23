@@ -15,8 +15,12 @@ data class SourceRequest(
     val jsonBody: String? = null,
     val needsTorboxAuth: Boolean = false,
     /** The URL holds the user's key (keyed sources): never log or store it. */
-    val secretUrl: Boolean = false
-)
+    val secretUrl: Boolean = false,
+    /** Which source this counts for in Vision TB's report (TbSources); null = [source]'s own. */
+    val key: String? = null
+) {
+    val statKey: String get() = key ?: source.name
+}
 
 /**
  * Request builders and response parsers for every discovery source. Parsers never throw:
@@ -216,6 +220,10 @@ object DiscoverySources {
         return SourceRequest(source, "$base/stream/$path.json")
     }
 
+    /** Your add-on (Settings › Vision TB) by IMDb id; its URL may hold your keys, so it is never logged. */
+    fun userAddon(base: String, key: String, target: DiscoveryTarget): SourceRequest? =
+        stremio(DiscoverySource.USER_ADDON, base, target)?.copy(secretUrl = true, key = key)
+
     fun knaben(query: String): SourceRequest = SourceRequest(
         DiscoverySource.KNABEN,
         "https://api.knaben.org/v1",
@@ -252,7 +260,7 @@ object DiscoverySources {
             DiscoverySource.TSUKIHIME -> AnimeSources.parseTsukiHime(body)
             DiscoverySource.ANIMETOSHO -> AnimeSources.parseAnimeTosho(body)
             DiscoverySource.NEKOBT -> AnimeSources.parseNekoBt(body, target.anime?.anilistId)
-            DiscoverySource.JACKETTIO, DiscoverySource.METEOR_KEYED -> AnimeSources.parseKeyedStreams(body, source)
+            DiscoverySource.JACKETTIO, DiscoverySource.METEOR_KEYED, DiscoverySource.USER_ADDON -> AnimeSources.parseKeyedStreams(body, source)
             DiscoverySource.TORRENTIO, DiscoverySource.COMET, DiscoverySource.METEOR,
             DiscoverySource.TORRENTIO_REGIONAL, DiscoverySource.PEERFLIX, DiscoverySource.TORRENTSDB -> parseStremioStreams(body, source)
         }

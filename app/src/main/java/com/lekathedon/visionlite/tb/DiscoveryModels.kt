@@ -64,7 +64,9 @@ enum class DiscoverySource(val label: String) {
     /** Meteor with the user's TorBox key (switch "Keyed sources"). */
     METEOR_KEYED("Meteor+key"),
     /** Experimental engine only: hashes the user's own add-ons returned (no request of its own). */
-    ADDONS("Add-ons")
+    ADDONS("Add-ons"),
+    /** One of your own add-ons added in Settings › Vision TB (feeds only Vision TB). */
+    USER_ADDON("Your add-on")
 }
 
 /** One release as a source reported it, before matching. */

@@ -63,6 +63,67 @@ fun VisionTbScreen() {
                 }
             },
             onCancel = { asking = false })
+        if (key.isNotBlank()) Sources()
+    }
+}
+
+/**
+ * Your arsenal (user 2026-11-23): add your own add-ons (they feed only Vision TB), and see what each source is worth,
+ * scored from the searches you already made: reach, speed, health, and a verdict (keep / costly / remove / paused).
+ */
+@Composable
+private fun Sources() {
+    val tick by TbSources.tick.collectAsState()
+    val scope = rememberCoroutineScope()
+    var adding by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+    var open by remember { mutableStateOf<String?>(null) }
+    val keys = remember(tick) { TbSources.keys() }
+    val reports = remember(tick) { keys.map { TbSources.report(it) } }
+    Text("Sources", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp))
+    Text("Add your own add-ons here: they only feed Vision TB (no rows, no link group of their own). Each source is scored from " +
+        "the searches you make: what only it found, how long autoplay waits on it, and whether it still answers. A source that " +
+        "stops working is paused and you're told.", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp).fillMaxWidth(0.7f))
+    Row("Add an add-on", "From your phone: any Stremio stream add-on (Torrentio, Comet, MediaFusion, AIOStreams…, your own instance)") { adding = true }
+    if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+    if (adding) PhoneBox("Vision TB add-on", listOf(PhoneForm.Field("Add-on URL", "https://…/manifest.json", note = "Configured links are fine; they stay on the TV and are never logged")),
+        onSave = { v ->
+            adding = false
+            v.firstOrNull()?.takeIf { it.isNotBlank() }?.let { u ->
+                msg = "Adding…"
+                scope.launch { msg = runCatching { TbSources.add(u) }.fold({ "Added ${it.name}: scored after ${TbSources.LEARN} searches" }, { "Could not add: ${it.message}" }) }
+            }
+        },
+        onCancel = { adding = false })
+    reports.forEach { r ->
+        val mine = r.key.startsWith("addon:")
+        val on = TbSources.isOn(r.key)
+        val color = when (r.tone) {
+            TbSources.Tone.GOOD -> Color(0xFF7BD88F); TbSources.Tone.WARN -> Color(0xFFFFC66D); TbSources.Tone.BAD -> Color(0xFFFF7A7A)
+            else -> Palette.TextDim
+        }
+        val facts = if (r.searches == 0) "Not asked yet" else listOfNotNull(
+            "${r.searches} searches",
+            "only source ${r.reachPct}%",
+            if (r.picks > 0) "${r.picks} plays (${r.solePicks} only here)" else null,
+            if (r.medianMs > 0) "~%.1f s".format(r.medianMs / 1000.0) else null,
+            if (r.avgDelayMs >= 500) "+%.1f s autoplay".format(r.avgDelayMs / 1000.0) else null
+        ).joinToString(" · ")
+        Focusable({ open = if (open == r.key) null else r.key }, Modifier.padding(top = 10.dp).fillMaxWidth(0.7f)) { f ->
+            Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(14.dp)) {
+                Text((if (mine) "" else "Built-in · ") + r.label, color = if (on) Palette.Text else Palette.TextDim, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(r.verdict, color = color, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                Text(facts, color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+        if (open == r.key) {
+            Row(if (on) "Turn off" else "Turn on", if (on) "Kept, but not asked" else "Asked again in every search") { TbSources.setOn(r.key, !on) }
+            if (TbSources.pausedSince(r.key) != null) Row("Try it again now", "Asked in the next search; stays if it answers") { TbSources.unpause(r.key) }
+            if (mine) {
+                Row("Edit (replace the link)", "From your phone; its score starts over") { TbSources.remove(r.key); adding = true; open = null }
+                Row("Remove", "No longer asked") { TbSources.remove(r.key); open = null; msg = "Removed ${r.label}" }
+            }
+        }
     }
 }
 
@@ -80,5 +141,18 @@ private fun Row(title: String, sub: String, modifier: Modifier = Modifier, onCli
             Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(sub, color = Palette.TextDim, fontSize = 13.sp)
         }
+    }
+}
+
+/** The once-only notice when a Vision TB source breaks or comes back (not over a playing video). */
+@Composable
+fun TbAlertHost(inPlayer: Boolean) {
+    val alert by TbSources.alert.collectAsState()
+    val a = alert ?: return
+    if (inPlayer) return
+    LaunchedEffect(a) { kotlinx.coroutines.delay(12_000); TbSources.alertSeen() }
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = androidx.compose.ui.Alignment.TopEnd) {
+        Text(a, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(0.42f)
+            .background(Color(0xE6222226), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(16.dp))
     }
 }

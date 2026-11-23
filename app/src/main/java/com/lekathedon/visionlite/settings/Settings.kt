@@ -216,8 +216,11 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Debrid")
         row { m -> ServiceRow("torbox", nav, m) }
-        row { m -> Link("Vision TB", "TorBox-cached links straight from the torrent sites", m,
-            value = if (p.visionTb.flow.collectAsState().value) "On" else "Off") { nav.push(Screen.VisionTb) } }
+        row { m ->
+            val tbTick = com.lekathedon.visionlite.tb.TbSources.tick.collectAsState().value
+            val bad = remember(tbTick) { com.lekathedon.visionlite.tb.TbSources.problems() }
+            Link("Vision TB", if (bad > 0) "$bad source(s) paused: open to edit or remove" else "TorBox-cached links straight from the torrent sites, plus your add-ons", m,
+                value = if (p.visionTb.flow.collectAsState().value) "On" else "Off") { nav.push(Screen.VisionTb) } }
         head("Add-ons")
         row { m -> Link("Add-ons", "Add by phone, turn on or off, change the order", m, value = "${addonsOn()} on") { nav.push(Screen.Addons) } }
         head("Which links you see")

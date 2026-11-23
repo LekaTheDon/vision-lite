@@ -253,6 +253,8 @@ private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean,
         say("Getting the ${Debrid.names()} link…")
         Debrid.resolve(h, l.stream.fileIdx, l.stream.behaviorHints?.filename, EpisodeCheck.targetOf(s.id)).fold({ say(""); it }, { say(it.message ?: "Debrid failed"); null })
     } ?: return false
+    // Vision TB's report: the sources that had the link you (or autoplay) played get the credit.
+    l.tb?.let { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.tb.TbSources.played(s.id, it.hash) } } }
     val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source, l.bytes)
     if (replace) nav.replace(p) else nav.push(p)
     return true

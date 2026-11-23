@@ -86,15 +86,33 @@ object VisionTb {
         if (imdb == null && !byAnimeId) { harvest?.cancel(); return@withContext }
         if (series && (season == null || episode == null)) { harvest?.cancel(); return@withContext }
         val t0 = SystemClock.elapsedRealtime()
+        // Per-source report (Settings › Vision TB): what each source found, how fast, whether it still answers.
+        val search = TbSources.Search(id)
+        val allow = HashMap<String, Boolean>()
+        fun asks(key: String) = synchronized(allow) { allow.getOrPut(key) { TbSources.shouldAsk(key) } }
+        // Slow sources that add almost nothing: autoplay stops waiting for them once a 4K cached link is in.
+        val slow = runCatching { TbSources.keys().filter(TbSources::skippable).toSet() }.getOrDefault(emptySet())
+        val jobs = HashMap<String, MutableList<kotlinx.coroutines.Job>>()
         withTimeoutOrNull(TOTAL_MS) {
+            val watch = if (slow.isEmpty()) null else launch {
+                while (true) {
+                    kotlinx.coroutines.delay(250)
+                    val pend = search.pending()
+                    if (search.elapsed() >= 3_000 && search.has4k && pend.isNotEmpty() && pend.all { it in slow }) {
+                        pend.forEach { k -> search.skipped(k); synchronized(jobs) { jobs[k].orEmpty().toList() }.forEach { it.cancel() } }
+                        Log.i(TAG, "stopped waiting for slow sources: ${pend.joinToString { TbSources.label(it) }}")
+                    }
+                }
+            }
             val idTarget = DiscoveryTarget(imdb, series, emptyList(), null, season, episode)
             val claimed = HashSet<String>()
             var budget = DiscoveryPipeline.MAX_CACHE_CHECKS
-            suspend fun pass(source: DiscoverySource, rows: List<DiscoveryCandidate>, target: DiscoveryTarget) {
+            suspend fun pass(source: DiscoverySource, rows: List<DiscoveryCandidate>, target: DiscoveryTarget, src: String = source.name) {
                 val out = DiscoveryPipeline.processSource(source, rows, target,
                     claim = { rel -> synchronized(claimed) { rel.filter { claimed.add(it.hash) }.take(budget.coerceAtLeast(0)).also { budget -= it.size } } },
                     check = { hashes, _ -> check(key, hashes) })
                 val list = out.verified.shown.map { it.toStream() to Pick(it.release.hash, it.file?.path?.substringAfterLast('/')) }
+                search.shown(src, list.map { it.second.hash }, out.verified.shown.any { it.is4k })
                 if (list.isNotEmpty()) onRows(list)
             }
             coroutineScope {
@@ -128,19 +146,28 @@ object VisionTb {
                     f.copy(isAnime = true, anime = refs, animeTitles = (kt + z.titles).distinct())
                 }
                 suspend fun run(req: SourceRequest, quick: Boolean, target: kotlinx.coroutines.Deferred<DiscoveryTarget> = full) {
-                    val rows = fetch(req, idTarget) ?: return
+                    val sk = req.statKey
+                    if (!asks(sk)) return
+                    search.started(sk)
+                    kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.let { j -> synchronized(jobs) { jobs.getOrPut(sk) { ArrayList() } += j } }
+                    val asked = SystemClock.elapsedRealtime()
+                    val got = fetch(req, idTarget)
+                    search.ended(sk, got, timedOut = got == null && SystemClock.elapsedRealtime() - asked >= SOURCE_MS - 200)
+                    val rows = got ?: return
                     if (rows.isEmpty()) return
                     // Torrentio files releases by IMDb episode: its rows vouch for this episode (autoplay's trust).
                     if (series && (req.source == DiscoverySource.TORRENTIO || req.source == DiscoverySource.TORRENTIO_REGIONAL))
                         com.lekathedon.visionlite.streams.AutoPick.vouch(id, rows.map { it.hash to (it.fileName ?: it.name) })
                     // Shows: rows naming this exact episode go before the titles arrive; the rest wait for them.
-                    if (quick && series && !target.isCompleted) pass(req.source, rows, idTarget)
-                    pass(req.source, rows, target.await())
+                    if (quick && series && !target.isCompleted) pass(req.source, rows, idTarget, sk)
+                    pass(req.source, rows, target.await(), sk)
                 }
                 if (imdb != null) {
                     DiscoveryPipeline.planById(idTarget, includeTorboxSearch = false, includeRegional = true).forEach { launch { run(it, true) } }
                     // Jackettio and Meteor asked with your TorBox key (the hash is read from the link; the link is never kept).
                     DiscoveryPipeline.planKeyed(idTarget, key).forEach { launch { run(it, true) } }
+                    // Your own add-ons (Settings › Vision TB): asked like the built-in sites, only for Vision TB.
+                    TbSources.addons().forEach { a -> DiscoverySources.userAddon(a.base, TbSources.keyOf(a), idTarget)?.let { launch { run(it, true) } } }
                 }
                 launch {
                     val f = full.await()
@@ -151,7 +178,9 @@ object VisionTb {
                 // Your add-ons' torrents (any add-on that returns hashes): checked against TorBox like any source.
                 harvest?.let { ch -> launch { for (b in ch) if (b.isNotEmpty()) launch { pass(DiscoverySource.ADDONS, b, full.await()) } } }
             }
+            watch?.cancel()
         }
+        runCatching { search.finish() }.onFailure { Log.w(TAG, "report: ${it.message}") }
         harvest?.cancel()
         Log.i(TAG, "VISION_TB_MS total=${SystemClock.elapsedRealtime() - t0}")
     }
