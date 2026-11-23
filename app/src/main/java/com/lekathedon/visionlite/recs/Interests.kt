@@ -87,6 +87,17 @@ object Interests {
         "Comedy" to (31..49).toList(), "Horror" to (108..122).toList(), "Romance" to (149..156).toList(), "Action" to (1..11).toList(),
         "Sci-Fi" to (157..166).toList()
     )
+    /**
+     * What makes a title belong to a regional family (user 2026-11-23: "British Drama" showed Vikings, Band of Brothers,
+     * 2001 and One Piece): IMDb's own genre must be the family's, none of the genres that turn it into something else
+     * (a fantasy epic, a sci-fi blockbuster, an animation) may be there, and the FIRST country of origin must be in the
+     * region, so a Hollywood film with a British co-producer isn't "British".
+     */
+    private fun excluded(family: String): Set<String> =
+        setOf("Animation", "Fantasy", "Sci-Fi", "Action", "Adventure") - family - (if (family == "Action" || family == "Sci-Fi") setOf("Adventure") else emptySet())
+    fun fits(family: String, genres: List<String>) = family in genres && genres.none { it in excluded(family) }
+    fun madeIn(region: Region, countries: List<String>) = countries.firstOrNull() in region.countries
+
     private val SPECIAL = mapOf("NORDIC:Crime" to "Nordic Noir", "BRITISH:Crime" to "British Crime Drama", "SPANISH:Crime" to "Spanish Crime",
         "KOREAN:Thriller" to "Korean Thriller", "ITALIAN:Crime" to "Italian Crime", "FRENCH:Crime" to "French Polar", "JAPANESE:Horror" to "J-Horror",
         "KOREAN:Drama" to "K-Drama", "TURKISH:Drama" to "Turkish Drama", "ARABIC:Drama" to "Arabic Drama", "ARABIC:Comedy" to "Arabic Comedy")
@@ -140,10 +151,9 @@ object Interests {
         // Regional subgenres: titles of a family (any of its interests) made in one region.
         val rScore = HashMap<String, Double>(); val rCount = HashMap<String, Int>()
         items.filter { it.second > 0 }.forEach { (f, w) ->
-            val nums = f.interests.mapNotNull(::num).toSet()
             REGIONS.forEach { (rk, r) ->
-                if (f.countries.none { it in r.countries }) return@forEach
-                FAMILIES.forEach { (fk, ids) -> if (ids.any { it in nums }) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
+                if (!madeIn(r, f.countries)) return@forEach
+                FAMILIES.keys.forEach { fk -> if (fits(fk, f.genres)) { val k = regional(rk, fk); rScore.merge(k, w, Double::plus); rCount.merge(k, 1, Int::plus) } }
             }
         }
         // Broad genres left out (Home has their tiles); a subgenre or a regional one is what gets a row.
@@ -205,11 +215,11 @@ object Interests {
     private fun search(id: String, min: Float): List<Pair<MetaPreview, List<String>>> {
         val constraint = if (id.startsWith("rg:")) {
             val (_, r, f) = id.split(':')
-            "interestConstraint: { anyInterestIds: [${FAMILIES.getValue(f).joinToString(",") { "\"${Interests.id(it)}\"" }}] } " +
+            "genreConstraint: { allGenreIds: [\"$f\"], excludeGenreIds: [${excluded(f).joinToString(",") { "\"$it\"" }}] } " +
                 "originCountryConstraint: { anyCountries: [${REGIONS.getValue(r).countries.joinToString(",") { "\"$it\"" }}] }"
         } else "interestConstraint: { allInterestIds: [\"$id\"] }"
         val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } }"
-        val q = "{ advancedTitleSearch(first: 100, constraints: { $constraint " +
+        val q = "{ advancedTitleSearch(first: ${if (id.startsWith("rg:")) 250 else 100}, constraints: { $constraint " +
             "titleTypeConstraint: { anyTitleTypeIds: [\"movie\", \"tvSeries\", \"tvMiniSeries\"] } " +
             "userRatingsConstraint: { aggregateRatingRange: { min: ${maxOf(min, 6.0f)} }, ratingsCountRange: { min: 2000 } } }, " +
             "sort: { sortBy: POPULARITY, sortOrder: ASC }) { edges { node { $node } } } }"
@@ -218,6 +228,7 @@ object Interests {
                 .header("x-imdb-client-name", "imdb-web-next-localized").build()).execute().use { JSONObject(it.body!!.string()) }
         }.getOrNull() ?: return emptyList()
         val edges = d.optJSONObject("data")?.optJSONObject("advancedTitleSearch")?.optJSONArray("edges") ?: return emptyList()
+        val region = if (id.startsWith("rg:")) REGIONS[id.split(':')[1]] else null
         return (0 until edges.length()).mapNotNull { i ->
             val t = edges.optJSONObject(i)?.optJSONObject("node")?.optJSONObject("title") ?: return@mapNotNull null
             val tid = t.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
@@ -225,6 +236,8 @@ object Interests {
             val img = t.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.isNotBlank() }
                 ?.let { u -> if ("._V1_" in u) u.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else u }
             val cs = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("id") } }.orEmpty()
+            // Regional rows: made there first, not just co-produced there.
+            if (region != null && !madeIn(region, cs)) return@mapNotNull null
             MetaPreview(tid, if (kind == "movie") "movie" else "series", t.optJSONObject("titleText")?.optString("text") ?: return@mapNotNull null,
                 img ?: "https://images.metahub.space/poster/medium/$tid/img", "https://images.metahub.space/background/medium/$tid/img",
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
