@@ -205,7 +205,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         Style.TONAL -> {
                             Facts(m, t, isSeries)
                             t?.awards?.let { aw -> Awards(aw, Modifier.padding(top = 10.dp), right = false) }
-                            DisplayText(name, 46.sp, Modifier.padding(top = 16.dp), maxLines = 3)
+                            TitleArt(logo, name, 46.sp, Modifier.padding(top = 16.dp), 300.dp, 100.dp)
                             plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.84f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
                             ScoreTiles(t, traktRating, more)
                             if (crew.isNotBlank()) Text((if (isSeries) "Created by " else "Directed by ") + crew, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
@@ -214,7 +214,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         Style.MARQUEE -> {
                             val genres = (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).take(2).joinToString("  ·  ")
                             Eyebrow(listOfNotNull(genres.ifBlank { null }, crew.ifBlank { null }?.let { (if (isSeries) "Created by " else "By ") + it }).joinToString("  ·  "))
-                            DisplayText(name, 52.sp, Modifier.padding(top = 12.dp, bottom = 4.dp), maxLines = 2)
+                            TitleArt(logo, name, 52.sp, Modifier.padding(top = 12.dp, bottom = 6.dp), 320.dp, 100.dp)
                             Facts(m, t, isSeries)
                             Ratings(t, traktRating, more)
                             plot?.let {
@@ -295,6 +295,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             KitIcon("Rate", I.Star, { com.lekathedon.visionlite.home.Rate.ask(imdbId, isSeries, name) },
                                 Modifier.hint(if (mine > 0) "Your rating: $mine/10 · Trakt" else "Rate on Trakt"), on = mine > 0)
                         }
+                        // Sequel / Prequel and Connections: separate, each only when the title has some (user 2026-11-24).
                         val sp by prefs.sequelPrequel.flow.collectAsState()
                         val cn by prefs.connections.flow.collectAsState()
                         if (sp && t != null && t.sequels.isNotEmpty()) KitIcon("Sequel / Prequel", I.Swap, {
@@ -303,11 +304,6 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         if (cn && t != null && t.connections.isNotEmpty()) KitIcon("Connections", I.AccountTree, {
                             sheet = Sheet.Links("Connections", t.connections.groupBy { it.link!! }.toSortedMap().map { (l, v) -> l.heading to v })
                         }, Modifier.hint("Connections"), count = t.connections.size)
-                        val cos = t?.companies.orEmpty()
-                        if (cos.isNotEmpty()) KitIcon("Production", I.Business, {
-                            if (cos.size == 1) nav.push(Screen.Company(cos[0].id, cos[0].name))
-                            else sheet = Sheet.Menu("Production", cos.map { c -> Triple(c.name, null) { nav.push(Screen.Company(c.id, c.name)) } })
-                        }, Modifier.hint("Production · " + cos.joinToString(", ") { it.name }), count = cos.size.takeIf { it > 1 })
                     }
                     // The focused icon's name; Marquee also says when a film started now would end.
                     Row(Modifier.padding(top = 8.dp).height(20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -404,6 +400,19 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 Header("Cast")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(cast, key = { it.id }) { p -> PersonCircle(p) { nav.push(Screen.Person(p.id, p.name)) } }
+                }
+            }
+
+            // ---------------------------------------------------------------- production (Nuvio: logos under Cast)
+            if (imdbId != null) item(key = "production") {
+                val cos by androidx.compose.runtime.produceState<List<com.lekathedon.visionlite.browse.Companies.Co>>(emptyList(), imdbId, t) {
+                    value = com.lekathedon.visionlite.browse.Companies.ofTitle(imdbId, isSeries, t?.companies.orEmpty())
+                }
+                if (cos.isNotEmpty()) Column {
+                    Header("Production")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        items(cos, key = { it.id }) { c -> CompanyLogo(c) { nav.push(Screen.Company(c.id, c.name)) } }
+                    }
                 }
             }
 
@@ -527,16 +536,41 @@ private fun Ratings(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
     }
 }
 
+/** A production company: its logo on a light tile (most logos are dark ink), the name under it; OK opens its works. */
+@Composable
+private fun CompanyLogo(c: com.lekathedon.visionlite.browse.Companies.Co, open: () -> Unit) {
+    Column(Modifier.width(132.dp)) {
+        Focusable(open, Modifier, RoundedCornerShape(Kit.rowR)) { _ ->
+            Box(Modifier.size(132.dp, 66.dp).clip(RoundedCornerShape(Kit.rowR)).background(Color(0xFFECECEC)).padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center) {
+                if (c.logo != null) coil3.compose.AsyncImage(c.logo, c.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                else Text(c.name, color = Color(0xFF1A1A1A), fontFamily = Kit.display, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+        }
+        Text(c.name, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 2.dp))
+    }
+}
+
+/** The title as on its poster: the show's own logo art (Fanart / metahub), the look's display text if there is none. */
+@Composable
+private fun TitleArt(logo: String?, name: String, size: androidx.compose.ui.unit.TextUnit, modifier: Modifier, w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp) {
+    var failed by remember(logo) { mutableStateOf(logo == null) }
+    if (!failed) coil3.compose.AsyncImage(logo, name, modifier.size(w, h), contentScale = ContentScale.Fit,
+        alignment = Alignment.BottomStart, onError = { failed = true })
+    else DisplayText(name, size, modifier, maxLines = 2)
+}
+
 /** IMDb's awards in gold: a trophy, the big prize ("Won 1 Oscar") and all wins / nominations under it. */
 @Composable
 private fun Awards(a: Imdb.Awards, modifier: Modifier = Modifier, right: Boolean = true) {
     Column(modifier, horizontalAlignment = if (right) Alignment.End else Alignment.Start) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Trophy, null, Modifier.size(22.dp), tint = Gold)
-            Text(a.headline ?: a.counts.orEmpty(), color = Gold, fontFamily = Kit.display, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp), maxLines = 1)
+            androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Trophy, null, Modifier.size(15.dp), tint = Gold)
+            Text(a.headline ?: a.counts.orEmpty(), color = Gold, fontFamily = Kit.display, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 6.dp), maxLines = 1)
         }
-        if (a.headline != null) a.counts?.let { Text(it, color = Gold.copy(alpha = 0.75f), fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 2.dp)) }
+        if (a.headline != null) a.counts?.let { Text(it, color = Gold.copy(alpha = 0.75f), fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 2.dp)) }
     }
 }
 
@@ -633,26 +667,26 @@ private fun GuideChips(g: List<Imdb.Guide>) {
     val rank = mapOf("severe" to 0, "moderate" to 1, "mild" to 2)
     val shown = g.filter { it.severity.lowercase() in rank }.sortedBy { rank[it.severity.lowercase()] }
     if (shown.isEmpty()) return
-    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.padding(top = 12.dp).wrapContentWidth(Alignment.Start, unbounded = true), verticalAlignment = Alignment.CenterVertically) {
         shown.forEachIndexed { i, x ->
             val short = x.category.substringBefore(" &").substringBefore(",")
             val c = severityColor(x.severity)
             when (Kit.style) {
                 Style.MARQUEE -> {
-                    if (i > 0) Box(Modifier.padding(horizontal = 10.dp).size(1.dp, 12.dp).background(Kit.line))
-                    Text(short.uppercase(), color = Palette.Text.copy(alpha = 0.85f), fontFamily = Kit.label, fontSize = 12.sp, letterSpacing = 2.sp)
-                    Text(" " + x.severity.uppercase(), color = c, fontFamily = Kit.label, fontSize = 12.sp, letterSpacing = 2.sp)
+                    if (i > 0) Box(Modifier.padding(horizontal = 7.dp).size(1.dp, 9.dp).background(Kit.line))
+                    Text(short.uppercase(), color = Palette.Text.copy(alpha = 0.85f), fontFamily = Kit.label, fontSize = 9.sp, letterSpacing = 1.3.sp, maxLines = 1, softWrap = false)
+                    Text(" " + x.severity.uppercase(), color = c, fontFamily = Kit.label, fontSize = 9.sp, letterSpacing = 1.3.sp, maxLines = 1, softWrap = false)
                 }
                 Style.TONAL -> {
-                    if (i > 0) Spacer(Modifier.width(14.dp))
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(c))
-                    Text("  $short", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(" ${x.severity.lowercase()}", color = c, fontSize = 13.sp)
+                    if (i > 0) Spacer(Modifier.width(10.dp))
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(c))
+                    Text("  $short", color = Palette.Text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                    Text(" ${x.severity.lowercase()}", color = c, fontSize = 10.sp, maxLines = 1, softWrap = false)
                 }
                 Style.HALO -> {
-                    if (i > 0) Spacer(Modifier.width(16.dp))
+                    if (i > 0) Spacer(Modifier.width(12.dp))
                     Column {
-                        Text(short, color = Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(short, color = Palette.Text, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         Box(Modifier.padding(top = 3.dp).size(when (x.severity.lowercase()) { "severe" -> 36.dp; "moderate" -> 24.dp; else -> 12.dp }, 3.dp).clip(RoundedCornerShape(50)).background(c))
                     }
                 }

@@ -33,10 +33,33 @@ import org.json.JSONObject
  * newest work, from IMDb's keyless search (production credits only). One request per page opened, kept for the session.
  */
 object Companies {
+    /** A company on a title's page: "tmdb:N" (with its logo, TMDB key set) or an IMDb "co…" id (name only). */
+    data class Co(val id: String, val name: String, val logo: String?)
+    private val byTitle = java.util.concurrent.ConcurrentHashMap<String, List<Co>>()
+
+    /** The title's production companies: TMDB's (logos) when a TMDB key is on, else IMDb's names. */
+    suspend fun ofTitle(imdb: String, tv: Boolean, fallback: List<com.lekathedon.visionlite.detail.Imdb.Company>): List<Co> =
+        byTitle[imdb] ?: withContext(Dispatchers.IO) {
+            val T = com.lekathedon.visionlite.home.Tmdb
+            val tm = if (T.key() == null) null else runCatching {
+                val f = T.get("find/$imdb?external_source=imdb_id")
+                val hit = (if (tv) f?.optJSONArray("tv_results") else f?.optJSONArray("movie_results"))?.optJSONObject(0)
+                    ?: f?.optJSONArray("movie_results")?.optJSONObject(0) ?: f?.optJSONArray("tv_results")?.optJSONObject(0)
+                val kind = if (hit != null && hit.has("first_air_date")) "tv" else "movie"
+                hit?.optInt("id")?.takeIf { it > 0 }?.let { T.get("$kind/$it") }?.optJSONArray("production_companies")?.let { a ->
+                    (0 until a.length()).mapNotNull { a.optJSONObject(it) }.mapNotNull { c ->
+                        Co("tmdb:${c.optInt("id").takeIf { it > 0 } ?: return@mapNotNull null}", c.optString("name").ifBlank { return@mapNotNull null },
+                            T.img(c.optString("logo_path"), "w300"))
+                    }
+                }
+            }.getOrNull()
+            (tm?.takeIf { it.isNotEmpty() } ?: fallback.map { Co(it.id, it.name, null) }).also { byTitle[imdb] = it }
+        }
+
     private val cache = java.util.concurrent.ConcurrentHashMap<String, List<Pair<String, List<MetaPreview>>>>()
     private const val F = "edges { node { title { id titleText { text } titleType { id } releaseYear { year } ratingsSummary { aggregateRating } primaryImage { url } titleGenres { genres { genre { text } } } } } }"
 
-    suspend fun rows(id: String): List<Pair<String, List<MetaPreview>>> = cache[id] ?: withContext(Dispatchers.IO) {
+    suspend fun rows(id: String): List<Pair<String, List<MetaPreview>>> = cache[id] ?: if (id.startsWith("tmdb:")) tmdbRows(id) else withContext(Dispatchers.IO) {
         val c = "creditedCompanyConstraint: {anyCompanyIds: [\"$id\"], anyCompanyCategories: [\"production\"]}"
         val all = "titleTypeConstraint: {anyTitleTypeIds: [\"movie\", \"tvSeries\", \"tvMiniSeries\"]}"
         val today = java.time.LocalDate.now().toString()
@@ -56,6 +79,20 @@ object Companies {
         listOf("Popular films" to list("films"), "Popular shows" to list("shows"), "Best rated" to list("top"), "Newest" to list("newest"))
             .filter { it.second.isNotEmpty() }.also { if (it.isNotEmpty()) cache[id] = it }
     }
+}
+
+/** A TMDB company: popular films and shows, best rated, newest (TMDB discover, your key). */
+private suspend fun tmdbRows(id: String): List<Pair<String, List<MetaPreview>>> = withContext(Dispatchers.IO) {
+    val T = com.lekathedon.visionlite.home.Tmdb
+    val n = id.removePrefix("tmdb:")
+    val today = java.time.LocalDate.now().toString()
+    fun d(kind: String, q: String) = runCatching { T.items(T.get("discover/$kind?with_companies=$n&$q"), kind == "tv") }.getOrDefault(emptyList())
+    val top = (d("movie", "sort_by=vote_average.desc&vote_count.gte=300") + d("tv", "sort_by=vote_average.desc&vote_count.gte=200"))
+        .sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }
+    val newest = (d("movie", "sort_by=primary_release_date.desc&primary_release_date.lte=$today") + d("tv", "sort_by=first_air_date.desc&first_air_date.lte=$today"))
+        .sortedByDescending { it.releaseInfo ?: "" }
+    listOf("Popular films" to d("movie", "sort_by=popularity.desc"), "Popular shows" to d("tv", "sort_by=popularity.desc"), "Best rated" to top, "Newest" to newest)
+        .filter { it.second.isNotEmpty() }
 }
 
 @Composable
