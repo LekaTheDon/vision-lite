@@ -110,7 +110,8 @@ object Recs {
      * engine found that an AI also named is lifted (one more source agreeing); the AI's own finds join every few places.
      */
     private fun withAi(picks: List<Pick>, hub: Hub): List<Pick> {
-        val ai = AiPicks.picks(hub).value
+        // An AI's reason that's about bodies / nudity / sex is dropped (user 2026-11-24); the title itself stays.
+        val ai = AiPicks.picks(hub).value.map { if (it.why != null && Body.word(it.why)) it.copy(why = null) else it }
         if (ai.isEmpty()) return picks
         val byId = ai.associateBy { it.imdb }
         val lifted = picks.map { p -> byId[p.imdb]?.let { a -> p.copy(sources = p.sources + 1, why = p.why ?: a.why) } ?: p }
