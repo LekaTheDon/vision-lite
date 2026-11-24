@@ -196,13 +196,15 @@ object Iptv {
     }
 
     /** Streams the guide straight into the database, only the channels this playlist has, now −24 h (catch-up) to +24 h. */
-    /** How far back the guide is kept: the chosen days, or the playlist's catch-up days (1 to 7). */
-    private fun pastDays(pl: String): Int = p.iptvGuidePast.value.toIntOrNull() ?: db.readableDatabase.rawQuery(
-        "SELECT MAX(cu_days) FROM ch WHERE pl=?", arrayOf(pl)).use { if (it.moveToFirst()) it.getInt(0) else 0 }.coerceIn(1, 7)
+    /** The guide keeps 3 days (user 2026-11-24): yesterday, today and tomorrow, from local midnight to midnight. */
+    private fun dayStart(offset: Int): Long = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+        add(java.util.Calendar.DAY_OF_MONTH, offset)
+    }.timeInMillis
 
     private fun loadGuide(pl: String, url: String, mustParse: Boolean) {
         val now = System.currentTimeMillis()
-        val keepFrom = now - pastDays(pl) * 86_400_000L
+        val keepFrom = dayStart(-1)
         // Asked with what the server said last time; "not modified" (or the same ETag / date / size) = keep ours.
         val tag = "epg:$pl:" + url.hashCode()
         val req = Request.Builder().url(url).header("User-Agent", "VisionLite").apply {
@@ -248,7 +250,7 @@ object Iptv {
             val st = w.compileStatement("INSERT INTO prog(pl,tvg,start,stop,title,descr,cat) VALUES(?,?,?,?,?,?,?)")
             var count = 0
             input.use { input ->
-                XmltvParser.parse(input, keepFrom, now + 7 * 86_400_000L, keepUnlisted = { it in ids },
+                XmltvParser.parse(input, keepFrom, dayStart(2), keepUnlisted = { it in ids },
                     onPrograms = { id, progs ->
                         progs.forEach { pr ->
                             st.clearBindings(); st.bindString(1, pl); st.bindString(2, id); st.bindLong(3, pr.startMs); st.bindLong(4, pr.stopMs)
