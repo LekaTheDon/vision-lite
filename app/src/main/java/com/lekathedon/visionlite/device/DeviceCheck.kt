@@ -65,10 +65,16 @@ data class Facts(
     val maxDecodeHeight: Int = 0,
     /** A video decoder that can tunnel (picture and sound timed by the TV chip). */
     val tunneling: Boolean = false,
+    // Speed and network (0.34): which internet, how each DNS service answers on it, what the provider blocks, and the
+    // accessibility services that are on.
+    val net: String = "",
+    val dnsMs: Map<String, Int> = emptyMap(),
+    val dnsBlocked: List<String> = emptyList(),
+    val a11y: List<String> = emptyList(),
 ) {
     /** What decides the choices except speed and the time: when this changes, the TV or soundbar changed. */
     fun print(): String = listOf(capsKnown, dvTv, hdr10, hdr10Plus, hlg, width, height, rates.map { (it * 100).toInt() },
-        resolutions, fel, dv7Decoder, dvDecoder, converter, sound, soundKnown).joinToString("|")
+        resolutions, fel, dv7Decoder, dvDecoder, converter, sound, soundKnown, net, a11y).joinToString("|")
 }
 
 /** Reads the box, TV and soundbar, then suggests; applies only on "Use all recommended" or with Let the app decide on. */
@@ -146,7 +152,14 @@ object DeviceCheck {
         step("Measuring memory…")
         val mi = ActivityManager.MemoryInfo().also { (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(it) }
 
-        val mbps = if (speed) { step("Testing the internet speed…"); speedTest() } else saved()?.mbps
+        // Another internet than last time: its speed and DNS are measured again even on the quiet start-up check.
+        val old = saved()
+        val net = com.lekathedon.visionlite.data.NetCheck.fingerprint(context)
+        val newNet = old != null && old.net.isNotEmpty() && net != old.net
+        val mbps = if (speed || newNet) { step("Testing the internet speed…"); speedTest() } else old?.mbps
+        val (dnsMs, blocked) = if (speed || newNet || old?.dnsMs.isNullOrEmpty()) { step("Testing DNS services…"); com.lekathedon.visionlite.data.NetCheck.measure() }
+            else old!!.dnsMs to old.dnsBlocked
+        val a11y = com.lekathedon.visionlite.data.QuietA11y.services(context)
         Facts(
             at = System.currentTimeMillis(), capsKnown = caps != null,
             dvTv = Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION in hdr, hdr10 = Display.HdrCapabilities.HDR_TYPE_HDR10 in hdr,
@@ -160,6 +173,7 @@ object DeviceCheck {
             is64 = Build.SUPPORTED_64_BIT_ABIS.isNotEmpty(), cores = Runtime.getRuntime().availableProcessors(), maxMhz = maxCpuMhz(),
             lowRamFlag = Tier.lowRamFlag, heapMb = Tier.heapMb.toInt(),
             decodersKnown = known, uhdDecode = uhd, hevc10 = hevc10, hevcHw = hevc, vp9Hw = vp9, maxDecodeHeight = maxH, tunneling = tunnel,
+            net = net, dnsMs = dnsMs, dnsBlocked = blocked, a11y = a11y,
         ).also { save(it) }
     }
 
@@ -290,6 +304,40 @@ object DeviceCheck {
                 else "Fine on this box at up to 1080p"))
         }
 
+        // Speed and network: DNS for this internet, scrolling and closing for this box.
+        if (f.dnsMs.isNotEmpty()) run {
+            val services = com.lekathedon.visionlite.data.SwitchDns.SERVICES
+            fun name(k: String) = services.firstOrNull { it.key == k }?.name ?: k
+            val working = f.dnsMs.filter { it.value >= 0 }
+            val opts = services.filter { it.key == "system" || it.key in working }.map { s ->
+                s.key to (s.name + (f.dnsMs[s.key]?.takeIf { it >= 0 }?.let { " · $it ms" } ?: " · no answer"))
+            }
+            val sys = f.dnsMs["system"] ?: -1
+            val fastest = working.filterKeys { it != "system" }.minByOrNull { it.value }
+            val (rec, why) = when {
+                f.dnsBlocked.isNotEmpty() && fastest != null -> fastest.key to
+                    "Your internet provider's DNS blocks ${f.dnsBlocked.joinToString()}; ${name(fastest.key)} finds them (${fastest.value} ms)"
+                sys < 0 && fastest != null -> fastest.key to "Your provider's DNS didn't answer properly; ${name(fastest.key)} did (${fastest.value} ms)"
+                fastest != null && sys > 150 && fastest.value * 2 < sys -> fastest.key to
+                    "Your provider's DNS is slow here ($sys ms); ${name(fastest.key)} answers in ${fastest.value} ms"
+                else -> "system" to (if (sys >= 0) "Your provider's DNS answers in $sys ms and blocks nothing the app uses" else "Nothing answered better")
+            }
+            add(Choice("dns", "Speed and network", "DNS (who looks up addresses)", opts, rec, why))
+        }
+        if (f.a11y.isNotEmpty()) {
+            val keyOnly = com.lekathedon.visionlite.data.QuietA11y.keyOnly(f.a11y)
+            add(Choice("quiet_a11y", "Speed and network", "Smoother with key remappers", listOf("on" to "On", "off" to "Off"), if (keyOnly) "on" else "off",
+                if (keyOnly) "Only key remappers / launchers use accessibility here: the app's screen needn't be described to them"
+                else "A service that reads the screen is on, so the app keeps describing it"))
+        }
+        run {
+            val light = Tier.measured() == Tier.Class.LIGHT
+            add(Choice("fast_h", "Speed and network", "Fast horizontal navigation", listOf("on" to "On", "off" to "Off"), if (light) "off" else "on",
+                if (light) "On this box quick moves along rows drop frames" else "This box keeps up with quick moves along rows"))
+            add(Choice("full_exit", "Speed and network", "Close fully on leaving", listOf("on" to "On", "off" to "Off"), if (light) "on" else "off",
+                if (light) "Little memory here: leaving gives it all back to the box" else "Enough memory: the app stays ready, so it opens at once"))
+        }
+
         // Highest quality: what the decoders can show, and what the measured speed carries (a 2.5 h film at 70% of the line).
         val decodeCap = if (f.decodersKnown && !f.uhdDecode) 1080 else 0
         if (decodeCap > 0 && f.mbps == null) add(Choice("max_quality", "Internet", "Highest quality",
@@ -324,6 +372,10 @@ object DeviceCheck {
         "size_limit" -> p.sizeLimit.value
         "perf" -> p.perfClass.value.ifEmpty { Tier.id(Tier.measured()) }
         "trailers" -> on(p.trailers.value)
+        "dns" -> p.dns.value
+        "quiet_a11y" -> on(p.quietA11y.value)
+        "fast_h" -> on(p.fastHorizontal.value)
+        "full_exit" -> on(p.fullExit.value)
         else -> ""
     }
 
@@ -344,6 +396,10 @@ object DeviceCheck {
             "size_limit" -> p.sizeLimit.value = v
             "perf" -> { p.perfClass.value = v; Tier.setChoice(v) }
             "trailers" -> p.trailers.value = v == "on"
+            "dns" -> p.dns.value = v
+            "quiet_a11y" -> p.quietA11y.value = v == "on"
+            "fast_h" -> p.fastHorizontal.value = v == "on"
+            "full_exit" -> p.fullExit.value = v == "on"
         }
     }
 

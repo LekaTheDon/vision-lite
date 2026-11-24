@@ -48,15 +48,16 @@ object SwitchDns : Dns {
 
     private fun choice(): String = runCatching { App.instance.prefs.dns.value }.getOrDefault("system")
 
+    /** A lookup through [s] on its own small client (on the box's lookup, so asking the service never loops back here). */
+    internal fun build(s: Service): Dns {
+        val boot = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(4, TimeUnit.SECONDS).build()
+        return DnsOverHttps.Builder().client(boot).url(s.url.toHttpUrl())
+            .bootstrapDnsHosts(s.ips.map { ip -> InetAddress.getByName(ip) }).includeIPv6(false).build()
+    }
+
     private fun dohFor(key: String): Dns? {
         if (key == builtFor) return doh
-        val s = SERVICES.firstOrNull { it.key == key && it.url.isNotEmpty() }
-        val d = s?.let {
-            // Its own small client on the box's lookup, so asking the service never loops back here.
-            val boot = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(4, TimeUnit.SECONDS).build()
-            DnsOverHttps.Builder().client(boot).url(it.url.toHttpUrl())
-                .bootstrapDnsHosts(it.ips.map { ip -> InetAddress.getByName(ip) }).includeIPv6(false).build()
-        }
+        val d = SERVICES.firstOrNull { it.key == key && it.url.isNotEmpty() }?.let(::build)
         doh = d; builtFor = key; failedAt = 0
         return d
     }
@@ -78,6 +79,59 @@ object SwitchDns : Dns {
             val t0 = System.nanoTime()
             runCatching { d.lookup(h) }.fold({ "$h ${(System.nanoTime() - t0) / 1_000_000} ms" }, { "$h: no answer" })
         }
+    }
+}
+
+/**
+ * This TV's network check (Settings › This TV, with everything else the device check sets): which internet the box is
+ * on, and how each DNS service answers on it. Runs with the device check, and by itself when the box moves to another
+ * internet; never in the background otherwise.
+ */
+object NetCheck {
+    /** Hosts the app needs all the time, and the add-on / debrid ones providers like to block. */
+    private val HOSTS = listOf("api.themoviedb.org", "v3-cinemeta.strem.io", "torrentio.strem.fun", "api.torbox.app", "api.real-debrid.com")
+
+    /** Which internet: Wi-Fi or cable, plus the network's DNS servers and domain (no location permission needed). */
+    fun fingerprint(ctx: Context): String = runCatching {
+        val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java)
+        val n = cm.activeNetwork ?: return ""
+        val caps = cm.getNetworkCapabilities(n)
+        val lp = cm.getLinkProperties(n)
+        val kind = when {
+            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "cable"
+            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true -> "wifi"
+            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true -> "vpn"
+            else -> "other"
+        }
+        listOf(kind, lp?.dnsServers?.joinToString(",") { it.hostAddress.orEmpty() }.orEmpty(), lp?.domains.orEmpty()).joinToString("|")
+    }.getOrDefault("")
+
+    private fun bogus(a: InetAddress): Boolean = a.isAnyLocalAddress || a.isLoopbackAddress || a.isSiteLocalAddress || a.isLinkLocalAddress
+
+    /**
+     * Each service's median answer time in ms (-1 = it didn't answer here), and the hosts the box's own DNS fails on or
+     * points at nowhere while a DNS service finds them (the provider blocks them).
+     */
+    fun measure(): Pair<Map<String, Int>, List<String>> {
+        val ms = LinkedHashMap<String, Int>()
+        val found = HashMap<String, Boolean>()   // host -> some DoH service found a real address
+        val systemBad = HashSet<String>()
+        for (s in SwitchDns.SERVICES) {
+            val dns = if (s.url.isEmpty()) Dns.SYSTEM else runCatching { SwitchDns.build(s) }.getOrNull()
+            if (dns == null) { ms[s.key] = -1; continue }
+            if (s.url.isNotEmpty() && runCatching { dns.lookup("example.com") }.isFailure) { ms[s.key] = -1; continue }   // warm-up (TLS)
+            val times = ArrayList<Long>()
+            for (h in HOSTS) {
+                val t0 = System.nanoTime()
+                val r = runCatching { dns.lookup(h) }.getOrNull()
+                val ok = r != null && r.isNotEmpty() && r.none(::bogus)
+                if (s.url.isEmpty()) { if (!ok) systemBad += h }
+                else if (ok) found[h] = true
+                if (ok) times += (System.nanoTime() - t0) / 1_000_000
+            }
+            ms[s.key] = if (times.size >= HOSTS.size - 1) times.sorted()[times.size / 2].toInt() else -1
+        }
+        return ms to systemBad.filter { found[it] == true }
     }
 }
 
@@ -168,6 +222,8 @@ object QuietA11y {
             Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
                 .split(':').map { it.substringBefore('/').trim() }.filter { it.isNotEmpty() }).distinct()
     }
+
+    fun keyOnly(services: List<String>) = services.isNotEmpty() && services.all { it in KEY_ONLY }
 
     fun quiet(ctx: Context): Boolean {
         if (!App.instance.prefs.quietA11y.value) return false

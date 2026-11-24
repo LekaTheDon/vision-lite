@@ -172,7 +172,7 @@ object Profiles {
         "dv5_to_81", "strip_hdr10plus", "buffer", "tv_auto", "tv_facts", "perf_class", "exit_seen", "player_engine",
         "engine_backup", "seek_thumbs", "black_bars", "anime_ids_at", "anime_moves",
         "si_nuvio_token", "si_nuvio_refresh", "si_nuvio_user", "si_nuvio_until", "si_nuvio_faces", "cloud_setup",
-        "dns", "quiet_a11y", "full_exit",
+        "dns", "quiet_a11y", "full_exit", "fast_horizontal",
     )
     private val DEVICE_PREFIXES = listOf("lp_", "int_tmdb_", "int_tvdb_", "int_mdblist_", "int_gemini_", "int_groq_", "int_mistral_")
 

@@ -75,11 +75,11 @@ class MainActivity : ComponentActivity() {
                     else { if (nav.current is Screen.Player || nav.current is Screen.YtPlay) nav.pop(); nav.push(s) }
                 }
             }
-            // Let the app decide: a new TV or soundbar since the last check gets its recommended settings by itself.
+            // Let the app decide: a new TV, soundbar or internet (Wi-Fi / cable / DNS servers) since the last check gets its recommended settings by itself.
             val ctx = androidx.compose.ui.platform.LocalContext.current
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 val n = runCatching { com.lekathedon.visionlite.device.DeviceCheck.autoUpdate(ctx) }.getOrDefault(0)
-                if (n > 0) android.widget.Toast.makeText(ctx, "New TV or soundbar: $n settings updated (Settings › This TV)", android.widget.Toast.LENGTH_LONG).show()
+                if (n > 0) android.widget.Toast.makeText(ctx, "New TV, soundbar or internet: $n settings updated (Settings › This TV)", android.widget.Toast.LENGTH_LONG).show()
             }
             // Music never plays over a video: a film, an episode, Live TV or a YouTube video pauses it.
             val top = nav.current

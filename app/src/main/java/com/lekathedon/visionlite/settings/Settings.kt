@@ -424,10 +424,38 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         row { m -> ThisTvPane(m, nav) }
     }
-    pages += page("Speed and network", "Smoother scrolling, DNS, speed tests, cache, how the app closes", {
-        val d = p.dns.flow.collectAsState().value
-        "DNS: ${com.lekathedon.visionlite.data.SwitchDns.SERVICES.firstOrNull { it.key == d }?.name ?: "System"}"
+    pages += page("Speed and network", "Set for this TV and internet: DNS, scrolling, how the app closes; tests and cache", {
+        tvWatch()
+        val f = DeviceCheck.saved()
+        val mine = f?.let { DeviceCheck.choices(it).filter { c -> c.section == "Speed and network" && DeviceCheck.current(c.key) != c.recommended } }
+        when {
+            f == null || f.dnsMs.isEmpty() -> "Not checked yet (This TV)"
+            mine.isNullOrEmpty() -> "Set for this TV and internet"
+            else -> "${mine.size} changed by you"
+        }
     }) {
+        // This TV's check chooses these per box and per internet (and again when either changes, with Let the app
+        // decide); the rows below stay for doing it by hand.
+        head("Chosen for this TV and internet")
+        row { m ->
+            tvWatch()
+            val f = DeviceCheck.saved()
+            val list = f?.let { DeviceCheck.choices(it).filter { c -> c.section == "Speed and network" } }.orEmpty()
+            val diff = list.filter { DeviceCheck.current(it.key) != it.recommended }
+            val sub = when {
+                f == null || f.dnsMs.isEmpty() -> "This TV's check hasn't measured this internet yet: Check again there"
+                else -> list.joinToString("  ·  ") { c ->
+                    val cur = DeviceCheck.current(c.key)
+                    "${c.title.substringBefore(" (")}: ${c.label(c.recommended).substringBefore(" · ")}" +
+                        if (cur != c.recommended) " (you: ${c.label(cur).substringBefore(" · ")})" else ""
+                } + (if (p.tvAuto.value) "\nThe app keeps these right when the TV, box or internet changes" else "")
+            }
+            Link(if (diff.isEmpty()) "Set by This TV" else "Use what This TV chose", sub, m,
+                value = if (diff.isEmpty()) "This TV ›" else "${diff.size} change${if (diff.size == 1) "" else "s"}") {
+                if (diff.isEmpty() || f == null) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true }
+                else diff.forEach { DeviceCheck.set(it.key, it.recommended) }
+            }
+        }
         head("Scrolling")
         row { m -> Toggle("Fast horizontal navigation", "Held Left / Right moves quicker along the rows", p.fastHorizontal, m) }
         row { m ->
@@ -702,6 +730,7 @@ private fun tvWatch() {
     listOf(p.dv7.flow, p.afr.flow, p.engine.flow, p.buffer.flow, p.maxQuality.flow, p.sizeLimit.flow, p.tvFacts.flow).forEach { it.collectAsState().value }
     listOf(p.matchRes.flow, p.dv5To81.flow, p.stripHdr10Plus.flow, p.ptAc3.flow, p.ptEac3.flow, p.ptTruehd.flow, p.ptDts.flow, p.ptDtshd.flow, p.tvAuto.flow).forEach { it.collectAsState().value }
     listOf(p.perfClass.flow).forEach { it.collectAsState().value }; p.trailers.flow.collectAsState().value
+    p.dns.flow.collectAsState().value; listOf(p.quietA11y.flow, p.fastHorizontal.flow, p.fullExit.flow).forEach { it.collectAsState().value }
 }
 
 @Composable
