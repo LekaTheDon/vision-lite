@@ -292,7 +292,7 @@ internal fun LiveControls(
         if ((bannerOn || bar || pending != 0L) && !listOpen) {
             tick
             val shift = Shift(ts.on, ts.ring, ts.keptMs, (behind() - pending).coerceIn(0, maxOf(ts.keptMs, behind())), pending != 0L)
-            Banner(channel, s.title, nowNext, now, nowMs, recording != null, sleepAt, player, shift, if (bar) 96.dp else 0.dp, Modifier.align(Alignment.BottomStart))
+            Banner(channel, s.title, nowNext, now, nowMs, recording != null, sleepAt, player, shift, if (bar) 128.dp else 0.dp, Modifier.align(Alignment.BottomStart))
         }
 
         when (panel) {
@@ -303,23 +303,26 @@ internal fun LiveControls(
                 onNote = { note = it }, onClose = { panel = null })
             LivePanel.OPTIONS, LivePanel.AUDIO, LivePanel.SUBS, LivePanel.SLEEP -> {
                 val c = channel
-                val items = buildList<Pair<String, () -> Unit>> {
-                    if (engine == Engine.EXO && (ts.on || player.isCurrentMediaItemSeekable)) add("⏪  10 s" to { seekBy(-10_000) })
-                    add((if (paused) "▶  Play" else "❚❚  Pause") to { pauseToggle() })
-                    if (ts.ring) { add("10 s  ⏩" to { seekBy(10_000) }); add("●  Live" to { goLive() }) }
+                val I = com.lekathedon.visionlite.ui.Icons
+                val items = buildList {
+                    if (engine == Engine.EXO && (ts.on || player.isCurrentMediaItemSeekable)) add(LiveBtn(I.Rewind, "Back 10 s") { seekBy(-10_000) })
+                    add(LiveBtn(if (paused) I.Play else I.Pause, if (paused) "Play" else "Pause") { pauseToggle() })
+                    if (ts.ring) { add(LiveBtn(I.Forward, "Forward 10 s") { seekBy(10_000) }); add(LiveBtn(I.Next, "Back to live") { goLive() }) }
                     if (c != null) {
-                        now?.let { pr -> Iptv.startOverUrl(c, pr)?.let { url -> add("⟲  Start over" to { panel = null; playArchive(url, "${c.name} · ${pr.title}", c.headers) }) } }
-                        add("Guide" to { panel = LivePanel.GUIDE })
-                        add((if (Iptv.isFavourite(c)) "★  Favourite" else "☆  Favourite") to { perform(LiveKeys.Action.FAVOURITE, 0) })
-                        add((if (recording != null) "■  Stop recording" else "●  Record") to { perform(LiveKeys.Action.RECORD, 0) })
+                        now?.let { pr -> Iptv.startOverUrl(c, pr)?.let { url -> add(LiveBtn(I.Restart, "Start over") { panel = null; playArchive(url, "${c.name} · ${pr.title}", c.headers) }) } }
+                        add(LiveBtn(I.Guide, "TV guide") { panel = LivePanel.GUIDE })
+                        val fav = Iptv.isFavourite(c)
+                        add(LiveBtn(if (fav) I.Favorite else I.FavoriteBorder, if (fav) "Remove from favourites" else "Add to favourites", if (fav) Color(0xFFFFC107) else null) { perform(LiveKeys.Action.FAVOURITE, 0) })
+                        add(if (recording != null) LiveBtn(I.Stop, "Stop recording", Color(0xFFE53935)) { perform(LiveKeys.Action.RECORD, 0) }
+                            else LiveBtn(I.Record, "Record", Color(0xFFE53935)) { perform(LiveKeys.Action.RECORD, 0) })
                     }
-                    add("Audio" to { panel = LivePanel.AUDIO })
-                    add("Subtitles" to { panel = LivePanel.SUBS })
-                    add("Picture · ${listOf("Fit", "Zoom", "Stretch")[aspect]}" to { perform(LiveKeys.Action.PICTURE, 0) })
-                    add((sleepAt?.let { "Sleep · ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: "Sleep") to { panel = LivePanel.SLEEP })
-                    add("Last channel" to { panel = null; perform(LiveKeys.Action.LAST_CHANNEL, 0) })
-                    add("Stats" to { panel = LivePanel.STATS })
-                    add("Engine · ${engine.label}" to { panel = null; onEngine() })
+                    add(LiveBtn(I.Audio, "Audio") { panel = LivePanel.AUDIO })
+                    add(LiveBtn(I.Subtitles, "Subtitles") { panel = LivePanel.SUBS })
+                    add(LiveBtn(I.Aspect, "Picture: ${listOf("Fit", "Zoom", "Stretch")[aspect]}") { perform(LiveKeys.Action.PICTURE, 0) })
+                    add(LiveBtn(I.Sleep, sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: "Sleep timer", if (sleepAt != null) Color(0xFF64B5F6) else null) { panel = LivePanel.SLEEP })
+                    add(LiveBtn(I.History, "Last channel") { panel = null; perform(LiveKeys.Action.LAST_CHANNEL, 0) })
+                    add(LiveBtn(I.Info, "Stats") { panel = LivePanel.STATS })
+                    add(LiveBtn(I.Engine, "Engine: ${engine.label}") { panel = null; onEngine() })
                 }
                 ControlBar(items, active = panel == LivePanel.OPTIONS, Modifier.align(Alignment.BottomStart))
                 when (panel) {
@@ -347,21 +350,32 @@ internal fun LiveControls(
     }
 }
 
-/** The control bar along the bottom (hold OK / Menu): one row of buttons, Left / Right to move, Back closes. */
+/** One control-bar button: icon, its name (shown under the bar while focused), a colour when it is "on". */
+private class LiveBtn(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val tint: Color? = null, val act: () -> Unit)
+
+/**
+ * The control bar along the bottom (hold OK / Menu), drawn like TiviMate's: round icon buttons in one row, the
+ * focused one a white disc, its name under the row. Left / Right to move, Back closes.
+ */
 @Composable
-private fun ControlBar(items: List<Pair<String, () -> Unit>>, active: Boolean, modifier: Modifier) {
+private fun ControlBar(items: List<LiveBtn>, active: Boolean, modifier: Modifier) {
     val first = remember { FocusRequester() }
-    var focusedAt by remember { mutableIntStateOf(if (items.size > 1 && items[0].first.startsWith("⏪")) 1 else 0) }
+    var focusedAt by remember { mutableIntStateOf(if (items.size > 1 && items[0].label.startsWith("Back 10")) 1 else 0) }
     LaunchedEffect(active) { if (active) { delay(30); runCatching { first.requestFocus() } } }
-    androidx.compose.foundation.lazy.LazyRow(modifier.fillMaxWidth().padding(start = 40.dp, end = 40.dp, bottom = 34.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        itemsIndexed(items) { i, (label, act) ->
-            Focusable(act, (if (i == focusedAt.coerceAtMost(items.lastIndex)) Modifier.focusRequester(first) else Modifier), RoundedCornerShape(22.dp),
-                onFocus = { focusedAt = i }) { f ->
-                Text(label, color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-                    modifier = Modifier.background(if (f) Color.White else Color(0x33FFFFFF)).padding(horizontal = 18.dp, vertical = 10.dp))
+    Column(modifier.fillMaxWidth().padding(bottom = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        androidx.compose.foundation.lazy.LazyRow(Modifier.background(Color(0xB3101014), RoundedCornerShape(36.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            itemsIndexed(items) { i, b ->
+                Focusable(b.act, (if (i == focusedAt.coerceAtMost(items.lastIndex)) Modifier.focusRequester(first) else Modifier), androidx.compose.foundation.shape.CircleShape,
+                    onFocus = { focusedAt = i }) { f ->
+                    Box(Modifier.size(52.dp).background(if (f) Color.White else Color.Transparent), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.Icon(b.icon, b.label, Modifier.size(28.dp), tint = when { f && b.tint != null -> b.tint; f -> Color.Black; else -> b.tint ?: Color.White })
+                    }
+                }
             }
         }
+        Text(items.getOrNull(focusedAt)?.label.orEmpty(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            modifier = Modifier.padding(top = 8.dp))
     }
 }
 

@@ -39,7 +39,14 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: Stri
                     .setMediaCodecSelector(SoftwareVideoOnly)
             )
             .setVideoChangeFrameRateStrategy(androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
+            // No stalls mid-trailer: start after 3 s are in, then keep fetching up to the whole trailer (a short
+            // network dip never empties the buffer); after a dip wait for 6 s before going on.
+            .setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(180_000, 180_000, 3_000, 6_000)
+                .setTargetBufferBytes(48 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build())
             .build()
+        // HLS trailers: never a variant above 1080p (software can't decode 4K in time).
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setMaxVideoSize(1920, 1080).build()
         player.setVideoTextureView(texture)
         player.volume = if (muted) 0f else 1f
         player.addListener(object : Player.Listener {

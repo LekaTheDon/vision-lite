@@ -53,7 +53,7 @@ object VisionRows {
     /** key to title, in Vision's order. */
     val all: List<Pair<String, String>> = listOf(
         COMING_UP to "Coming up", PICKS to "Vision Picks",
-        BECAUSE[0] to "Because you watched · 1", FAVS[0] to "Because you like · 1", MOODS to "Moods", SCOUT to "Scout",
+        BECAUSE[0] to "Because you watched · 1", FAVS[0] to "Because you like · 1", MOODS to "Moods",
         BECAUSE[1] to "Because you watched · 2", FAVS[1] to "Because you like · 2",
         GENRE_ROWS[0] to "Because you like · genre 1", GENRE_ROWS[1] to "Because you like · genre 2",
         SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades"

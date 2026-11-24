@@ -156,7 +156,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.YtPlay -> com.lekathedon.visionlite.youtube.YtPlayer(nav, s)
                         is Screen.Music -> com.lekathedon.visionlite.music.MusicScreen(nav, s.tab)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
-                        Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
+                        Screen.Rows -> com.lekathedon.visionlite.settings.Rows(nav)
                         Screen.Interests -> com.lekathedon.visionlite.settings.InterestsPage()
                         Screen.LeaveOut -> com.lekathedon.visionlite.settings.LeaveOutPage()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()

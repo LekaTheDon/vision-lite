@@ -35,13 +35,13 @@ import com.lekathedon.visionlite.ui.Palette
 
 /** Home rows: on/off, up/down, refresh. Same model as Home (activity-scoped), so changes show at once. One set per hub. */
 @Composable
-fun Rows() {
+fun Rows(nav: com.lekathedon.visionlite.ui.Nav) {
     var hub by remember { mutableStateOf(com.lekathedon.visionlite.anime.Hubs.now()) }
-    androidx.compose.runtime.key(hub) { RowsOf(hub) { hub = it } }
+    androidx.compose.runtime.key(hub) { RowsOf(hub, nav) { hub = it } }
 }
 
 @Composable
-private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathedon.visionlite.anime.Hub) -> Unit) {
+private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, nav: com.lekathedon.visionlite.ui.Nav, pick: (com.lekathedon.visionlite.anime.Hub) -> Unit) {
     val vm = com.lekathedon.visionlite.home.homeModel(hub)
     val prefs = App.instance.prefs
     val rowOrder = com.lekathedon.visionlite.anime.Hubs.rowOrder(hub)
@@ -78,6 +78,7 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, pick: (com.lekathed
                 val nVod = vodPicked.split('\n').count { it.isNotEmpty() }
                 Button(if (nVod == 0) "VOD rows: None" else "VOD rows: $nVod", { choosingVod = true })
                 Button("Add a catalog", { adding = true })
+                Button("Build your own row", { nav.push(com.lekathedon.visionlite.ui.Screen.Scout("build")) })
                 val rotation by prefs.rotation.flow.collectAsState()
                 Button(if (rotation) "Rotating rows: On" else "Rotating rows: Off", {
                     prefs.rotation.value = !rotation

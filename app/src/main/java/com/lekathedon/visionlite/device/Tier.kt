@@ -89,7 +89,9 @@ object Tier {
     }
 
     /** Tallest trailer this class decodes on top of the UI (a 4K trailer costs a few hundred MB). */
-    fun trailerHeight(wanted: Int): Int = minOf(wanted, when (current) { Class.LIGHT -> 720; Class.STANDARD -> 1080; Class.FULL -> 2160 })
+    // Trailers decode in software (so the TV never switches): 4K on the CPU can't keep up and froze mid-trailer
+    // (2026-11-24, every box). 1080p tops for all.
+    fun trailerHeight(wanted: Int): Int = minOf(wanted, when (current) { Class.LIGHT -> 720; else -> 1080 })
 
     /** Streaming services' short video tiles (cached 20-40 MB, a decoder each time one plays). */
     val videoTiles: Boolean get() = current != Class.LIGHT

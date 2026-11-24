@@ -319,7 +319,7 @@ private fun ScoutSlicePage(nav: Nav, id: String) {
     if (award != null && award.tabs.isNotEmpty()) {
         val tabs = remember(id) { com.lekathedon.visionlite.recs.Scout.awardTabs(award) }
         var tab by rememberSaveable(id) { mutableStateOf(tabs.firstOrNull()?.first?.label ?: "") }
-        Page(slice.title, noKey() ?: "Scout · ${slice.group.label}") {
+        Page(slice.title, noKey() ?: slice.group.label) {
             Chips(tabs.map { it.first.label to it.first.label }, tab, Modifier.padding(top = 12.dp)) { tab = it }
             val t = tabs.firstOrNull { it.first.label == tab } ?: return@Page
             val sub = com.lekathedon.visionlite.recs.ScoutSlice("$id|$tab", slice.group, tab, award = com.lekathedon.visionlite.recs.ScoutAward(t.first.awards, award.winners))
@@ -329,7 +329,7 @@ private fun ScoutSlicePage(nav: Nav, id: String) {
         }
         return
     }
-    Page(slice.title, noKey() ?: "Scout · ${slice.group.label} · ranked by your taste") {
+    Page(slice.title, noKey() ?: "${slice.group.label} · ranked by your taste") {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 60.dp)) {
             if (award != null) {
                 listOf(false, true).forEach { tv -> if (com.lekathedon.visionlite.recs.Scout.awardIds(award, tv).isNotEmpty())
@@ -346,7 +346,9 @@ private fun ScoutBuildPage(nav: Nav) {
         { it.encode() }, { com.lekathedon.visionlite.recs.ScoutBuild.decode(it) ?: com.lekathedon.visionlite.recs.ScoutBuild() })) { mutableStateOf(com.lekathedon.visionlite.recs.ScoutBuild()) }
     val slice = remember(build) { build.slice() }
     val store = rememberRails(build.encode())
-    Page("Build your own", noKey() ?: slice?.title ?: "Pick one or more: they all apply together") {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var added by remember(build) { mutableStateOf<String?>(null) }
+    Page("Build your own row", noKey() ?: added ?: slice?.title ?: "Pick any tiles: they all apply together, then Add to Home") {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
             scoutBuildGroups.forEach { g ->
                 val opts = com.lekathedon.visionlite.recs.ScoutSlices.inGroup(g).filter { it.award == null }
@@ -357,7 +359,12 @@ private fun ScoutBuildPage(nav: Nav) {
                     }
                 }
             }
-            if (!build.empty) item(key = "clear") { Button("Start over", { build = com.lekathedon.visionlite.recs.ScoutBuild() }, Modifier.padding(top = 12.dp)) }
+            if (!build.empty) item(key = "clear") {
+                androidx.compose.foundation.layout.Row(Modifier.padding(top = 12.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+                    Button("Add to Home", { val b = build; scope.launch { added = com.lekathedon.visionlite.home.ImportedLists.addBuilt(b) } })
+                    Button("Start over", { build = com.lekathedon.visionlite.recs.ScoutBuild() })
+                }
+            }
             LazyListScopeResults(nav, slice, this, store)
         }
     }
@@ -371,7 +378,7 @@ private fun ScoutAskPage(nav: Nav) {
     fun set(a: com.lekathedon.visionlite.recs.ScoutAsk) { code = a.encode() }
     val slice = remember(code) { ask.slice() }
     val store = rememberRails(code)
-    Page("Ask Scout", noKey() ?: ask.title()) {
+    Page("Ask", noKey() ?: ask.title()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
             item(key = "watch") { ScoutChoice("What") { Chips(com.lekathedon.visionlite.recs.AskWatch.entries.map { it.code to it.label }, ask.watch.code) { c ->
                 val w = com.lekathedon.visionlite.recs.AskWatch.entries.first { it.code == c }

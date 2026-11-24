@@ -23,7 +23,7 @@ object ImportedLists {
     data class L(val key: String, val source: String, val id: String, val name: String)
 
     fun supports(o: JSONObject): Boolean = when (o.optString("source")) {
-        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL", "IMDB_LIST" -> true
+        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL", "IMDB_LIST", "BUILD" -> true
         "IMDB" -> o.optString("remoteId") == "picks"
         else -> false
     }
@@ -60,6 +60,7 @@ object ImportedLists {
                 "SIMKL" -> simkl(l.id)
                 "ANILIST" -> anilist(l.id)
                 "MAL" -> mal(l.id)
+                "BUILD" -> built(l.id)
                 else -> emptyList()
             }
         }.getOrDefault(emptyList())
@@ -95,6 +96,27 @@ object ImportedLists {
         cur.put(JSONObject().put("source", source).put("remoteId", id).put("name", name.ifBlank { guess }))
         p.importedLists.value = cur.toString()
         "Added \"${name.ifBlank { guess }}\" — it shows on Home (move it with Up/Down)"
+    }
+
+    /** A row you built from tiles (Settings › Home rows › Build your own row): films and shows, ranked by your taste. */
+    private suspend fun built(code: String): List<MetaPreview> {
+        val slice = com.lekathedon.visionlite.recs.ScoutBuild.decode(code)?.slice() ?: return emptyList()
+        val films = if (slice.movie != null) runCatching { com.lekathedon.visionlite.recs.Scout.page(slice, false, 0) }.getOrDefault(emptyList()) else emptyList()
+        val shows = if (slice.tv != null) runCatching { com.lekathedon.visionlite.recs.Scout.page(slice, true, 0) }.getOrDefault(emptyList()) else emptyList()
+        return (0 until maxOf(films.size, shows.size)).flatMap { listOfNotNull(films.getOrNull(it), shows.getOrNull(it)) }.distinctBy { it.id }
+    }
+
+    /** Saves the tiles picked on Build your own row as a Home row. Returns a message for the screen. */
+    suspend fun addBuilt(b: com.lekathedon.visionlite.recs.ScoutBuild): String = withContext(Dispatchers.IO) {
+        val slice = b.slice() ?: return@withContext "Pick at least one tile"
+        val p = App.instance.prefs
+        val cur = runCatching { JSONArray(p.importedLists.value) }.getOrDefault(JSONArray())
+        val id = b.encode()
+        if ((0 until cur.length()).any { cur.optJSONObject(it)?.let { o -> o.optString("source") == "BUILD" && o.optString("remoteId") == id } == true })
+            return@withContext "✓ Already on Home"
+        cur.put(JSONObject().put("source", "BUILD").put("remoteId", id).put("name", slice.title))
+        p.importedLists.value = cur.toString()
+        "✓ Added \"${slice.title}\" to Home (move it in Settings › Home rows)"
     }
 
     /** Removes a list row (by its row key). */
