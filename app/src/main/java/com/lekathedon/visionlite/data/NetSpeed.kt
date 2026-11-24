@@ -152,7 +152,7 @@ object LastLink {
 object NetTests {
     private val client get() = Net.http.newBuilder().callTimeout(30, TimeUnit.SECONDS).build()
 
-    /** Latency (median of 5) and download speed (up to 10 s or 100 MB) against Cloudflare's speed test servers. */
+    /** Latency (median of 5) and download speed (10 s of 25 MB pieces) against Cloudflare's speed test servers. */
     suspend fun speed(): String = withContext(Dispatchers.IO) {
         val c = client
         val pings = (1..5).mapNotNull {
@@ -161,7 +161,16 @@ object NetTests {
                 .map { (System.nanoTime() - t0) / 1_000_000 }.getOrNull()
         }.sorted()
         if (pings.isEmpty()) return@withContext "Couldn't reach the test servers"
-        val mbps = read(c, Request.Builder().url("https://speed.cloudflare.com/__down?bytes=100000000").build(), 10_000)
+        // Cloudflare refuses one download over ~50 MB (403), so 25 MB pieces back to back until 10 s are up.
+        var bits = 0.0; var secs = 0.0
+        while (secs < 10.0) {
+            val leftMs = ((10.0 - secs) * 1000).toLong().coerceAtLeast(500)
+            val t0 = System.nanoTime()
+            val m = read(c, Request.Builder().url("https://speed.cloudflare.com/__down?bytes=25000000").build(), leftMs) ?: break
+            val dt = (System.nanoTime() - t0) / 1e9
+            bits += m * 1_000_000 * dt; secs += dt
+        }
+        val mbps = if (secs > 0.5) bits / secs / 1_000_000 else null
         "Latency ${pings[pings.size / 2]} ms  ·  download ${mbps?.let { "%.0f Mbit/s".format(it) } ?: "failed"}"
     }
 
