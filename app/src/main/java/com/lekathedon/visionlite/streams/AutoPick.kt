@@ -336,13 +336,16 @@ object AutoPick {
     private fun textFor(l: Link) = listOfNotNull(l.stream.name, l.stream.title, l.stream.description, l.fileName).joinToString(" ")
 
     /**
-     * Best link: no CAM, 4K first; on a FEL box DV7 FEL next (user 2026-11-20: Frankenstein autoplayed DV8 over FEL),
+     * Best link: no CAM, then your preferred dub (when set), 4K first; on a FEL box DV7 FEL next (user 2026-11-20: Frankenstein autoplayed DV8 over FEL),
      * then the bigger file always; SeaDex best, quality and Vision TB break ties.
      */
     fun rank(pool: List<Link>): List<Link> {
         val fel = felBox
+        val dub = runCatching { com.lekathedon.visionlite.App.instance.prefs.dubLang.value }.getOrDefault("")
         return pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }.sortedWith(
         compareBy<Pair<Link, ReleaseQuality>> { it.second.lowQuality }
+            // Preferred dub (user 2026-11-24): a link dubbed in that language beats 4K original audio.
+            .thenByDescending { dub.isNotEmpty() && (it.first.dub ?: DubLang.of(textFor(it.first))) == dub }
             .thenByDescending { it.second.resolution == 2160 || it.first.height == 2160 }
             .thenByDescending { if (fel) dvTier(textFor(it.first), it.second) else 0 }
             .thenByDescending { it.first.bytes }

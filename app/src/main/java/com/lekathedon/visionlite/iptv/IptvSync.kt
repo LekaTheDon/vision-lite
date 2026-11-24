@@ -36,9 +36,9 @@ import java.util.Calendar
  *  - every day at 05:00 (an alarm wakes a short foreground service; skipped while something plays, tried again later);
  *  - when Live TV, VOD or Sports opens and a playlist is over a day old (in the background, old data stays on screen);
  *  - Refresh, by hand.
- * After VOD loads, the first 40 titles of every category are matched to TMDB (saved for good) and the first posters
- * of the top rows are put in the image cache, so VOD opens with its posters. Nothing runs without a playlist.
- * Cost: no memory while idle; the nightly run is the provider download plus ~40 TMDB searches per new category.
+ * After VOD loads, the whole VOD page is built in memory (Vod.prepare) with the top rows' posters cached, so VOD opens
+ * complete. Nothing runs without a playlist.
+ * Cost: no memory while idle; the nightly run is the provider download (no TMDB).
  */
 object IptvSync {
     private const val TAG = "IptvSync"
@@ -63,23 +63,17 @@ object IptvSync {
     private suspend fun run(force: Boolean) {
         Iptv.openedThisSession.value = true
         if (force) Iptv.refreshAll() else Iptv.ensureLoaded()
+        val firstEver = Vod.count() == 0L
         Vod.ensureLoaded(force)
-        warmVod()
+        Vod.prepare()          // the whole VOD page, ready before you open it
+        if (firstEver && Vod.count() > 0L) android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(App.instance, "Nuvio Vision: VOD is ready", android.widget.Toast.LENGTH_LONG).show()
+        }
         warmLogos()
     }
 
-    /** The first row of every VOD category matched to TMDB, and the first posters of the top rows in the image cache. */
-    private suspend fun warmVod() {
-        if (Vod.count() == 0L) return
-        for (kind in listOf("movie", "series")) {
-            val groups = runCatching { Vod.groups(kind) }.getOrDefault(emptyList())
-            groups.forEachIndexed { i, (g, _) ->
-                val items = Vod.items(kind, g, 0, 40)
-                if (!VodArabic.match(items)) return            // no TMDB key: the playlist's own posters are used
-                if (i < 25) prefetch(items.take(10).mapNotNull { VodArabic.card(it).poster })
-            }
-        }
-    }
+    /** Live TV opened: the VOD page gets built meanwhile (vod.db read only, no network). */
+    fun prepareVod() { scope.launch { runCatching { Vod.prepare() } } }
 
     /** Logos of favourites, recent channels and the first channels of the list. */
     private fun warmLogos() {

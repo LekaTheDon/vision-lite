@@ -35,7 +35,9 @@ object OriginalLang {
     /** Settings' audio choices with "original" swapped for this title's language (dropped while unknown). */
     fun audioLangs(first: String, second: String, imdb: String?): List<String> {
         val orig = cached(imdb?.substringBefore(':'))?.ifBlank { null }
-        return listOf(first, second).mapNotNull { if (it == ORIGINAL) orig else it.ifEmpty { null } }.distinct()
+        // Preferred dub (Settings › Audio) goes before everything: a file with that track plays it.
+        val dub = runCatching { com.lekathedon.visionlite.App.instance.prefs.dubLang.value }.getOrDefault("").ifEmpty { null }
+        return (listOf(dub) + listOf(first, second).map { if (it == ORIGINAL) orig else it.ifEmpty { null } }).filterNotNull().distinct()
     }
 
     /** Two- and three-letter forms (mpv matches the tag as written in the file: "ja" or "jpn"/"jpn"). */

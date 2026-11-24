@@ -152,6 +152,21 @@ internal object HomeFocus {
 /** A card's place in its row, for [EchoCard] to register its focus requester ([RowSlots]). */
 private class RowSlots(val key: String, val home: Boolean = true) {
     val reqs = HashMap<Int, FocusRequester>()
+    /** Focus just came into this row from outside (Up/Down, back from a page): the next focused card is an entry. */
+    var entered = false
+    var state: androidx.compose.foundation.lazy.LazyListState? = null
+    var scope: kotlinx.coroutines.CoroutineScope? = null
+    /** Where a row is entered (user 2026-11-24): the card you moved to with Left/Right, else always the first. */
+    val target: Int get() = RowMoves.index[key] ?: 0
+
+    /** Focus to card [t], scrolling the row to it first when it isn't laid out. */
+    fun goTo(t: Int) {
+        reqs[t]?.let { if (runCatching { it.requestFocus() }.isSuccess) return }
+        scope?.launch {
+            runCatching { state?.scrollToItem(t) }
+            repeat(10) { withFrameNanos { }; reqs[t]?.let { if (runCatching { it.requestFocus() }.isSuccess) return@launch } }
+        }
+    }
     /** A page row's card last focused (Home keeps its own in [HomeFocus]). */
     var last: Int
         get() = PageFocus.index[key] ?: 0
@@ -160,6 +175,11 @@ private class RowSlots(val key: String, val home: Boolean = true) {
 
 /** The card last focused in each row of the other pages (by page + row), so going back up lands where you were. */
 internal object PageFocus { val index = HashMap<String, Int>() }
+/**
+ * The card you moved to with Left/Right in each row (by row key), for every row (Home and pages). A row you only passed
+ * through with Up/Down has none, so it is entered on its first card, never the 2nd or 3rd (user 2026-11-24).
+ */
+internal object RowMoves { val index = HashMap<String, Int>() }
 
 /** Home's poster rows (key, title) for Settings' billboard choice, and their titles for the screensaver. */
 object BillboardRows {
@@ -220,7 +240,7 @@ private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below
             }
         }
     }
-    LaunchedEffect(focused) { if (focused) { LastFocus = me; slots?.let { if (it.home) { HomeFocus.row = it.key; HomeFocus.index[it.key] = 0 } } } }
+    LaunchedEffect(focused) { if (focused) { LastFocus = me; slots?.entered = false; slots?.let { if (it.home) { HomeFocus.row = it.key; HomeFocus.index[it.key] = 0 } } } }
     // Home: hold the card while it has focus; once the titles are in, give focus to the first one, then let go.
     LaunchedEffect(focused) {
         if (slots?.home != true) return@LaunchedEffect
@@ -915,6 +935,8 @@ private fun EchoRow(
     var hasFocus by remember { mutableStateOf(false) }
     val state = androidx.compose.foundation.lazy.rememberLazyListState()
     val slots = remember(key) { RowSlots(key) }
+    val rowScope = rememberCoroutineScope()
+    slots.state = state; slots.scope = rowScope
     androidx.compose.runtime.DisposableEffect(slots) { RowRegistry[key] = slots; onDispose { if (RowRegistry[key] === slots) RowRegistry.remove(key) } }
     LaunchedEffect(key) {
         if (!HomeFocus.restore || HomeFocus.row != key) return@LaunchedEffect
@@ -925,7 +947,10 @@ private fun EchoRow(
             if (r != null && runCatching { r.requestFocus() }.isSuccess) { HomeFocus.restore = false; return@LaunchedEffect }
         }
     }
-    Column(Modifier.fillMaxWidth().padding(bottom = dims.rowSpace - dims.posterMeta + 6.dp).onFocusChanged { hasFocus = it.hasFocus }) {
+    Column(Modifier.fillMaxWidth().padding(bottom = dims.rowSpace - dims.posterMeta + 6.dp).onFocusChanged {
+        if (it.hasFocus && !hasFocus) slots.entered = true
+        hasFocus = it.hasFocus
+    }) {
         Text(
             title, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Start).height(dims.rowHead)
@@ -934,10 +959,7 @@ private fun EchoRow(
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(leadPx) { snapSpec(leadPx) }, LocalRowSlots provides slots) {
             LazyRow(
                 Modifier.fillMaxWidth().height(cardHeight)
-                    .focusRestorer {
-                        val i = HomeFocus.index[key] ?: state.firstVisibleItemIndex
-                        slots.reqs[i] ?: slots.reqs[state.firstVisibleItemIndex] ?: FocusRequester.Default
-                    }
+                    .focusRestorer { slots.reqs[slots.target] ?: FocusRequester.Default }
                     .focusGroup()
                     .onPreviewKeyEvent { e ->
                         // The last card: nothing further right in this row, so Right stays (never jumps to the clock).
@@ -988,7 +1010,15 @@ private fun EchoCard(
     LaunchedEffect(focused) {
         if (focused) {
             LastFocus = me
-            if (slots != null && slot >= 0) { if (slots.home) { HomeFocus.row = slots.key; HomeFocus.index[slots.key] = slot } else slots.last = slot }
+            if (slots != null && slot >= 0) {
+                if (slots.entered) {
+                    // Came in from another row: land on the first card (or the one you moved to), whatever focus search picked.
+                    slots.entered = false
+                    val t = slots.target
+                    if (slot != t && (slots.reqs[t] != null || t < slot)) { slots.goTo(t); return@LaunchedEffect }
+                } else RowMoves.index[slots.key] = slot   // moved within the row with Left/Right
+                if (slots.home) { HomeFocus.row = slots.key; HomeFocus.index[slots.key] = slot } else slots.last = slot
+            }
             onFocus()
         }
     }
@@ -1141,6 +1171,10 @@ fun PageRow(
     onHoldIn: ((MetaPreview) -> Unit)? = null, onEnd: (() -> Unit)? = null, expand: Boolean = true,
     /** Search: left-out titles stay, marked "Left out · Korean" (everywhere else they're gone). */
     markLeftOut: Boolean = false,
+    /** VOD page (user 2026-11-24): the provider's titles as they are; no adult / leave-out checks (no lookups). */
+    filter: Boolean = true,
+    /** Drawn over the card's own poster instead of the custom poster (VOD: the provider's art + our badge). */
+    overlay: (@Composable BoxScope.(MetaPreview) -> Unit)? = null,
     onClick: (MetaPreview) -> Unit
 ) {
     // Hide adult titles (when on): checked once each, gone as soon as known.
@@ -1149,8 +1183,8 @@ fun PageRow(
     // Leave out (Settings › Recommendations): gone from every page; Search marks them instead.
     val loRev by com.lekathedon.visionlite.recs.LeaveOut.revision.collectAsStateWithLifecycle()
     val loText by App.instance.prefs.leaveOut.flow.collectAsStateWithLifecycle()
-    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut) {
-        com.lekathedon.visionlite.recs.Adult.visible(metasIn).let { l ->
+    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut, filter) {
+        if (!filter) metasIn else com.lekathedon.visionlite.recs.Adult.visible(metasIn).let { l ->
             // Search keeps them, but asks what each is, so the mark appears once known.
             if (markLeftOut) l.also { it.forEach { m -> com.lekathedon.visionlite.recs.LeaveOut.hides(m) } } else com.lekathedon.visionlite.recs.LeaveOut.visible(l)
         }
@@ -1161,7 +1195,7 @@ fun PageRow(
         com.lekathedon.visionlite.recs.LeaveOut.why(m)?.let { w -> "⊘ Left out · $w" + (subIn(m)?.let { " · $it" } ?: "") } ?: subIn(m)
     }
     // Every title: hold OK = Love it / Like / Not for me (the page's own hold, when it has one, comes first).
-    val onHold: ((MetaPreview) -> Unit)? = onHoldIn ?: { m: MetaPreview -> TasteMenu.show(m) }
+    val onHold: ((MetaPreview) -> Unit)? = if (!filter) onHoldIn else onHoldIn ?: { m: MetaPreview -> TasteMenu.show(m) }
     if (metas.isEmpty() && !loading) return
     val prefs = App.instance.prefs
     val size by prefs.posterSize.flow.collectAsStateWithLifecycle()
@@ -1173,12 +1207,15 @@ fun PageRow(
     val slots = remember(key) { RowSlots(key, home = false) }
     val state = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
+    slots.state = state; slots.scope = scope
+    var rowFocus by remember { mutableStateOf(false) }
     val withSub = metas.any { sub(it) != null }
     EchoRowTitle(title)
     CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }, LocalRowSlots provides slots, LocalTrailer provides look) {
         LazyRow(
             Modifier.fillMaxWidth().height(dims.posterHeight + if (withSub) 44.dp else 0.dp)
-                .focusRestorer { slots.reqs[slots.last] ?: slots.reqs[state.firstVisibleItemIndex] ?: FocusRequester.Default }
+                .onFocusChanged { if (it.hasFocus && !rowFocus) slots.entered = true; rowFocus = it.hasFocus }
+                .focusRestorer { slots.reqs[slots.target] ?: FocusRequester.Default }
                 .focusGroup()
                 .onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && slots.last >= metas.size - 1 && metas.isNotEmpty() },
             state = state,
@@ -1195,8 +1232,9 @@ fun PageRow(
                     val mod = if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier
                     if (expand) PosterCard(mm, dims, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.takeIf { TasteMenu.isTitle(m) }?.let { h -> { h(m) } })
                     else EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, mod, onFocus = {}, onClick = { onClick(m) }, onHold = onHold?.takeIf { TasteMenu.isTitle(m) }?.let { h -> { h(m) } }) {
-                        val art = com.lekathedon.visionlite.poster.Posters.poster(mm.id, mm.type, mm.poster)
+                        val art = if (overlay != null) mm.poster else com.lekathedon.visionlite.poster.Posters.poster(mm.id, mm.type, mm.poster)
                         if (art.isNullOrBlank()) Fallback(mm.name) else Img(art, dims.posterWidth, dims.posterHeight, Modifier.fillMaxSize(), fallback = mm.poster)
+                        overlay?.invoke(this, mm)
                     }
                     sub(m)?.let { Text(it, color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.width(dims.posterWidth).padding(top = 6.dp)) }

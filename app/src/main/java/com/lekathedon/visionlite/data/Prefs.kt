@@ -164,6 +164,8 @@ class Prefs(context: Context) {
     /** VOD categories you picked as Home rows (iptv/VodArabic keys, one per line), per profile. None by default (user
      *  2026-11-23: "VOD rows shouldn't appear by default … I'll choose which ones"); empty = no reads, no TMDB matching. */
     val vodRows = Text("vod_rows", "")
+    /** VOD page: categories you moved, in your order ("kind\tgroup" per line); the rest keep the provider's order. */
+    val vodOrder = Text("vod_order", "")
     /** Keep this setup in the Nuvio account (integrations/CloudSetup), box-wide; on = restored on any device you sign in on. */
     val cloudSetup = Flag("cloud_setup", true)
     /** Rotating rows (home/Rotation.kt): a fresh set of themed rows under your own every start. */
@@ -204,6 +206,8 @@ class Prefs(context: Context) {
     val visionTb = Flag("vision_tb", false)
     /** Your IPTV VOD films and series join Vision TB's links (autoplay can pick them). */
     val vodInTb = Flag("vod_in_tb", true)
+    /** Preferred dub (user 2026-11-24): "" = off (original audio); a language code = a link dubbed in it wins autoplay. */
+    val dubLang = Text("dub_lang", "")
     /** Fast horizontal navigation (Vision's Advanced): held Left/Right repeats every 48 ms instead of 80 ms. */
     val fastHorizontal = Flag("fast_horizontal", false)
     /** Screensaver (Vision's Ambient Mode): after this many idle minutes, 4K backdrops from your rows ("0" = off). */

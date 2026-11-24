@@ -72,7 +72,7 @@ fun LiveTv(nav: Nav) {
     var managing by rememberSaveable { mutableStateOf(false) }
     val playlists = remember(version) { Iptv.playlists() }
     // Shown from iptv.db at once; an update due runs in the background (IptvSync), never tied to this page.
-    LaunchedEffect(Unit) { if (playlists.isNotEmpty()) { IptvSync.kick(); IptvSync.arm() } }
+    LaunchedEffect(Unit) { if (playlists.isNotEmpty()) { IptvSync.kick(); IptvSync.arm(); IptvSync.prepareVod() } }
     if (managing || playlists.isEmpty()) {
         androidx.activity.compose.BackHandler(enabled = managing) { managing = false }
         Playlists(onDone = { managing = false; IptvSync.kick(); IptvSync.arm() })

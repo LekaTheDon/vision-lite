@@ -31,6 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,10 +96,12 @@ object Vod {
                     val base = Iptv.xtreamBase(pl)
                     val api = "$base/player_api.php?username=${Iptv.encode(pl.user)}&password=${Iptv.encode(pl.pass)}"
                     // Streamed straight into vod.db: big panels send 50-100 MB lists (one string of them ran the app out of memory).
-                    fun names(action: String): Map<String, String> = HashMap<String, String>().also { m ->
+                    // Kept in the provider's order (TiviMate shows them so): the VOD page lists categories this way.
+                    fun names(action: String, kind: String): Map<String, String> = LinkedHashMap<String, String>().also { m ->
                         eachObject("$api&action=$action") { o -> m[o["category_id"].orEmpty()] = o["category_name"].orEmpty() }
+                        if (m.isNotEmpty()) metaPut("${pl.id}|$kind|cats", m.values.distinct().joinToString("\n"))
                     }
-                    val movieCats = names("get_vod_categories")
+                    val movieCats = names("get_vod_categories", "movie")
                     writeStream(pl.id, "movie") { add ->
                         eachObject("$api&action=get_vod_streams") { o ->
                             val id = o["stream_id"]?.ifBlank { null } ?: return@eachObject
@@ -101,7 +109,7 @@ object Vod {
                                 "$base/movie/${Iptv.encode(pl.user)}/${Iptv.encode(pl.pass)}/$id.${o["container_extension"]?.ifBlank { null } ?: "mp4"}", o["rating"]?.takeIf { it.isNotBlank() && it != "0" }))
                         }
                     }
-                    val seriesCats = names("get_series_categories")
+                    val seriesCats = names("get_series_categories", "series")
                     writeStream(pl.id, "series") { add ->
                         eachObject("$api&action=get_series") { o ->
                             val id = o["series_id"]?.ifBlank { null } ?: return@eachObject
@@ -118,6 +126,71 @@ object Vod {
                 _version.value++
             }
         }
+    }
+
+    // ---- the shelf: the whole VOD page, built at once (user 2026-11-24: "open it to find it ready like TiviMate") ----
+
+    /** Every category of one kind with its first [SHELF] titles, in the order shown. */
+    class Shelf(val groups: List<Pair<String, Int>>, val rows: Map<String, List<VodItem>>)
+    const val SHELF = 12
+    private val shelves = java.util.concurrent.ConcurrentHashMap<String, Shelf>()
+    private val _shelfRev = MutableStateFlow(0)
+    /** Goes up when a whole new shelf is ready; the page redraws only then (never row by row). */
+    val shelfRev: StateFlow<Int> get() = _shelfRev
+    private val prepLock = Mutex()
+    @Volatile private var preparedAt = -1
+
+    fun shelf(kind: String): Shelf? = shelves[kind]
+
+    /**
+     * Builds both shelves from vod.db (836 categories ≈ 0.3 s on the AM9, ~3 MB held) and puts the first posters of the
+     * top 40 categories in the image cache. Runs after an IPTV update and when Live TV / VOD opens; never at app start.
+     */
+    suspend fun prepare(force: Boolean = false) = prepLock.withLock {
+        withContext(Dispatchers.IO) {
+            val v = _version.value
+            if (!force && preparedAt == v && shelves.isNotEmpty()) return@withContext
+            if (count() == 0L) { shelves.clear(); preparedAt = v; _shelfRev.value++; return@withContext }
+            val first = shelves.isEmpty()
+            if (first && _status.value.isEmpty()) _status.value = "Building VOD…"
+            val built = listOf("movie", "series").associateWith { kind ->
+                val gs = arranged(kind, groups(kind))
+                Shelf(gs, gs.associate { (g, _) -> g to items(kind, g, 0, SHELF) })
+            }
+            shelves.putAll(built); preparedAt = v
+            if (_status.value == "Building VOD…") _status.value = ""
+            _shelfRev.value++
+            built.values.forEach { sh -> prefetch(sh.groups.take(40).flatMap { (g, _) -> sh.rows[g].orEmpty().take(7).mapNotNull { card(it.poster) } }) }
+        }
+    }
+    /** Re-sorts the built shelves after Arrange (no DB read of titles). */
+    fun rearrange(kind: String) {
+        val sh = shelves[kind] ?: return
+        shelves[kind] = Shelf(arranged(kind, groups(kind)), sh.rows); _shelfRev.value++
+    }
+
+    /** Provider posters are often TMDB's 600×900; cards are ~200 wide, so the 342 size loads ~3× faster. */
+    fun card(poster: String?): String? = poster?.replace(Regex("""(image\.tmdb\.org/t/p/)(w600_and_h900_bestv2|original|w780|w500)/"""), "$1w342/")
+
+    private fun prefetch(urls: List<String>) {
+        val ctx = App.instance
+        val loader = coil3.SingletonImageLoader.get(ctx)
+        urls.distinct().forEach { u -> loader.enqueue(coil3.request.ImageRequest.Builder(ctx).data(u).memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build()) }
+    }
+
+    /** Playlists loaded before the provider's category order was kept: just their two category lists (2 small calls, once). */
+    suspend fun ensureCatOrder() = withContext(Dispatchers.IO) {
+        var got = false
+        for (pl in Iptv.playlists().filter { it.xtream && loadedAt(it.id) > 0 }) for ((kind, action) in listOf("movie" to "get_vod_categories", "series" to "get_series_categories")) {
+            if (metaGet("${pl.id}|$kind|cats") != null) continue
+            runCatching {
+                val api = "${Iptv.xtreamBase(pl)}/player_api.php?username=${Iptv.encode(pl.user)}&password=${Iptv.encode(pl.pass)}"
+                val names = ArrayList<String>()
+                eachObject("$api&action=$action") { o -> o["category_name"]?.let { if (it !in names) names.add(it) } }
+                if (names.isNotEmpty()) { metaPut("${pl.id}|$kind|cats", names.joinToString("\n")); got = true }
+            }.onFailure { Log.w(TAG, "${pl.name} categories: ${it.message}") }
+        }
+        if (got) { groupCache.clear(); _version.value++ }
     }
 
     /**
@@ -201,15 +274,38 @@ object Vod {
         }.getOrDefault(emptyList())
     }
 
+    /** Categories in the provider's order (its category list), then any it didn't list; see [arranged] for yours. */
     fun groups(kind: String): List<Pair<String, Int>> {
         val v = _version.value
         groupCache[kind]?.takeIf { it.first == v }?.let { return it.second }
-        return db.readableDatabase.rawQuery("SELECT grp, COUNT(*) FROM items WHERE kind=? GROUP BY grp ORDER BY MIN(rowid)", arrayOf(kind)).use { c ->
+        val rows = db.readableDatabase.rawQuery("SELECT grp, COUNT(*) FROM items WHERE kind=? GROUP BY grp ORDER BY MIN(rowid)", arrayOf(kind)).use { c ->
             buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) }
-        }.also { groupCache[kind] = v to it }
+        }
+        val order = HashMap<String, Int>()
+        Iptv.playlists().forEach { pl -> metaGet("${pl.id}|$kind|cats")?.split('\n')?.forEach { g -> order.putIfAbsent(g, order.size) } }
+        return rows.withIndex().sortedBy { (i, r) -> order[r.first] ?: (order.size + i) }.map { it.value }
+            .also { groupCache[kind] = v to it }
     }
     /** The page opens with its categories at once (no empty frame) once they were read this run. */
     fun groupsCached(kind: String): List<Pair<String, Int>> = groupCache[kind]?.second.orEmpty()
+
+    /** The categories you moved first, in your order; then the provider's order. Adult ones out when Hide adult is on. */
+    fun arranged(kind: String, list: List<Pair<String, Int>>): List<Pair<String, Int>> {
+        val prefs = App.instance.prefs
+        val mine = prefs.vodOrder.value.split('\n').mapNotNull { l -> l.split('\t', limit = 2).takeIf { it.size == 2 && it[0] == kind }?.get(1) }
+        val at = mine.withIndex().associate { it.value to it.index }
+        val adult = prefs.hideAdult.value
+        return list.filter { !adult || ADULT.none { a -> it.first.contains(a, true) } }
+            .withIndex().sortedBy { (i, g) -> at[g.first] ?: (at.size + i) }.map { it.value }
+    }
+    private val ADULT = listOf("+18", "18+", "adult", "xxx", "للكبار")
+
+    /** Saves [kind]'s categories in this order (the Arrange list). */
+    fun saveOrder(kind: String, groups: List<String>) {
+        val p = App.instance.prefs.vodOrder
+        val others = p.value.split('\n').filter { it.isNotEmpty() && !it.startsWith("$kind\t") }
+        p.value = (others + groups.map { "$kind\t$it" }).joinToString("\n")
+    }
     private val groupCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, List<Pair<String, Int>>>>()
 
     fun items(kind: String, group: String?, offset: Int = 0, limit: Int = 3000): List<VodItem> {
@@ -271,29 +367,46 @@ object Vod {
 }
 
 /**
- * VOD in Home's look: Films / Series, then one Home row per category (posters, focus memory, Up/Down back to the card
- * you left). Each row reads 40 titles from vod.db and the next 40 as you reach its end. A series opens its episodes.
+ * VOD the TiviMate way (user 2026-11-24): the provider's categories in the provider's order (or yours: Arrange), its own
+ * portrait posters with our badge drawn on them, no TMDB/IMDb lookups, no trailers, no landscape cards. OK plays the
+ * provider's link (a series opens its episodes). Each row reads 40 titles from vod.db and the next 40 at its end.
  */
 @Composable
 fun VodScreen(nav: Nav) {
-    val version by Vod.version.collectAsState()
     val status by Vod.status.collectAsState()
-    LaunchedEffect(Unit) { com.lekathedon.visionlite.iptv.IptvSync.kick() }
+    val rev by Vod.shelfRev.collectAsState()
+    LaunchedEffect(Unit) {
+        com.lekathedon.visionlite.iptv.IptvSync.kick()
+        Vod.ensureCatOrder()
+        Vod.prepare()
+    }
+    val adult by App.instance.prefs.hideAdult.flow.collectAsState()
+    LaunchedEffect(adult) { withContext(Dispatchers.IO) { Vod.rearrange("movie"); Vod.rearrange("series") } }
     var kind by rememberSaveable { mutableStateOf("movie") }
-    val groups by produceState(Vod.groupsCached(kind), version, kind) { value = withContext(Dispatchers.IO) { Vod.groups(kind) } }
+    val shelf = remember(rev, kind) { Vod.shelf(kind) }
+    val groups = shelf?.groups.orEmpty()
     var series by remember { mutableStateOf<VodItem?>(null) }
+    var arranging by remember { mutableStateOf(false) }
     if (series != null) { androidx.activity.compose.BackHandler { series = null }; Episodes(nav, series!!); return }
-    val store = remember(version, kind) { HashMap<String, VodRow>() }
+    if (arranging) { androidx.activity.compose.BackHandler { arranging = false }; Arrange(kind, groups.map { it.first }) { arranging = false }; return }
+    val store = remember(rev, kind) { HashMap<String, VodRow>() }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
         Row {
             Text("VOD", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(status.ifEmpty { if (Iptv.playlists().isEmpty()) "Add a playlist in Live TV first." else "${groups.sumOf { it.second }} titles · ${groups.size} categories" },
                 color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(start = 14.dp, top = 8.dp))
         }
-        Chips(listOf("movie" to "Films", "series" to "Series"), kind, Modifier.padding(top = 12.dp)) { kind = it }
+        Chips(listOf("movie" to "Films", "series" to "Series", "arrange" to "Arrange categories"), kind, Modifier.padding(top = 12.dp)) {
+            if (it == "arrange") arranging = true else kind = it
+        }
+        // Not built yet (first open, or the very first download): one message, then the whole page at once.
+        if (shelf == null) {
+            Text(status.ifEmpty { "Building VOD…" }, color = Palette.TextDim, fontSize = 18.sp, modifier = Modifier.padding(top = 60.dp))
+            return@Column
+        }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
             items(groups, key = { "$kind|${it.first}" }) { (g, n) ->
-                VodRail(nav, kind, g, n, store) { series = it }
+                VodRail(nav, kind, g, n, shelf.rows[g].orEmpty(), store) { series = it }
             }
         }
     }
@@ -302,9 +415,16 @@ fun VodScreen(nav: Nav) {
 /** One category row's titles, kept by the page so a row scrolled away and back keeps what it had. */
 class VodRow { val items = androidx.compose.runtime.mutableStateListOf<VodItem>(); var busy = false; var end = false }
 
+private val YEAR_RX = Regex("""(?<!\d)(19[3-9]\d|20[0-4]\d)(?!\d)""")
+
+/** A VOD title as a card: the provider's own name and poster (nothing looked up). */
+private fun vodCard(v: VodItem) = com.lekathedon.visionlite.addons.MetaPreview("vod:${v.pl}|${v.kind}|${v.id}", if (v.kind == "series") "series" else "movie",
+    v.name, Vod.card(v.poster), imdbRating = v.rating, releaseInfo = YEAR_RX.find(v.name)?.value)
+
 @Composable
-private fun VodRail(nav: Nav, kind: String, group: String, count: Int, store: MutableMap<String, VodRow>, openSeries: (VodItem) -> Unit) {
-    val d = store.getOrPut(group) { VodRow() }
+private fun VodRail(nav: Nav, kind: String, group: String, count: Int, first: List<VodItem>, store: MutableMap<String, VodRow>, openSeries: (VodItem) -> Unit) {
+    // Starts with the shelf's titles (already in memory): the row is whole the moment it shows; more load at its end.
+    val d = store.getOrPut(group) { VodRow().also { it.items.addAll(first); it.end = first.size < Vod.SHELF } }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun more() {
         if (d.busy || d.end) return
@@ -317,22 +437,74 @@ private fun VodRail(nav: Nav, kind: String, group: String, count: Int, store: Mu
         }
     }
     LaunchedEffect(group) { if (d.items.isEmpty()) more() }
-    // Our look (user 2026-11-23): each title matched to TMDB once (saved in vod.db) shows its poster and opens its
-    // title page (Vision TB + this VOD copy); one TMDB doesn't know keeps the playlist's card and plays from VOD.
-    var matched by remember { mutableStateOf(0) }
     val size = d.items.size
-    LaunchedEffect(size) { if (size > 0 && VodArabic.match(d.items.toList())) matched++ }
-    val metas by produceState(emptyList<com.lekathedon.visionlite.addons.MetaPreview>(), size, matched) {
-        val list = d.items.toList()
-        value = withContext(Dispatchers.IO) { list.map { v -> VodArabic.card(v).let { if (it.id.startsWith("vod:")) it.copy(imdbRating = v.rating) else it } } }
-    }
+    val metas = remember(size) { d.items.map(::vodCard) }
     val byId = remember(size) { d.items.associateBy { "vod:${it.pl}|${it.kind}|${it.id}" } }
-    val scope2 = androidx.compose.runtime.rememberCoroutineScope()
     com.lekathedon.visionlite.home.PageRow("vod|$kind|$group", "$group · $count", metas, loading = !d.end && metas.isEmpty(),
-        sub = { m -> m.imdbRating?.let { "★ $it" } }, onEnd = { more() }) { m ->
-        val v = byId[m.id]
-        if (v == null) scope2.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
-        else if (v.kind == "series") openSeries(v) else v.url?.let { nav.push(Screen.Player(it, v.name, type = "vod")) }
+        onEnd = { more() }, expand = false, filter = false, overlay = { m -> VodBadge(m) }) { m ->
+        val v = byId[m.id] ?: return@PageRow
+        if (v.kind == "series") openSeries(v) else v.url?.let { nav.push(Screen.Player(it, v.name, type = "vod")) }
+    }
+}
+
+private val QUALITY_RX = Regex("""(?i)\b(4k|uhd|2160p?)\b""")
+private val Gold = Color(0xFFE6B422)
+
+/** Our badge on the provider's poster: the provider's rating (gold, bottom left), 4K and the year on top. */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.VodBadge(m: com.lekathedon.visionlite.addons.MetaPreview) {
+    val rating = m.imdbRating?.toDoubleOrNull()?.takeIf { it > 0 }
+    val fourK = QUALITY_RX.containsMatchIn(m.name)
+    if (fourK || m.releaseInfo != null) Row(Modifier.align(Alignment.TopEnd).padding(6.dp)) {
+        if (fourK) Text("4K", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.background(Gold, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+        m.releaseInfo?.let { Text(it, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 4.dp).background(Color(0xB3000000), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)) }
+    }
+    if (rating != null) Text("★ ${"%.1f".format(if (rating > 10) rating / 10 else rating)}", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Gold, RoundedCornerShape(topEnd = 8.dp, bottomStart = 8.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+}
+
+/** Arrange categories: OK picks one up, Up/Down moves it, OK puts it down; saved at once. Back closes. */
+@Composable
+private fun Arrange(kind: String, start: List<String>, close: () -> Unit) {
+    val list = remember(kind) { androidx.compose.runtime.mutableStateListOf<String>().also { it.addAll(start) } }
+    var held by remember { mutableStateOf<String?>(null) }
+    val reqs = remember { HashMap<String, androidx.compose.ui.focus.FocusRequester>() }
+    val state = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun move(by: Int): Boolean {
+        val g = held ?: return false
+        val i = list.indexOf(g); val j = i + by
+        if (i < 0 || j !in list.indices) return true
+        list.removeAt(i); list.add(j, g)
+        Vod.saveOrder(kind, list.toList()); Vod.rearrange(kind)
+        scope.launch { state.animateScrollToItem((j - 3).coerceAtLeast(0)); runCatching { reqs[g]?.requestFocus() } }
+        return true
+    }
+    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
+        Text("Arrange ${if (kind == "movie") "film" else "series"} categories", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text("OK picks a category up, Up / Down moves it, OK puts it down. Back when done.", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Row(Modifier.padding(top = 10.dp)) {
+            com.lekathedon.visionlite.ui.Button("Provider's order", {
+                held = null; Vod.saveOrder(kind, emptyList()); Vod.rearrange(kind); close()
+            })
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(top = 10.dp), state = state, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
+            items(list, key = { it }) { g ->
+                val req = reqs.getOrPut(g) { androidx.compose.ui.focus.FocusRequester() }
+                val mine = held == g
+                Focusable({ held = if (mine) null else g }, Modifier.fillMaxWidth().focusRequester(req)
+                    .onPreviewKeyEvent { e ->
+                        if (!mine || e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) false
+                        else when (e.key) { androidx.compose.ui.input.key.Key.DirectionUp -> move(-1); androidx.compose.ui.input.key.Key.DirectionDown -> move(1); else -> false }
+                    }) { f ->
+                    Text((if (mine) "↕  " else "") + g, color = if (f) Color.Black else Palette.Text, fontSize = 16.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().background(if (mine) Gold else if (f) Color.White else Color(0x12FFFFFF)).padding(horizontal = 14.dp, vertical = 10.dp))
+                }
+            }
+        }
     }
 }
 

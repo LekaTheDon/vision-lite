@@ -33,8 +33,8 @@ import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
 import kotlinx.coroutines.launch
 
-/** [vod]: an IPTV VOD file matched by Vision TB (streams/VodLinks.kt). */
-data class Link(val source: String, val stream: Stream, val tb: com.lekathedon.visionlite.tb.VisionTb.Pick? = null, val vod: Boolean = false) {
+/** [vod]: an IPTV VOD file matched by Vision TB (streams/VodLinks.kt). [dub]: the language it is dubbed in, when known. */
+data class Link(val source: String, val stream: Stream, val tb: com.lekathedon.visionlite.tb.VisionTb.Pick? = null, val vod: Boolean = false, val dub: String? = null) {
     val playable get() = !stream.url.isNullOrBlank() || tb != null || (!stream.infoHash.isNullOrBlank() && Debrid.any())
     /** 2160 / 1080 / 720 / 480 read from the add-on's text; 0 if not given. */
     val height: Int get() {

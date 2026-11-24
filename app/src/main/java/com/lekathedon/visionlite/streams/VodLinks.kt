@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
  */
 object VodLinks {
     private val YEAR = Regex("""(?<!\d)(19|20)\d{2}(?!\d)""")
-    private val TAGS = Regex("""\[[^]]*]|\([^)]*\)|\|[^|]*\||(?i)\b(4k|uhd|fhd|hd|sd|hevc|h\.?265|x265|1080p?|2160p?|720p?|multi|vostfr|dual|sub|dub|hdr10?|dv|dolby vision)\b""")
+    private val TAGS = Regex("""\[[^]]*]|\([^)]*\)|\|[^|]*\||(?i)\b(4k|uhd|fhd|hd|sd|hevc|h\.?265|x265|1080p?|2160p?|720p?|multi|vostfr|dual|sub|subbed|dub|dubbed|hdr10?|dv|dolby vision)\b|مدبلج[ةه]?|مترجم[ةه]?|كامل[ةه]?""")
     private val PREFIX = Regex("""^\s*(?:[A-Za-z]{2,3}|[A-Za-z]{2,3}[-_ ][A-Za-z]{2,3})\s*[-:|•]\s+""")
 
     fun available(): Boolean = runCatching { Vod.count() > 0 }.getOrDefault(false)
@@ -52,7 +52,10 @@ object VodLinks {
             EpisodeFacts.ensure(type, videoId)
             titles = EpisodeFacts.titlesOf(target); year = null
         }
-        val wanted = titles.map(::clean).filter { it.length >= 2 }.toSet()
+        // Preferred dub on: the title's name in that language too (dubbed copies are listed under it; one TMDB call, kept).
+        val dubLang = com.lekathedon.visionlite.App.instance.prefs.dubLang.value
+        val dubName = if (dubLang.isNotEmpty()) localName(imdb, kind0(type), dubLang) else null
+        val wanted = (titles + listOfNotNull(dubName)).map(::clean).filter { it.length >= 2 }.toSet()
         if (wanted.isEmpty() && com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb) == null) return@withContext emptyList()
         val names = Iptv.playlists().associate { it.id to it.name }
         val kind = if (type == "movie") "movie" else "series"
@@ -62,21 +65,34 @@ object VodLinks {
             .filter { clean(it.name) in wanted && yearOk(it.name, year) }).distinctBy { it.pl + it.id }
         if (type == "movie") hits.mapNotNull { v ->
             val url = v.url ?: return@mapNotNull null
-            link(url, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV")
+            link(url, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.of(v.name + " " + v.group))
         } else hits.take(3).flatMap { v ->
             Vod.episodes(v).filter { it.season == target!!.season && it.number == target.episode }.map { e ->
-                link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV")
+                link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV", DubLang.of(v.name + " " + v.group))
             }
         }
     }
 
     /** A VOD row in Vision TB's group: a release-style file name (the match was ours), so the autoplay checks read it. */
-    private fun link(url: String, title: String, tag: String?, shown: String, playlist: String): Link {
+    private fun kind0(type: String) = if (type == "movie") "movie" else "tv"
+    private val localNames = java.util.Collections.synchronizedMap(HashMap<String, String>())
+    /** The title's name in [lang] (TMDB find by IMDb id); "" kept when TMDB has none, so it is asked once a run. */
+    private fun localName(imdb: String, kind: String, lang: String): String? {
+        val k = "$imdb|$lang"
+        localNames[k]?.let { return it.ifEmpty { null } }
+        val o = com.lekathedon.visionlite.home.Tmdb.get("find/$imdb?external_source=imdb_id&language=$lang") ?: return null
+        val r = o.optJSONArray(if (kind == "movie") "movie_results" else "tv_results")?.optJSONObject(0)
+        val n = (r?.optString(if (kind == "movie") "title" else "name")).orEmpty()
+        localNames[k] = n
+        return n.ifEmpty { null }
+    }
+
+    private fun link(url: String, title: String, tag: String?, shown: String, playlist: String, dub: String? = null): Link {
         val h = height(shown)
         val q = when (h) { 2160 -> "2160p"; 1080 -> "1080p"; 720 -> "720p"; else -> "" }
-        val file = listOfNotNull(title, tag, q.ifEmpty { null }, "IPTV.VOD").joinToString(".") { it.replace(' ', '.') } + "." + url.substringAfterLast('.', "mp4").substringBefore('?')
+        val file = listOfNotNull(title, tag, q.ifEmpty { null }, dub?.let { "DUB.${it.uppercase()}" }, "IPTV.VOD").joinToString(".") { it.replace(' ', '.') } + "." + url.substringAfterLast('.', "mp4").substringBefore('?')
         return Link(com.lekathedon.visionlite.tb.VisionTb.NAME,
-            Stream(url = url, name = "${com.lekathedon.visionlite.tb.VisionTb.NAME}\nVOD ${q.ifEmpty { "" }}".trim(), title = "$shown\n📺 $playlist VOD",
-                behaviorHints = StreamHints(filename = file)), vod = true)
+            Stream(url = url, name = "${com.lekathedon.visionlite.tb.VisionTb.NAME}\nVOD ${q.ifEmpty { "" }}".trim(), title = "$shown\n📺 $playlist VOD" + (dub?.let { " · ${java.util.Locale(it).getDisplayLanguage(java.util.Locale.ENGLISH)} dub" } ?: ""),
+                behaviorHints = StreamHints(filename = file)), vod = true, dub = dub)
     }
 }

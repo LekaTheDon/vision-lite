@@ -77,6 +77,8 @@ private val Langs = listOf("" to "Any", "en" to "English", "ar" to "Arabic", "fr
     "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese")
 /** Audio adds Vision's "Original language" (the title's own, from TMDB). */
 private val AudioLangs = listOf(Langs[0], com.lekathedon.visionlite.player.OriginalLang.ORIGINAL to "Original language") + Langs.drop(1)
+/** Preferred dub: off = original audio stays the rule. */
+private val DubLangs = listOf("" to "Off") + Langs.drop(1)
 
 /** A pane line: a small heading, or a row (gets the pane's first-focus modifier when it is the first row). */
 private sealed interface Item
@@ -277,6 +279,7 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Audio")
         row { m -> Choice("Audio language", "Original = the title's own language, never the dub", p.audioLang, AudioLangs, m) }
         row { m -> Choice("If that's missing", "Second audio language", p.audioLang2, AudioLangs, m) }
+        row { m -> Choice("Preferred dub", "A copy dubbed in this language plays first, even over 4K (your VOD's dubbed films and series count)", p.dubLang, DubLangs, m) }
         head("Subtitles")
         row { m -> Choice("Show subtitles", "Foreign only = none when the audio is already your language", p.subsWhen, SubsWhenOpts, m) }
         row { m -> Choice("Subtitle language", "", p.subLang, Langs, m) }
