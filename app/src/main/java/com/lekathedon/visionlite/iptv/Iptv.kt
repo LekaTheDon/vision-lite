@@ -51,7 +51,8 @@ data class Channel(val pl: String, val n: Int, val name: String, val group: Stri
  */
 object Iptv {
     private const val TAG = "Iptv"
-    private const val STALE_MS = 20L * 3600_000
+    /** Due after the chosen interval, less 4 h so the 05:00 run always counts (TiviMate: "Update interval, hours"). */
+    internal fun staleMs(): Long = ((p.iptvUpdateHours.value.toLongOrNull() ?: 24L) * 3600_000L - 4 * 3600_000L).coerceAtLeast(3600_000L)
     private val p get() = App.instance.prefs
     private val lock = Mutex()
     private val http by lazy { Net.http.newBuilder().readTimeout(60, TimeUnit.SECONDS).callTimeout(10, TimeUnit.MINUTES).build() }
@@ -93,22 +94,30 @@ object Iptv {
     suspend fun ensureLoaded() {
         openedThisSession.value = true
         val now = System.currentTimeMillis()
-        playlists().filter { now - loadedAt(it.id) > STALE_MS }.forEach { refresh(it) }
+        playlists().filter { now - loadedAt(it.id) > staleMs() }.forEach { refresh(it) }
     }
 
-    suspend fun refreshAll() = playlists().forEach { refresh(it) }
+    suspend fun refreshAll() = playlists().forEach { refresh(it, force = true) }
+    fun neverLoaded() = playlists().any { loadedAt(it.id) == 0L }
 
-    suspend fun refresh(pl: Playlist): Unit = lock.withLock {
+    /**
+     * One playlist: channels, then the guide. Like TiviMate, an update changes only what changed: the same channel list
+     * isn't rewritten, and a guide the server says is unchanged (ETag / Last-Modified / size) isn't downloaded again,
+     * only its old shows are trimmed. Old data stays on screen throughout (one transaction each, WAL).
+     */
+    suspend fun refresh(pl: Playlist, force: Boolean = false): Unit = lock.withLock {
         withContext(Dispatchers.IO) {
             try {
-                _status.value = "Loading ${pl.name}…"
+                val first = loadedAt(pl.id) == 0L
+                _status.value = if (first) "Downloading ${pl.name} (first time only)…" else "Updating ${pl.name}…"
                 val (channels, guides) = if (pl.xtream) xtream(pl) else m3u(pl)
-                writeChannels(pl.id, channels)
-                _version.value++
+                val sig = channels.joinToString("\n") { "${it.n}|${it.name}|${it.group}|${it.url}|${it.logo}|${it.tvg}|${it.catchup}" }.hashCode().toString() + ":" + channels.size
+                val changed = force || first || metaGet("chsig:${pl.id}") != sig
+                if (changed) { writeChannels(pl.id, channels); meta("chsig:${pl.id}", sig); _version.value++ }
                 val guide = pl.epg.ifBlank { guides.firstOrNull().orEmpty() }
                 if (guide.isNotBlank()) {
-                    _status.value = "Loading the guide for ${pl.name}…"
-                    loadGuide(pl.id, guide)
+                    if (first) _status.value = "Downloading the guide for ${pl.name} (first time only)…"
+                    loadGuide(pl.id, guide, mustParse = changed)
                 }
                 meta("loaded:${pl.id}", System.currentTimeMillis().toString())
                 _status.value = ""
@@ -187,7 +196,42 @@ object Iptv {
     }
 
     /** Streams the guide straight into the database, only the channels this playlist has, now −24 h (catch-up) to +24 h. */
-    private fun loadGuide(pl: String, url: String) {
+    /** How far back the guide is kept: the chosen days, or the playlist's catch-up days (1 to 7). */
+    private fun pastDays(pl: String): Int = p.iptvGuidePast.value.toIntOrNull() ?: db.readableDatabase.rawQuery(
+        "SELECT MAX(cu_days) FROM ch WHERE pl=?", arrayOf(pl)).use { if (it.moveToFirst()) it.getInt(0) else 0 }.coerceIn(1, 7)
+
+    private fun loadGuide(pl: String, url: String, mustParse: Boolean) {
+        val now = System.currentTimeMillis()
+        val keepFrom = now - pastDays(pl) * 86_400_000L
+        // Asked with what the server said last time; "not modified" (or the same ETag / date / size) = keep ours.
+        val tag = "epg:$pl:" + url.hashCode()
+        val req = Request.Builder().url(url).header("User-Agent", "VisionLite").apply {
+            if (!mustParse) {
+                metaGet("$tag:etag")?.let { header("If-None-Match", it) }
+                metaGet("$tag:lm")?.let { header("If-Modified-Since", it) }
+            }
+        }.build()
+        val resp = http.newCall(req).execute()
+        val etag = resp.header("ETag"); val lm = resp.header("Last-Modified"); val size = resp.body?.contentLength()?.takeIf { it > 0 }?.toString()
+        val same = resp.code == 304 || (!mustParse && resp.isSuccessful && (
+            (etag != null && etag == metaGet("$tag:etag")) || (lm != null && lm == metaGet("$tag:lm")) ||
+                (etag == null && lm == null && size != null && size == metaGet("$tag:size"))))
+        if (same) {
+            resp.close()
+            db.writableDatabase.delete("prog", "pl=? AND stop<?", arrayOf(pl, keepFrom.toString()))
+            Log.i(TAG, "guide unchanged on the server: kept, old shows trimmed")
+            return
+        }
+        if (!resp.isSuccessful) { resp.close(); throw java.io.IOException("guide HTTP ${resp.code}") }
+        resp.use { r0 ->
+            val body = java.io.BufferedInputStream(r0.body!!.byteStream())
+            body.mark(2); val gz = body.read() == 0x1f && body.read() == 0x8b; body.reset()
+            parseGuide(pl, if (gz || url.endsWith(".gz")) GZIPInputStream(body) else body, keepFrom, now)
+        }
+        etag?.let { meta("$tag:etag", it) }; lm?.let { meta("$tag:lm", it) }; size?.let { meta("$tag:size", it) }
+    }
+
+    private fun parseGuide(pl: String, input: InputStream, keepFrom: Long, now: Long) {
         val r = db.readableDatabase
         val ids = HashSet<String>(); val byName = HashMap<String, MutableList<String>>()
         r.rawQuery("SELECT tvg, name, n FROM ch WHERE pl=?", arrayOf(pl)).use { c ->
@@ -196,7 +240,6 @@ object Iptv {
                 byName.getOrPut(norm(c.getString(1))) { ArrayList() } += c.getLong(2).toString()
             }
         }
-        val now = System.currentTimeMillis()
         val w = db.writableDatabase
         val named = HashMap<String, String>()   // guide id → our channel rows without a tvg id
         w.beginTransaction()
@@ -204,8 +247,8 @@ object Iptv {
             w.delete("prog", "pl=?", arrayOf(pl))
             val st = w.compileStatement("INSERT INTO prog(pl,tvg,start,stop,title,descr,cat) VALUES(?,?,?,?,?,?,?)")
             var count = 0
-            open(url).use { input ->
-                XmltvParser.parse(input, now - 24 * 3600_000, now + 24 * 3600_000, keepUnlisted = { it in ids },
+            input.use { input ->
+                XmltvParser.parse(input, keepFrom, now + 7 * 86_400_000L, keepUnlisted = { it in ids },
                     onPrograms = { id, progs ->
                         progs.forEach { pr ->
                             st.clearBindings(); st.bindString(1, pl); st.bindString(2, id); st.bindLong(3, pr.startMs); st.bindLong(4, pr.stopMs)
@@ -424,6 +467,8 @@ object Iptv {
     private fun loadedAt(id: String) = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k=?", arrayOf("loaded:$id")).use {
         if (it.moveToFirst()) it.getString(0).toLongOrNull() ?: 0L else 0L
     }
+
+    private fun metaGet(k: String): String? = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k=?", arrayOf(k)).use { if (it.moveToFirst()) it.getString(0) else null }
 
     private fun meta(k: String, v: String) {
         db.writableDatabase.insertWithOnConflict("meta", null, ContentValues().apply { put("k", k); put("v", v) }, SQLiteDatabase.CONFLICT_REPLACE)

@@ -25,6 +25,11 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 /**
+ * TiviMate's model (its database and settings read on the box, 2026-11-24): the subscription downloads once in full;
+ * after that, quiet updates every N hours change only what changed (same channel list = not rewritten; guide asked
+ * with ETag / Last-Modified, unchanged = not downloaded), past guide days kept, nothing updates because the app opened
+ * unless "Update on app start" is on.
+ *
  * IPTV always ready (user 2026-11-24: "open the app at any moment and find everything there", like TiviMate).
  * Channels, guide and VOD live in iptv.db / vod.db and are shown from there at once; they are never rebuilt because a
  * page opened or closed. Updates run here, outside any page, so leaving Live TV or VOD can't cancel one half-way:
@@ -98,10 +103,12 @@ object IptvSync {
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
         val pi = PendingIntent.getBroadcast(ctx, 5005, Intent(ctx, IptvAlarm::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         if (Iptv.playlists().isEmpty()) { am.cancel(pi); return }
-        val at = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 5); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
+        // 05:00 (and 17:00 with a 12 h interval); a 48 h interval still wakes daily and finds nothing due every other day.
+        val hours = if ((App.instance.prefs.iptvUpdateHours.value.toIntOrNull() ?: 24) <= 12) listOf(5, 17) else listOf(5)
+        val at = hours.map { h -> Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
             if (timeInMillis <= System.currentTimeMillis() + 60_000) add(Calendar.DAY_OF_MONTH, 1)
-        }.timeInMillis
+        }.timeInMillis }.min()
         runCatching { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) }
     }
 

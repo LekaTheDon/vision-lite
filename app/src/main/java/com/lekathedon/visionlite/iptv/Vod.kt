@@ -83,9 +83,10 @@ object Vod {
     suspend fun ensureLoaded(force: Boolean = false) = lock.withLock {
         withContext(Dispatchers.IO) {
             for (pl in Iptv.playlists().filter { it.xtream }) {
-                if (!force && System.currentTimeMillis() - loadedAt(pl.id) < 20 * 3600_000L) continue
+                if (!force && System.currentTimeMillis() - loadedAt(pl.id) < Iptv.staleMs()) continue
                 try {
-                    _status.value = "Loading ${pl.name}'s films and series…"
+                    val first = loadedAt(pl.id) == 0L
+                    _status.value = if (first) "Downloading ${pl.name}'s films and series (first time only)…" else "Updating ${pl.name}'s films and series…"
                     val base = Iptv.xtreamBase(pl)
                     val api = "$base/player_api.php?username=${Iptv.encode(pl.user)}&password=${Iptv.encode(pl.pass)}"
                     // Streamed straight into vod.db: big panels send 50-100 MB lists (one string of them ran the app out of memory).
@@ -148,19 +149,35 @@ object Vod {
     }
 
     /** Replaces [pl]'s [kind] items with what [fill] adds, in one transaction (nothing changes when it fails). */
+    /**
+     * Streams one kind into vod.db in one transaction. When the provider's list is exactly what we have (same
+     * fingerprint as last time), the transaction is dropped: nothing changes on screen and no row reloads.
+     */
     private fun writeStream(pl: String, kind: String, fill: ((VodItem) -> Unit) -> Unit) {
         val w = db.writableDatabase
+        var changed = false
         w.beginTransaction()
         try {
+            var h = 1125899906842597L
             w.delete("items", "pl=? AND kind=?", arrayOf(pl, kind))
             val st = w.compileStatement("INSERT OR REPLACE INTO items(pl,kind,id,name,grp,poster,url,rating) VALUES(?,?,?,?,?,?,?,?)")
+            var n = 0
+            val showCount = _status.value.contains("first time")
             fill { v ->
+                n++
+                if (showCount && n % 5000 == 0) _status.value = "Downloading ${if (kind == "movie") "films" else "series"}: ${"%,d".format(n)}… (first time only)"
                 st.clearBindings(); st.bindString(1, v.pl); st.bindString(2, v.kind); st.bindString(3, v.id); st.bindString(4, v.name); st.bindString(5, v.group)
                 v.poster?.let { st.bindString(6, it) }; v.url?.let { st.bindString(7, it) }; v.rating?.let { st.bindString(8, it) }; st.executeInsert()
+                h = 31 * h + "${v.id}|${v.name}|${v.group}|${v.poster}|${v.url}|${v.rating}".hashCode()
             }
-            w.setTransactionSuccessful()
+            val sig = "$h:$n"
+            val key = "$pl|$kind|sig"
+            if (n == 0 || sig != metaGet(key)) {
+                w.execSQL("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", arrayOf(key, sig))
+                w.setTransactionSuccessful(); changed = true
+            }
         } finally { w.endTransaction() }
-        _version.value++
+        if (changed) _version.value++
     }
 
     /** A series' episodes (Xtream get_series_info). */

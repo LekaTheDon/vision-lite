@@ -397,6 +397,11 @@ fun Settings(nav: Nav, start: String? = null) {
             val n = Iptv.playlists().size
             Link("Playlists", "M3U or Xtream; add, refresh or remove on the Live TV page", m, value = if (n == 0) "Add" else "$n") { nav.push(Screen.LiveTv) }
         }
+        row { m -> Choice("Update channels, VOD and guide", "Downloaded once in full; after that a quiet update at 05:00 changes only what the provider changed",
+            p.iptvUpdateHours, listOf("12" to "Every 12 hours", "24" to "Every day", "48" to "Every 2 days"), m) }
+        row { m -> Toggle("Update on app start", "Also update every time the app starts (heavier; off like TiviMate)", p.iptvUpdateOnStart, m) }
+        row { m -> Choice("Past guide days kept", "For catch-up and looking back", p.iptvGuidePast,
+            listOf("auto" to "As far as catch-up goes", "1" to "1 day", "3" to "3 days", "7" to "7 days"), m) }
         head("Sports")
         row { m -> Link("My teams", "Follow teams and leagues", m) { nav.push(Screen.SportsTeams) } }
         row { m -> SportsSwitch("Remind me of my teams' games", "A card a few minutes before they start", m, { it.remindMyTeams }) { s, v -> s.copy(remindMyTeams = v) } }

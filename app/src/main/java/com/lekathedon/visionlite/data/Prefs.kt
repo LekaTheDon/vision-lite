@@ -186,6 +186,11 @@ class Prefs(context: Context) {
     /** Live TV: playlists (JSON; Xtream passwords stay on this TV) and favourite channels. */
     val iptvPlaylists = Text("iptv_playlists", "[]")
     val iptvFavs = Text("iptv_favs", "")
+    /** TiviMate's model: playlist + VOD + guide update every N hours in the background (05:00 / 17:00), never on open. */
+    val iptvUpdateHours = Text("iptv_update_hours", "24")
+    val iptvUpdateOnStart = Flag("iptv_update_on_start", false)
+    /** Past guide days kept ("auto" = the playlist's catch-up days, 1 to 7). */
+    val iptvGuidePast = Text("iptv_guide_past", "auto")
     val iptvRecent = Text("iptv_recent", "")
     val recordings = Text("recordings", "")
     val ytTokens = Text("yt_tokens", "")
