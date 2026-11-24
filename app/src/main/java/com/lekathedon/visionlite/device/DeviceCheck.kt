@@ -246,15 +246,41 @@ object DeviceCheck {
             val (rec, why) = when {
                 f.fel -> "fel" to "This box plays dual-layer Dolby Vision (FEL kernel found)"
                 caps && f.dvTv && f.converter && f.dvDecoder -> "dv81" to "Your TV shows Dolby Vision; this box has no FEL, so 8.1 keeps Dolby Vision"
+                caps && f.decodersKnown && !f.dvDecoder && f.hdr10 -> "hdr10" to "This box has no Dolby Vision decoder: the HDR10 picture under it plays"
                 caps && f.dvTv && f.dv7Decoder -> "box" to "Your TV shows Dolby Vision and the box decodes profile 7"
                 caps && f.hdr10 && !f.dvTv -> "hdr10" to "Your TV shows HDR10 but not Dolby Vision"
                 else -> "box" to if (caps) "No HDR10 on the TV: the box tone-maps" else "The TV's HDR list can't be read, so the box decides"
             }
-            add(Choice("dv7", "Picture", "Dolby Vision profile 7", opts, rec, why))
+            // On a TV without Dolby Vision the same answer covers profile 8 (8.1 / 8.4 play their HDR10 / HLG picture).
+            add(Choice("dv7", "Picture", if (caps && !f.dvTv) "Dolby Vision (profiles 7 and 8)" else "Dolby Vision profile 7", opts, rec, why))
         }
-        if (f.converter && f.dvDecoder && caps && !f.dvTv) add(Choice("dv5", "Picture", "Dolby Vision profile 5",
-            listOf("on" to "Convert to 8.1 (keeps the colours right)", "off" to "Leave as is"), "on",
-            "Your TV doesn't show Dolby Vision; profile 5 has no HDR10 layer of its own"))
+        // Dolby Vision 5 has no HDR10 picture under it: without the box's DV decoder only MPV (libplacebo) gets its colours right.
+        val noDvDecoder = f.decodersKnown && !f.dvDecoder
+        if ((caps && !f.dvTv) || noDvDecoder) run {
+            val opts = buildList {
+                if (f.converter && f.dvDecoder) add("on" to "Convert to 8.1 (the box's DV decoder, keeps the colours right)")
+                add("mpv" to "MPV reshapes the colours (GPU work)")
+                add("off" to "Leave as is")
+            }
+            val (rec, why) = when {
+                f.converter && f.dvDecoder -> "on" to "Your TV doesn't show Dolby Vision; profile 5 has no HDR10 layer of its own"
+                noDvDecoder -> "mpv" to "No Dolby Vision decoder here: left as is, profile 5 looks purple and green" +
+                    if (Tier.measured() == Tier.Class.LIGHT) "; a Light box may stutter on 4K" else ""
+                else -> "off" to "The box decides"
+            }
+            add(Choice("dv5", "Picture", "Dolby Vision profile 5", opts, rec, why))
+        }
+        // HDR on a TV without any HDR: the Amlogic chip converts in hardware; elsewhere MPV tone-maps (Android mostly doesn't).
+        if (caps && !f.hdr10 && !f.hlg && !f.dvTv) run {
+            val aml = java.io.File("/sys/class/amhdmitx").exists() || f.soc.contains("amlogic", true)
+            val light = Tier.measured() == Tier.Class.LIGHT
+            val (rec, why) = when {
+                aml -> "box" to "Your TV has no HDR; the Amlogic chip converts HDR to SDR in hardware"
+                light -> "box" to "Your TV has no HDR; a Light box can't tone-map 4K on its GPU"
+                else -> "mpv" to "Your TV has no HDR; MPV tone-maps it so the colours aren't washed out"
+            }
+            add(Choice("hdr_sdr", "Picture", "HDR on this TV", listOf("box" to "The box / TV converts it", "mpv" to "MPV tone-maps it (GPU work)"), rec, why))
+        }
         if (caps && f.hdr10 && !f.hdr10Plus) add(Choice("hdr10plus", "Picture", "HDR10+",
             listOf("on" to "Play as HDR10 (drop HDR10+ data)", "off" to "Keep HDR10+ data"), "on", "Your TV shows HDR10 but not HDR10+"))
         if (f.rates.size > 1) add(Choice("afr", "Picture", "Match frame rate", listOf("off" to "Off", "always" to "On"), "always",
@@ -262,6 +288,19 @@ object DeviceCheck {
         if (f.resolutions.size > 1) add(Choice("res", "Picture", "Match resolution", listOf("off" to "Off (box upscales)", "on" to "On (TV upscales)"), "off",
             "The box upscales well and one mode means fewer black screens"))
 
+        // Sound system first: a soundbar / receiver gets the bitstream; TV speakers and headphones get a proper stereo mix.
+        run {
+            val hd = f.sound.any { it == "truehd" || it == "dtshd" || it == "dts" }
+            val (rec, why) = when {
+                f.soundKnown && hd -> "soundbar" to "Something on HDMI takes ${f.sound.filter { it != "joc" }.joinToString("/").uppercase()}: a soundbar or receiver"
+                f.soundKnown && f.sound.isNotEmpty() -> "soundbar" to "Your TV or soundbar decodes Dolby itself, keeping every channel it can"
+                f.soundKnown -> "tv" to "Nothing on HDMI takes surround: the box mixes it to stereo with clear dialogue"
+                else -> "tv" to "No HDMI sound found: stereo mix"
+            }
+            add(Choice("sound_out", "Sound", "Sound system", listOf("soundbar" to "Soundbar / AV receiver (passthrough)",
+                "tv" to "TV speakers (decode, mix to stereo)", "headphones" to "Headphones (decode, mix to stereo)"), rec,
+                "$why. Headphones plugged in always get stereo"))
+        }
         // Sound: one row per format the soundbar takes. If it can play it, it goes through.
         val names = listOf("ac3" to "Dolby Digital", "eac3" to "Dolby Digital Plus / Atmos", "truehd" to "Dolby TrueHD / Atmos",
             "dts" to "DTS", "dtshd" to "DTS-HD MA / DTS:X")
@@ -363,7 +402,9 @@ object DeviceCheck {
         "dv7" -> p.dv7.value
         "afr" -> if (p.afr.value == "off") "off" else "always"
         "res" -> if (p.matchRes.value) "on" else "off"
-        "dv5" -> on(p.dv5To81.value)
+        "dv5" -> if (p.dv5Mpv.value) "mpv" else on(p.dv5To81.value)
+        "hdr_sdr" -> p.hdrOnSdr.value
+        "sound_out" -> p.soundOut.value
         "hdr10plus" -> on(p.stripHdr10Plus.value)
         "pt_ac3" -> on(p.ptAc3.value); "pt_eac3" -> on(p.ptEac3.value); "pt_truehd" -> on(p.ptTruehd.value)
         "pt_dts" -> on(p.ptDts.value); "pt_dtshd" -> on(p.ptDtshd.value)
@@ -387,7 +428,9 @@ object DeviceCheck {
             "dv7" -> p.dv7.value = v
             "afr" -> p.afr.value = v
             "res" -> p.matchRes.value = v == "on"
-            "dv5" -> p.dv5To81.value = v == "on"
+            "dv5" -> { p.dv5To81.value = v == "on"; p.dv5Mpv.value = v == "mpv" }
+            "hdr_sdr" -> p.hdrOnSdr.value = v
+            "sound_out" -> p.soundOut.value = v
             "hdr10plus" -> p.stripHdr10Plus.value = v == "on"
             "pt_ac3" -> p.ptAc3.value = v == "on"; "pt_eac3" -> p.ptEac3.value = v == "on"; "pt_truehd" -> p.ptTruehd.value = v == "on"
             "pt_dts" -> p.ptDts.value = v == "on"; "pt_dtshd" -> p.ptDtshd.value = v == "on"

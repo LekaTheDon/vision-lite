@@ -19,6 +19,8 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     private var pendingUrl: String? = null
     private var pendingOptions: String? = null
     private var softwareDecode = false
+    private var gpuNext = false
+    private var extra: List<Pair<String, String>> = emptyList()
     private var spdif = ""
 
     val ready get() = initialized
@@ -26,9 +28,12 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     /** [software]: decode on the CPU with gpu-next (Hi10p H.264, which no TV chip decodes in hardware). */
     private var bufferMb = 64
 
-    fun init(software: Boolean, spdifCodecs: String, readAheadMb: Int = 64) {
+    /** [gpuNext]: gpu-next on copied hardware frames (Dolby Vision 5 reshaping, HDR → SDR tone-mapping). [extra]: sound options (Sound.kt). */
+    fun init(software: Boolean, spdifCodecs: String, readAheadMb: Int = 64, gpuNext: Boolean = false, extra: List<Pair<String, String>> = emptyList()) {
         if (initialized) return
         softwareDecode = software
+        this.gpuNext = gpuNext
+        this.extra = extra
         bufferMb = readAheadMb
         spdif = spdifCodecs
         Utils.copyAssets(context)
@@ -187,10 +192,16 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     override fun initOptions() {
         mpv.setOptionString("profile", "fast")
         mpv.setOptionString("msg-level", "all=warn")
-        setVo(if (softwareDecode) "gpu-next" else "gpu")
+        setVo(if (softwareDecode || gpuNext) "gpu-next" else "gpu")
         mpv.setOptionString("gpu-context", "android")
         mpv.setOptionString("opengl-es", "yes")
-        mpv.setOptionString("hwdec", if (softwareDecode) "no" else "auto-safe")
+        mpv.setOptionString("hwdec", when { softwareDecode -> "no"; gpuNext -> "mediacodec-copy"; else -> "auto-safe" })
+        if (gpuNext) {
+            // Frames go through libplacebo: Dolby Vision RPU reshaping, then tone-mapping to what the TV shows.
+            mpv.setOptionString("tone-mapping", "bt.2390")
+            mpv.setOptionString("hdr-compute-peak", "no")
+        }
+        for ((k, v) in extra) runCatching { mpv.setOptionString(k, v) }
         mpv.setOptionString("hwdec-codecs", "h264,hevc,mpeg2video,vp8,vp9,av1")
         mpv.setOptionString("ao", "audiotrack,opensles")
         mpv.setOptionString("audio-set-media-role", "yes")

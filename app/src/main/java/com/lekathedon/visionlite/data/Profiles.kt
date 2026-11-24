@@ -168,7 +168,7 @@ object Profiles {
     // ---------------------------------------------------------------- what's shared
 
     private val DEVICE_KEYS = setOf(
-        "phone_link", "dv7", "afr", "match_res", "device_asked", "pt_ac3", "pt_eac3", "pt_truehd", "pt_dts", "pt_dtshd",
+        "phone_link", "dv7", "afr", "match_res", "device_asked", "pt_ac3", "pt_eac3", "pt_truehd", "pt_dts", "pt_dtshd", "dv5_mpv", "hdr_on_sdr", "sound_out",
         "dv5_to_81", "strip_hdr10plus", "buffer", "tv_auto", "tv_facts", "perf_class", "exit_seen", "player_engine",
         "engine_backup", "seek_thumbs", "black_bars", "anime_ids_at", "anime_moves",
         "si_nuvio_token", "si_nuvio_refresh", "si_nuvio_user", "si_nuvio_until", "si_nuvio_faces", "cloud_setup",

@@ -23,6 +23,8 @@ class EngineSession(val url: String) {
     var startupFailover = false
     /** Hi10p H.264: MPV decodes on the CPU with gpu-next. */
     var mpvSoftware = false
+    /** MPV draws with gpu-next on copied frames: Dolby Vision 5 reshaping or HDR tone-mapping for this box / TV. */
+    var mpvGpuNext = false
     /** Where the next engine starts (the position at the switch). */
     var resumeAt = 0L
 }
@@ -30,6 +32,8 @@ class EngineSession(val url: String) {
 object EngineRules {
     const val REASON_HDR = "HDR / Dolby Vision → video layer, untouched"
     const val REASON_HI10P = "Hi10p H.264 → MPV (hardware can't decode it)"
+    const val REASON_DV5 = "Dolby Vision 5, no Dolby Vision decoder → MPV reshapes the colours"
+    const val REASON_HDR_SDR = "HDR on a TV without HDR → MPV tone-maps it"
     const val REASON_DV_FROM_MPV = "Dolby Vision file → ExoPlayer video layer"
 
     private val HDR_NAME = Regex("""(?i)\b(hdr|hdr10\+?|dv|dolby\s*vision)\b""")

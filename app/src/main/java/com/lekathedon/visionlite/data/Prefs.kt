@@ -67,6 +67,18 @@ class Prefs(context: Context) {
     val ptDtshd = Flag("pt_dtshd", true)
     /** Dolby Vision profile 5 converted to 8.1 (libdovi) on a TV without Dolby Vision. */
     val dv5To81 = Flag("dv5_to_81", false)
+    /** Dolby Vision profile 5 on a box without a Dolby Vision decoder: MPV reshapes its colours on the GPU (libplacebo). */
+    val dv5Mpv = Flag("dv5_mpv", false)
+    /** HDR on a TV without HDR: "box" = the box / TV converts it, "mpv" = MPV tone-maps it on the GPU. */
+    val hdrOnSdr = Text("hdr_on_sdr", "box")
+    /** Sound system: "soundbar" (passthrough what it takes), "tv" (TV speakers: decoded, mixed to stereo), "headphones". */
+    val soundOut = Text("sound_out", "soundbar")
+    /** Night mode: "off", "light", "medium", "strong" (quiet parts up, loud parts held). */
+    val nightMode = Text("night_mode", "off")
+    /** Dialogue boost in dB (the centre channel up): "0", "3", "6", "9". */
+    val dialogueBoost = Text("dialogue_boost", "0")
+    /** Volume boost in dB with a limiter: "0", "3", "6", "9", "12". */
+    val volumeBoost = Text("volume_boost", "0")
     /** HDR10+ data dropped (the TV shows HDR10 but not HDR10+). */
     val stripHdr10Plus = Flag("strip_hdr10plus", false)
     /** Playback buffer: "small", "normal" or "large" (large only offered with 3+ GB of RAM). */

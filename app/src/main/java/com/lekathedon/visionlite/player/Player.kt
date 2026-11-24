@@ -73,7 +73,10 @@ private class Renderers(context: Context, private val fel: Boolean, private val 
     init { setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
     /** This TV › Sound: a format set to "Decode in the box" is never sent as a bitstream; FFmpeg/MediaCodec decode it. */
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? {
-        val sink = super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams) ?: return null
+        // Sound.kt: stereo mix, night mode, dialogue and volume boost (inactive while all off or on a bitstream).
+        val sink = androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(enableFloatOutput).setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .setAudioProcessors(arrayOf<androidx.media3.common.audio.AudioProcessor>(SoundProcessor(context))).build()
         if (blocked.isEmpty()) return sink
         return object : androidx.media3.exoplayer.audio.ForwardingAudioSink(sink) {
             override fun supportsFormat(format: androidx.media3.common.Format) = format.sampleMimeType !in blocked && super.supportsFormat(format)
@@ -108,14 +111,23 @@ private fun spdifCodecs(context: Context): String {
     }.joinToString(",")
 }
 
+/** The TV takes some HDR (unknown counts as yes, so nothing moves on a guess). */
+private fun displayShowsHdr(context: Context): Boolean = runCatching {
+    @Suppress("DEPRECATION")
+    val types = DisplayMatch.activityOf(context)?.window?.decorView?.display?.hdrCapabilities?.supportedHdrTypes
+    types == null || types.isNotEmpty()
+}.getOrDefault(true)
+
 /** ExoPlayer mime types the user set to "Decode in the box" (This TV › Sound). */
 @OptIn(UnstableApi::class)
-private fun decodedInBox(p: com.lekathedon.visionlite.data.Prefs): Set<String> = buildSet {
-    if (!p.ptAc3.value) add(androidx.media3.common.MimeTypes.AUDIO_AC3)
-    if (!p.ptEac3.value) { add(androidx.media3.common.MimeTypes.AUDIO_E_AC3); add(androidx.media3.common.MimeTypes.AUDIO_E_AC3_JOC) }
-    if (!p.ptTruehd.value) add(androidx.media3.common.MimeTypes.AUDIO_TRUEHD)
-    if (!p.ptDts.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS); add(androidx.media3.common.MimeTypes.AUDIO_DTS_EXPRESS) }
-    if (!p.ptDtshd.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS_HD); add(androidx.media3.common.MimeTypes.AUDIO_DTS_X) }
+private fun decodedInBox(p: com.lekathedon.visionlite.data.Prefs, stereo: Boolean = false): Set<String> = buildSet {
+    // TV speakers / headphones: nothing goes out as a bitstream; it is decoded here and mixed to stereo (Sound.kt).
+    val all = stereo
+    if (all || !p.ptAc3.value) add(androidx.media3.common.MimeTypes.AUDIO_AC3)
+    if (all || !p.ptEac3.value) { add(androidx.media3.common.MimeTypes.AUDIO_E_AC3); add(androidx.media3.common.MimeTypes.AUDIO_E_AC3_JOC) }
+    if (all || !p.ptTruehd.value) add(androidx.media3.common.MimeTypes.AUDIO_TRUEHD)
+    if (all || !p.ptDts.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS); add(androidx.media3.common.MimeTypes.AUDIO_DTS_EXPRESS) }
+    if (all || !p.ptDtshd.value) { add(androidx.media3.common.MimeTypes.AUDIO_DTS_HD); add(androidx.media3.common.MimeTypes.AUDIO_DTS_X) }
 }
 
 /**
@@ -210,7 +222,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     var hdrVideo by remember(s.url, gen) { mutableStateOf(false) }
     val mpvView = remember(s.url, gen) {
         if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
-            init(session.mpvSoftware, spdifCodecs(context), mpvBufferMb(prefs.buffer.value))
+            init(session.mpvSoftware, if (Sound.stereo(context)) "" else spdifCodecs(context), mpvBufferMb(prefs.buffer.value), session.mpvGpuNext, Sound.mpvOptions(Sound.stereo(context)))
             languages(OriginalLang.withIso3(OriginalLang.audioLangs(prefs.audioLang.value, prefs.audioLang2.value, s.id)), langs(prefs.subLang.value, prefs.subLang2.value).toList(), prefs.subsWhen.value == "off")
             subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value)
         }
@@ -241,7 +253,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     if (afr || resMatch) DisplayMatch.apply(context, view.prop("container-fps")?.toFloatOrNull() ?: 0f,
                         view.prop("width")?.toIntOrNull() ?: 0, view.prop("height")?.toIntOrNull() ?: 0, afr, resMatch)
                     // Smart Auto: a Dolby Vision file that started on MPV goes to ExoPlayer's video layer (one look, before it plays).
-                    if (session.smartAuto && !session.rerouted && !view.prop("current-tracks/video/dolby-vision-profile").isNullOrBlank()) {
+                    if (session.smartAuto && !session.rerouted && !session.mpvGpuNext && !view.prop("current-tracks/video/dolby-vision-profile").isNullOrBlank()) {
                         session.rerouted = true; session.reason = EngineRules.REASON_DV_FROM_MPV
                         switchTo(Engine.EXO, "smart-auto", currentPosition)
                     }
@@ -261,7 +273,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 io.github.peerless2012.ass.media.type.AssRenderType.OVERLAY_OPEN_GL,
                 io.github.peerless2012.ass.media.AssHandlerConfig(maxRenderPixels = 1920 * 1080)) else null
             assRef[0] = ass
-            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed, decodedInBox(prefs)).let { r ->
+            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed, decodedInBox(prefs, Sound.stereo(context))).let { r ->
                 if (ass != null) io.github.peerless2012.ass.media.factory.AssRenderersFactory(ass, r) else r }
             // MKV: the file's declared frame rate goes to the decoder (MkvFrameRate), libass reader when styled subs are on.
             val base = androidx.media3.extractor.DefaultExtractorsFactory()
@@ -453,6 +465,16 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (firstFrame || s.type == "live") return
                 val groups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
                 val video = selectedVideo(tracks) ?: groups.firstOrNull()?.takeIf { it.length > 0 }?.getTrackFormat(0)
+                // This TV › Picture: pictures this box / TV can't show right on ExoPlayer go to MPV's gpu-next once.
+                if (!session.mpvGpuNext) {
+                    val dv5 = Hud.dvProfile(video)?.first == 5 && prefs.dv5Mpv.value && !prefs.dv5To81.value
+                    val hdrOnSdr = !dv5 && EngineRules.isHdr(video) && prefs.hdrOnSdr.value == "mpv" && !displayShowsHdr(context)
+                    if (dv5 || hdrOnSdr) {
+                        session.mpvGpuNext = true
+                        session.reason = if (dv5) EngineRules.REASON_DV5 else EngineRules.REASON_HDR_SDR
+                        switchTo(Engine.MPV, "picture", player.currentPosition); return
+                    }
+                }
                 if (session.smartAuto && EngineRules.isHdr(video)) session.reason = EngineRules.REASON_HDR
                 if (session.smartAuto && !session.rerouted && !EngineRules.isHdr(video) && EngineRules.isHi10p(video)) {
                     session.rerouted = true; session.mpvSoftware = true; session.reason = EngineRules.REASON_HI10P

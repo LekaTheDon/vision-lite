@@ -525,7 +525,8 @@ private class NativeOptimizedVideoTrackOutput(
         // the MKV path records it in its transformer).
         if (profile != null) config.stats.recordSourceProfile(profile)
 
-        val strippedCodecs = if (stripDvRpu) stripDvCodecString(format.codecs) else null
+        // Profile 5 has no HDR10 layer under its RPU (IPT colours): stripping it would show purple / green.
+        val strippedCodecs = if (stripDvRpu && profile != 5) stripDvCodecString(format.codecs) else null
         val codecsToUse = strippedCodecs ?: if (converting) rewriteDvCodecString(format.codecs) else format.codecs
 
         var outFormat = format

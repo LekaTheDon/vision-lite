@@ -40,7 +40,7 @@ object CloudSetup {
 
     /** Box-only settings and caches: never sent, never taken. */
     private val SKIP = setOf(
-        "phone_link", "dv7", "afr", "match_res", "device_asked", "pt_ac3", "pt_eac3", "pt_truehd", "pt_dts", "pt_dtshd",
+        "phone_link", "dv7", "afr", "match_res", "device_asked", "pt_ac3", "pt_eac3", "pt_truehd", "pt_dts", "pt_dtshd", "dv5_mpv", "hdr_on_sdr", "sound_out",
         "dv5_to_81", "strip_hdr10plus", "buffer", "tv_auto", "tv_facts", "perf_class", "exit_seen", "player_engine",
         "engine_backup", "seek_thumbs", "black_bars", "anime_ids_at", "lp_current", "lp_switched", "cloud_setup",
         "app_section", "phone_queue", "menus_1080_applied", "comingup_v2", "comingup_v3", "link_marks", "link_picks",

@@ -118,6 +118,7 @@ object Hud {
         out += "HDR  " + if (outName == null || sigKind == srcKind) src else listOfNotNull("$src → $outName", engine).joinToString(" · ")
         b.dvInput?.let { out += "DV core input  $it" }
         b.hdmi?.let { out += "HDMI  $it" }
+        out += "Sound  " + Sound.describe(com.lekathedon.visionlite.App.instance)
         DisplayMatch.status.value.takeIf { it.isNotEmpty() }?.let { out += "Frame rate  $it" }
         val decs = b.decoders.joinToString(" + ") { "${it.first} ${it.second}".trim() }
         out += "Decoder  " + (decoderName ?: "-") + if (decs.isNotEmpty()) "  ($decs)" else ""

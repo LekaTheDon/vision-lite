@@ -76,6 +76,9 @@ private val Langs = listOf("" to "Any", "en" to "English", "ar" to "Arabic", "fr
     "it" to "Italian", "pt" to "Portuguese", "ru" to "Russian", "tr" to "Turkish", "sr" to "Serbian", "hr" to "Croatian",
     "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese")
 /** Audio adds Vision's "Original language" (the title's own, from TMDB). */
+private val NightOpts = listOf("off" to "Off", "light" to "Light", "medium" to "Medium", "strong" to "Strong")
+private val DialogueOpts = listOf("0" to "Off", "3" to "+3 dB", "6" to "+6 dB", "9" to "+9 dB")
+private val VolumeOpts = listOf("0" to "Off", "3" to "+3 dB", "6" to "+6 dB", "9" to "+9 dB", "12" to "+12 dB")
 private val AudioLangs = listOf(Langs[0], com.lekathedon.visionlite.player.OriginalLang.ORIGINAL to "Original language") + Langs.drop(1)
 /** Preferred dub: off = original audio stays the rule. */
 private val DubLangs = listOf("" to "Off") + Langs.drop(1)
@@ -280,6 +283,11 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Audio language", "Original = the title's own language, never the dub", p.audioLang, AudioLangs, m) }
         row { m -> Choice("If that's missing", "Second audio language", p.audioLang2, AudioLangs, m) }
         row { m -> Choice("Preferred dub", "A copy dubbed in this language plays first, even over 4K (your VOD's dubbed films and series count)", p.dubLang, DubLangs, m) }
+        head("Sound for TV speakers and headphones")
+        row { m -> Choice("Night mode", "Quiet speech comes up, explosions are held down (decoded sound only, not a soundbar bitstream)", p.nightMode, NightOpts, m) }
+        row { m -> Choice("Dialogue boost", "Voices louder: the centre channel goes up (5.1 / 7.1, or when mixed to stereo)", p.dialogueBoost, DialogueOpts, m) }
+        row { m -> Choice("Volume boost", "For quiet films on small speakers; a limiter stops it clipping", p.volumeBoost, VolumeOpts, m) }
+        row { m -> Link("Sound system", "Soundbar, TV speakers or headphones: This TV › Sound (headphones plugged in always get stereo)", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }
         head("Subtitles")
         row { m -> Choice("Show subtitles", "Foreign only = none when the audio is already your language", p.subsWhen, SubsWhenOpts, m) }
         row { m -> Choice("Subtitle language", "", p.subLang, Langs, m) }
@@ -746,7 +754,7 @@ private val Good = Color(0xFF8FD18F)
 private fun tvWatch() {
     val p = App.instance.prefs
     listOf(p.dv7.flow, p.afr.flow, p.engine.flow, p.buffer.flow, p.maxQuality.flow, p.sizeLimit.flow, p.tvFacts.flow).forEach { it.collectAsState().value }
-    listOf(p.matchRes.flow, p.dv5To81.flow, p.stripHdr10Plus.flow, p.ptAc3.flow, p.ptEac3.flow, p.ptTruehd.flow, p.ptDts.flow, p.ptDtshd.flow, p.tvAuto.flow).forEach { it.collectAsState().value }
+    listOf(p.matchRes.flow, p.dv5To81.flow, p.stripHdr10Plus.flow, p.ptAc3.flow, p.ptEac3.flow, p.ptTruehd.flow, p.ptDts.flow, p.ptDtshd.flow, p.tvAuto.flow, p.dv5Mpv.flow, p.hdrOnSdr.flow, p.soundOut.flow).forEach { it.collectAsState().value }
     listOf(p.perfClass.flow).forEach { it.collectAsState().value }; p.trailers.flow.collectAsState().value
     p.dns.flow.collectAsState().value; p.tvMine.flow.collectAsState().value; listOf(p.quietA11y.flow, p.fastHorizontal.flow, p.fullExit.flow).forEach { it.collectAsState().value }
 }
