@@ -1,6 +1,7 @@
 package com.lekathedon.visionlite.detail
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,8 @@ import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
 import com.lekathedon.visionlite.ui.Kit
 import com.lekathedon.visionlite.ui.KitButton
+import com.lekathedon.visionlite.ui.KitIcon
+import com.lekathedon.visionlite.ui.Gold
 import com.lekathedon.visionlite.ui.KitChip
 import com.lekathedon.visionlite.ui.DisplayText
 import com.lekathedon.visionlite.ui.Eyebrow
@@ -84,6 +87,8 @@ private data class Ep(val season: Int, val episode: Int, val videoId: String, va
 private sealed interface Sheet {
     data class Links(val title: String, val groups: List<Pair<String, List<Imdb.Ref>>>) : Sheet
     data class Text(val title: String, val body: String) : Sheet
+    /** A short choice (Trailer: stop / full screen; Production: which company), drawn in the look. */
+    data class Menu(val title: String, val items: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector?, () -> Unit>>) : Sheet
 }
 
 /**
@@ -157,6 +162,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         val delayS by prefs.trailerDelay.flow.collectAsState()
         var trailer by remember(s.id) { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
         var trailerNow by remember(s.id) { mutableStateOf(false) }
+        /** Trailer › Play full screen: over the whole page with sound; Back returns to the page. */
+        var fullTrailer by remember(s.id) { mutableStateOf(false) }
         LaunchedEffect(heroFocused, trailerNow, trailersOn, imdbId) {
             if (!heroFocused && !trailerNow) { trailer = null; return@LaunchedEffect }
             if (!trailersOn && !trailerNow) return@LaunchedEffect
@@ -174,11 +181,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 .graphicsLayer { alpha = a }.clip(RoundedCornerShape(34.dp)).background(Kit.card)
                 .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(34.dp))) {
                 Img(backdrop, 430.dp, 488.dp, Modifier.fillMaxSize())
-                trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
+                trailer?.takeIf { !fullTrailer }?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
             }
         } else Box(Modifier.fillMaxWidth().height(if (style == Style.MARQUEE) 540.dp else 460.dp)) {
             Img(backdrop, 960.dp, 540.dp, Modifier.fillMaxSize())
-            trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
+            trailer?.takeIf { !fullTrailer }?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
             val pg = look.page
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to pg.copy(alpha = 0.94f), 0.42f to pg.copy(alpha = 0.6f), 0.75f to Color.Transparent)))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to pg)))
@@ -187,6 +194,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 40.dp, bottom = 120.dp)) {
             // ---------------------------------------------------------------- billboard
             item(key = "hero") {
+                Box(Modifier.fillMaxWidth()) {
                 Column(Modifier.width(when (style) { Style.TONAL -> 440.dp; Style.MARQUEE -> 560.dp; Style.HALO -> 600.dp })
                     .heightIn(min = 380.dp).padding(top = if (style == Style.MARQUEE) 90.dp else 0.dp)) {
                     val more by androidx.compose.runtime.produceState(MoreRatings.R(), imdbId) { imdbId?.let { value = MoreRatings.of(it, isSeries) } }
@@ -196,6 +204,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     when (style) {
                         Style.TONAL -> {
                             Facts(m, t, isSeries)
+                            t?.awards?.let { aw -> Awards(aw, Modifier.padding(top = 10.dp), right = false) }
                             DisplayText(name, 46.sp, Modifier.padding(top = 16.dp), maxLines = 3)
                             plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.84f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
                             ScoreTiles(t, traktRating, more)
@@ -232,19 +241,22 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     }
 
                     // Back up at the buttons: the whole billboard shows again (logo, facts, plot), not just the buttons' line.
-                    // Vision's hero actions: accent Play pill, round icon buttons, Sequel / Connections pills with a yellow
-                    // count; the row scrolls sideways instead of squeezing the last button (user 2026-11-22).
+                    // Play, then every action as an icon (user 2026-11-24: nothing taken away, a third smaller, size in
+                    // Settings › Home and look › Button size); the focused icon's name shows in the caption under the row.
+                    var hint by remember { mutableStateOf<String?>(null) }
+                    fun Modifier.hint(label: String) = this.onFocusChanged { if (it.isFocused) hint = label }
                     Row(Modifier.padding(top = if (style == Style.TONAL) 22.dp else 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
                         heroFocused = it.hasFocus
+                        if (!it.hasFocus) hint = null
                         if (it.hasFocus && (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0)) scope.launch { list.animateScrollToItem(0) }
-                    }, horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 4.dp else 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val heroMod = Modifier
+                    }, horizontalArrangement = Arrangement.spacedBy(8.dp * Kit.soft), verticalAlignment = Alignment.CenterVertically) {
+                        val I = com.lekathedon.visionlite.ui.Icons
                         val playLabel = when {
                             !isSeries -> "Play"
                             next != null -> "Play S${next.season} E${next.number}"
                             else -> eps.firstOrNull { it.season == seasons.firstOrNull() }?.let { "Play S${it.season} E${it.episode}" } ?: "Play"
                         }
-                        PlayPill(playLabel, {
+                        KitButton(playLabel, I.Play, {
                             if (!isSeries) nav.push(Screen.Streams(s.type, if (AnimeMeta.isAnimeId(s.id)) m?.id ?: s.id else s.id, name, s.id))
                             else {
                                 val e = (next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
@@ -252,34 +264,63 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                                     ?.takeIf { it.airedMs == null || it.airedMs <= System.currentTimeMillis() }
                                 e?.let { nav.push(Screen.Streams("series", it.videoId, "$name S${it.season}E${it.episode}", s.id)) }
                             }
-                        }, heroMod.focusRequester(play))
-                        if (imdbId != null) RoundAction(com.lekathedon.visionlite.ui.Icons.Theaters, if (trailer != null) "Stop trailer" else "Trailer", trailer != null, {
-                            if (trailer != null) { trailer = null; trailerNow = false } else trailerNow = true
-                        }, heroMod)
+                        }, Modifier.focusRequester(play).onFocusChanged { if (it.isFocused) hint = null }, primary = true)
+                        // Trailer: a choice, so it can also play full screen instead of behind the page.
+                        if (imdbId != null) KitIcon(if (trailer != null) "Trailer playing" else "Trailer", I.Theaters, {
+                            sheet = Sheet.Menu("Trailer", listOf(
+                                Triple("Play full screen", I.Fullscreen) { trailerNow = true; fullTrailer = true },
+                                if (trailer != null) Triple("Stop trailer", I.Stop) { trailer = null; trailerNow = false }
+                                else Triple("Play here", I.Play) { trailerNow = true }))
+                        }, Modifier.hint("Trailer"), on = trailer != null)
                         var saved by remember(s.id) { mutableStateOf(Saves.has(s.id)) }
-                        RoundAction(if (saved) com.lekathedon.visionlite.ui.Icons.Check else com.lekathedon.visionlite.ui.Icons.Bookmark, if (saved) "In Library" else "Add to Library", saved, {
+                        KitIcon(if (saved) "In Library" else "Add to Library", if (saved) I.Check else I.Bookmark, {
                             saved = Saves.toggle(Saved(s.type, s.id, name, m?.poster ?: t?.poster))
-                        }, heroMod)
-                        // Love it / Like / Not for me: the one engine behind every recommendation.
+                        }, Modifier.hint(if (saved) "In Library" else "Add to Library"), on = saved)
+                        // The one engine behind every recommendation: each verdict its own icon; pressed again, it's undone.
                         val rc by com.lekathedon.visionlite.recs.Recs.changed.collectAsState()
                         val verdict = remember(s.id, rc) { com.lekathedon.visionlite.recs.Recs.verdict(s.id) }
-                        RoundAction(com.lekathedon.visionlite.ui.Icons.Favorite, when (verdict) { "love" -> "Loved"; "like" -> "Liked"; "nope" -> "Not for me"; "watched" -> "Watched"; else -> "Like" }, verdict != null, {
-                            com.lekathedon.visionlite.home.TasteMenu.show(com.lekathedon.visionlite.addons.MetaPreview(s.id, s.type, name, m?.poster ?: t?.poster))
-                        }, heroMod)
+                        val R = com.lekathedon.visionlite.recs.Recs
+                        val mp = com.lekathedon.visionlite.addons.MetaPreview(s.id, s.type, name, m?.poster ?: t?.poster)
+                        fun toggle(v: String, set: () -> Unit) { if (verdict == v) R.forget(s.id) else set() }
+                        KitIcon("Watched", I.Visibility, { toggle("watched") { com.lekathedon.visionlite.home.Ticks.watched(mp) } },
+                            Modifier.hint(if (verdict == "watched") "Watched · press to undo" else "Mark as watched"), on = verdict == "watched")
+                        KitIcon("Love it", I.Favorite, { toggle("love") { R.love(s.id, isSeries, name) } },
+                            Modifier.hint(if (verdict == "love") "Loved · press to undo" else "Love it"), on = verdict == "love")
+                        KitIcon("More like this", I.ThumbUp, { toggle("like") { R.moreLikeThis(s.id, isSeries, name) } },
+                            Modifier.hint(if (verdict == "like") "Liked · press to undo" else "More like this"), on = verdict == "like")
+                        KitIcon("Not for me", I.ThumbDown, { toggle("nope") { R.notForMe(s.id, isSeries, name) } },
+                            Modifier.hint(if (verdict == "nope") "Not for me · press to undo" else "Not for me"), on = verdict == "nope")
+                        if (imdbId != null && com.lekathedon.visionlite.home.Rate.available()) {
+                            val mine = remember(s.id, rc) { com.lekathedon.visionlite.home.Rate.mine(imdbId) }
+                            KitIcon("Rate", I.Star, { com.lekathedon.visionlite.home.Rate.ask(imdbId, isSeries, name) },
+                                Modifier.hint(if (mine > 0) "Your rating: $mine/10 · Trakt" else "Rate on Trakt"), on = mine > 0)
+                        }
                         val sp by prefs.sequelPrequel.flow.collectAsState()
                         val cn by prefs.connections.flow.collectAsState()
-                        if (sp && t != null && t.sequels.isNotEmpty()) CountPill(com.lekathedon.visionlite.ui.Icons.Swap, "Sequel / Prequel", t.sequels.size, {
+                        if (sp && t != null && t.sequels.isNotEmpty()) KitIcon("Sequel / Prequel", I.Swap, {
                             sheet = Sheet.Links("Sequel / Prequel", listOf("Follows" to t.follows, "Followed by" to t.followedBy).filter { it.second.isNotEmpty() })
-                        }, heroMod)
-                        if (cn && t != null && t.connections.isNotEmpty()) CountPill(com.lekathedon.visionlite.ui.Icons.AccountTree, "Connections", t.connections.size, {
+                        }, Modifier.hint("Sequel / Prequel"), count = t.sequels.size)
+                        if (cn && t != null && t.connections.isNotEmpty()) KitIcon("Connections", I.AccountTree, {
                             sheet = Sheet.Links("Connections", t.connections.groupBy { it.link!! }.toSortedMap().map { (l, v) -> l.heading to v })
-                        }, heroMod)
-                        // Marquee: when a film started now would end.
-                        if (style == Style.MARQUEE && !isSeries) t?.runtimeMin?.let { min ->
+                        }, Modifier.hint("Connections"), count = t.connections.size)
+                        val cos = t?.companies.orEmpty()
+                        if (cos.isNotEmpty()) KitIcon("Production", I.Business, {
+                            if (cos.size == 1) nav.push(Screen.Company(cos[0].id, cos[0].name))
+                            else sheet = Sheet.Menu("Production", cos.map { c -> Triple(c.name, null) { nav.push(Screen.Company(c.id, c.name)) } })
+                        }, Modifier.hint("Production · " + cos.joinToString(", ") { it.name }), count = cos.size.takeIf { it > 1 })
+                    }
+                    // The focused icon's name; Marquee also says when a film started now would end.
+                    Row(Modifier.padding(top = 8.dp).height(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        hint?.let { com.lekathedon.visionlite.ui.Eyebrow(it, color = Palette.Text) }
+                        if (hint == null && style == Style.MARQUEE && !isSeries) t?.runtimeMin?.let { min ->
                             val ends = remember(min) { android.text.format.DateFormat.getTimeFormat(App.instance).format(java.util.Date(System.currentTimeMillis() + min * 60_000L)) }
-                            Text("Ends at $ends", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
+                            com.lekathedon.visionlite.ui.Eyebrow("Ends at $ends")
                         }
                     }
+                }
+                // Awards (IMDb), top right beside the billboard, in gold (WuPlay's "Won 1 Oscar").
+                // Tonal's right side is the art frame, so its awards sit under the facts instead.
+                if (style != Style.TONAL) t?.awards?.let { aw -> Awards(aw, Modifier.align(Alignment.BottomEnd).padding(bottom = 46.dp)) }
                 }
             }
 
@@ -395,6 +436,19 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             }
         }
 
+        if (fullTrailer) {
+            val grab = remember { FocusRequester() }
+            LaunchedEffect(Unit) { withFrameNanos { }; runCatching { grab.requestFocus() } }
+            BackHandler { fullTrailer = false; runCatching { play.requestFocus() } }
+            Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(grab).focusable(), contentAlignment = Alignment.Center) {
+                val tr = trailer
+                if (tr == null) Text("Finding the trailer…", color = Palette.TextDim, fontSize = 16.sp)
+                else com.lekathedon.visionlite.trailer.TrailerVideo(tr.url, false, Modifier.fillMaxSize(), tr.audio) {
+                    fullTrailer = false; trailer = null; trailerNow = false; runCatching { play.requestFocus() }
+                }
+            }
+        }
+
         sheet?.let { sh -> SheetView(sh, onClose = { sheet = null }) { r -> sheet = null; nav.push(Screen.Detail(r.type, r.imdb, r.title)) } }
     }
 }
@@ -473,23 +527,18 @@ private fun Ratings(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
     }
 }
 
-/** The main action in the look (Tonal block with a round icon, Marquee gradient slab, Halo accent pill). */
+/** IMDb's awards in gold: a trophy, the big prize ("Won 1 Oscar") and all wins / nominations under it. */
 @Composable
-private fun PlayPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
-    KitButton(label, com.lekathedon.visionlite.ui.Icons.Play, onClick, modifier, primary = true)
-
-/** An icon action: its name shows beside it while focused (Tonal, Halo); [on] tints the icon in the accent. */
-@Composable
-private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) =
-    KitButton(label, icon, onClick, modifier, on = on, iconOnly = true)
-
-/** Sequel / Prequel and Connections: label and the count in a small badge. */
-@Composable
-private fun CountPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) =
-    KitButton(label, icon, onClick, modifier, extra = {
-        Box(Modifier.padding(start = 10.dp).size(24.dp).clip(if (Kit.style == Style.TONAL) RoundedCornerShape(8.dp) else CircleShape).background(Color(0xFFF5C518)),
-            contentAlignment = Alignment.Center) { Text("$count", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-    })
+private fun Awards(a: Imdb.Awards, modifier: Modifier = Modifier, right: Boolean = true) {
+    Column(modifier, horizontalAlignment = if (right) Alignment.End else Alignment.Start) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Trophy, null, Modifier.size(22.dp), tint = Gold)
+            Text(a.headline ?: a.counts.orEmpty(), color = Gold, fontFamily = Kit.display, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 8.dp), maxLines = 1)
+        }
+        if (a.headline != null) a.counts?.let { Text(it, color = Gold.copy(alpha = 0.75f), fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 2.dp)) }
+    }
+}
 
 /** Tonal's score tiles: one rounded square per source, IMDb in its yellow. */
 @Composable
@@ -575,17 +624,39 @@ private fun Leader(k: String, v: String) {
     }
 }
 
-/** Vision's ranked parental-guide chips (worst first), "None" left out. */
+/**
+ * Vision's ranked parental-guide tags (worst first), "None" left out, in the look (no grey pills): Marquee tracked
+ * capitals split by thin rules, Tonal a coloured dot per tag, Halo the severity as a small coloured bar.
+ */
 @Composable
 private fun GuideChips(g: List<Imdb.Guide>) {
     val rank = mapOf("severe" to 0, "moderate" to 1, "mild" to 2)
     val shown = g.filter { it.severity.lowercase() in rank }.sortedBy { rank[it.severity.lowercase()] }
     if (shown.isEmpty()) return
-    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        shown.forEach { x ->
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        shown.forEachIndexed { i, x ->
             val short = x.category.substringBefore(" &").substringBefore(",")
-            Text("$short · ${x.severity}", color = severityColor(x.severity), fontSize = 11.sp,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0x26FFFFFF)).padding(horizontal = 9.dp, vertical = 3.dp))
+            val c = severityColor(x.severity)
+            when (Kit.style) {
+                Style.MARQUEE -> {
+                    if (i > 0) Box(Modifier.padding(horizontal = 10.dp).size(1.dp, 12.dp).background(Kit.line))
+                    Text(short.uppercase(), color = Palette.Text.copy(alpha = 0.85f), fontFamily = Kit.label, fontSize = 12.sp, letterSpacing = 2.sp)
+                    Text(" " + x.severity.uppercase(), color = c, fontFamily = Kit.label, fontSize = 12.sp, letterSpacing = 2.sp)
+                }
+                Style.TONAL -> {
+                    if (i > 0) Spacer(Modifier.width(14.dp))
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(c))
+                    Text("  $short", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(" ${x.severity.lowercase()}", color = c, fontSize = 13.sp)
+                }
+                Style.HALO -> {
+                    if (i > 0) Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(short, color = Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Box(Modifier.padding(top = 3.dp).size(when (x.severity.lowercase()) { "severe" -> 36.dp; "moderate" -> 24.dp; else -> 12.dp }, 3.dp).clip(RoundedCornerShape(50)).background(c))
+                    }
+                }
+            }
         }
     }
 }
@@ -799,6 +870,14 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                         sh.groups.forEachIndexed { gi, (heading, refs) ->
                             item { Text(heading, color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)) }
                             item { PosterRow(refs, if (gi == 0) first else null, onOpen) }
+                        }
+                    }
+                }
+                is Sheet.Menu -> {
+                    com.lekathedon.visionlite.ui.Eyebrow(sh.title, Modifier.padding(bottom = 14.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        sh.items.forEachIndexed { i, (label, icon, act) ->
+                            KitButton(label, icon, { onClose(); act() }, if (i == 0) Modifier.focusRequester(first) else Modifier, primary = i == 0)
                         }
                     }
                 }

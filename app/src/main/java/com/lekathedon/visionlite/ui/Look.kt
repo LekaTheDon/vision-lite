@@ -62,16 +62,20 @@ enum class Skin(val key: String, val label: String, val base: Color, val glow: C
 
 /** The three looks for everything past Home: fonts, shapes, buttons, toggles. Home, its pill and the clock keep theirs. */
 enum class Style(val key: String, val label: String, val about: String) {
+    MARQUEE("marquee", "Marquee", "Haven's cinema type, tracked capitals, slim parts"),
     TONAL("tonal", "Tonal", "Bold shapes, coloured surfaces, chunky buttons"),
-    MARQUEE("marquee", "Marquee", "Cinema poster type, tracked capitals, slim parts"),
     HALO("halo", "Halo", "Soft pills, round buttons, filled focus");
-    companion object { fun of(k: String) = entries.firstOrNull { it.key == k } ?: TONAL }
+    companion object { fun of(k: String) = entries.firstOrNull { it.key == k } ?: MARQUEE }
 }
 
 /** The skin and look in use (set from the prefs in MainActivity), and the accent the Tinted skin takes from the art. */
 object Theme {
     var skin by mutableStateOf(Skin.TINT)
-    var style by mutableStateOf(Style.TONAL)
+    var style by mutableStateOf(Style.MARQUEE)
+    /** Settings › Button size: buttons, icons and switches past Home (1 = the 0.37.0 size). */
+    var scale by mutableStateOf(0.67f)
+    val sizes = listOf("smallest" to "Smallest", "small" to "Small", "medium" to "Medium", "large" to "Large")
+    fun scaleOf(key: String) = when (key) { "smallest" -> 0.55f; "medium" -> 0.83f; "large" -> 1f; else -> 0.67f }
     /** Tinted: the last title's art colour, brightened (null until a title page read one). */
     var artAccent by mutableStateOf<Color?>(null)
     val accent: Color get() = if (skin.tinted) artAccent ?: skin.accent else skin.accent

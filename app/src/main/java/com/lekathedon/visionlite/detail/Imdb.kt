@@ -38,13 +38,27 @@ object Imdb {
                    val poster: String?, val link: Link? = null, val isVideo: Boolean = false)
     data class Person(val id: String, val name: String, val photo: String?, val role: String?)
     data class Guide(val category: String, val severity: String)
+    /** A production company (IMDb co id); its page lists what else it made. */
+    data class Company(val id: String, val name: String)
+    /** IMDb's award summary: the big prize (Oscar, Emmy…) won / nominated, and all wins / nominations. */
+    data class Awards(val prize: String?, val prizeWins: Int, val prizeNoms: Int, val wins: Int, val noms: Int) {
+        /** "Won 1 Oscar", "Nominated for 7 Oscars", or null. */
+        val headline: String? get() = prize?.let { p ->
+            when { prizeWins > 0 -> "Won $prizeWins $p" + (if (prizeWins > 1) "s" else ""); prizeNoms > 0 -> "Nominated for $prizeNoms $p" + (if (prizeNoms > 1) "s" else ""); else -> null }
+        }
+        val counts: String? get() = listOfNotNull(wins.takeIf { it > 0 }?.let { "$it win" + if (it > 1) "s" else "" },
+            noms.takeIf { it > 0 }?.let { "$it nomination" + if (it > 1) "s" else "" }).joinToString(" · ").ifBlank { null }
+        val any get() = headline != null || counts != null
+    }
     data class Title(
         val id: String, val name: String, val type: String, val year: Int?, val endYear: Int?, val rating: Float?, val votes: Int?,
         val metascore: Int?, val certificate: String?, val runtimeMin: Int?, val plot: String?, val genres: List<String>, val poster: String?,
         val seasons: List<Int>, val directors: List<Person>, val creators: List<Person>, val cast: List<Person>, val guide: List<Guide>,
         val sequels: List<Ref>, val connections: List<Ref>, val similar: List<Ref>,
         /** Writers (anime: often the original manga / novel author). */
-        val writers: List<Person> = emptyList()
+        val writers: List<Person> = emptyList(),
+        val companies: List<Company> = emptyList(),
+        val awards: Awards? = null
     ) {
         val follows get() = sequels.filter { it.link == Link.PREQUEL }
         val followedBy get() = sequels.filter { it.link == Link.SEQUEL }
@@ -93,6 +107,10 @@ object Imdb {
             connections(first: 25, filter: { categories: [${cats(true)}] }) { edges { node { category { id } associatedTitle { $NODE } } } }
             others: connections(first: 60, filter: { categories: [${cats(false)}] }) { edges { node { category { id } associatedTitle { $NODE } } } }
             moreLikeThisTitles(first: 20) { edges { node { $NODE } } }
+            prestigiousAwardSummary { wins nominations award { text } }
+            awardWins: awardNominations(first: 0, filter: { wins: WINS_ONLY }) { total }
+            awardNoms: awardNominations(first: 0) { total }
+            companyCredits(first: 8, filter: { categories: ["production"] }) { edges { node { company { id companyText { text } } } } }
         } }"""
         val t = post(q, null).optJSONObject("title") ?: return null
         fun people(key: String) = t.optJSONObject(key)?.optJSONArray("edges").objects().mapNotNull { e ->
@@ -131,7 +149,17 @@ object Imdb {
                 val sev = c.optJSONObject("severity")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null
                 Guide(cat, sev)
             },
-            sequels, connections, similar, people("writers")
+            sequels, connections, similar, people("writers"),
+            t.optJSONObject("companyCredits")?.optJSONArray("edges").objects().mapNotNull { e ->
+                val c = e.optJSONObject("node")?.optJSONObject("company") ?: return@mapNotNull null
+                Company(c.optString("id").takeIf { it.startsWith("co") } ?: return@mapNotNull null,
+                    c.optJSONObject("companyText")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null)
+            }.distinctBy { it.id },
+            run {
+                val pa = t.optJSONObject("prestigiousAwardSummary")
+                Awards(pa?.optJSONObject("award")?.optString("text")?.ifBlank { null }, pa?.optInt("wins") ?: 0, pa?.optInt("nominations") ?: 0,
+                    t.optJSONObject("awardWins")?.optInt("total") ?: 0, t.optJSONObject("awardNoms")?.optInt("total") ?: 0).takeIf { it.any }
+            }
         )
     }
 

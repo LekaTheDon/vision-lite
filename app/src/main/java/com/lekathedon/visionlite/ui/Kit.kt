@@ -70,6 +70,10 @@ object Kit {
     val ringWidth: Dp get() = when (style) { Style.TONAL -> 3.dp; Style.MARQUEE -> 2.dp; Style.HALO -> 2.5.dp }
     val ringColor: Color get() = if (style == Style.MARQUEE) Theme.skin.text else Theme.accent
 
+    /** Settings › Button size: buttons and switches follow it fully, tiles and their text a little (smallest stays readable). */
+    val k: Float get() = Theme.scale
+    val soft: Float get() = 0.4f + 0.6f * Theme.scale
+
     fun lerp(a: Color, b: Color, t: Float) = Color(a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t, 1f)
 }
 
@@ -103,26 +107,27 @@ fun Eyebrow(t: String, modifier: Modifier = Modifier, color: Color = Palette.Tex
 /** A switch in the look: Tonal = chunky with a tick, Marquee = slim, Halo = "● On" / "○ Off" pill. */
 @Composable
 fun KitSwitch(on: Boolean, focused: Boolean, modifier: Modifier = Modifier) {
+    val k = Kit.k
     when (Kit.style) {
-        Style.TONAL -> Box(modifier.size(56.dp, 32.dp).clip(RoundedCornerShape(50)).background(if (on) Kit.accent else Kit.card2)
-            .border(2.dp, if (on) Kit.accent else Palette.TextDim, RoundedCornerShape(50)).padding(horizontal = if (on) 4.dp else 6.dp),
+        Style.TONAL -> Box(modifier.size(56.dp * k, 32.dp * k).clip(RoundedCornerShape(50)).background(if (on) Kit.accent else Kit.card2)
+            .border(2.dp, if (on) Kit.accent else Palette.TextDim, RoundedCornerShape(50)).padding(horizontal = (if (on) 4.dp else 6.dp) * k),
             contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
-            if (on) Box(Modifier.size(24.dp).clip(CircleShape).background(Kit.onAccent), contentAlignment = Alignment.Center) {
-                Text("✓", color = Kit.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            } else Box(Modifier.size(16.dp).clip(CircleShape).background(Palette.TextDim))
+            if (on) Box(Modifier.size(24.dp * k).clip(CircleShape).background(Kit.onAccent), contentAlignment = Alignment.Center) {
+                Text("✓", color = Kit.accent, fontSize = 14.sp * k, fontWeight = FontWeight.Bold)
+            } else Box(Modifier.size(16.dp * k).clip(CircleShape).background(Palette.TextDim))
         }
-        Style.MARQUEE -> Box(modifier.size(42.dp, 24.dp).clip(RoundedCornerShape(50)).background(if (on) Kit.accent else Kit.card2)
-            .border(1.dp, if (on) Color.Transparent else Kit.line, RoundedCornerShape(50)).padding(3.dp),
+        Style.MARQUEE -> Box(modifier.size(42.dp * k, 24.dp * k).clip(RoundedCornerShape(50)).background(if (on) Kit.accent else Kit.card2)
+            .border(1.dp, if (on) Color.Transparent else Kit.line, RoundedCornerShape(50)).padding(3.dp * k),
             contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart) {
-            Box(Modifier.size(18.dp).clip(CircleShape).background(if (on) Kit.onAccent else Palette.TextDim))
+            Box(Modifier.size(18.dp * k).clip(CircleShape).background(if (on) Kit.onAccent else Palette.TextDim))
         }
         Style.HALO -> {
             val ink = if (focused) Kit.onAccent else Palette.Text
-            Text(if (on) "●  On" else "○  Off", fontFamily = Fonts.halo, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+            Text(if (on) "●  On" else "○  Off", fontFamily = Fonts.halo, fontSize = 13.sp * Kit.soft, fontWeight = FontWeight.Bold,
                 color = if (on) (if (focused) Kit.accent else Theme.skin.base) else ink.copy(alpha = 0.75f),
                 modifier = modifier.clip(RoundedCornerShape(50))
                     .then(if (on) Modifier.background(if (focused) Kit.onAccent else Palette.Text) else Modifier.border(1.5.dp, ink.copy(alpha = 0.6f), RoundedCornerShape(50)))
-                    .padding(horizontal = 12.dp, vertical = 5.dp))
+                    .padding(horizontal = 12.dp * Kit.soft, vertical = 5.dp * Kit.soft))
         }
     }
 }
@@ -148,14 +153,15 @@ fun KitChip(t: String, modifier: Modifier = Modifier, strong: Boolean = false) {
  */
 @Composable
 fun KitButton(label: String, icon: ImageVector?, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false,
-              on: Boolean = false, iconOnly: Boolean = false, extra: (@Composable () -> Unit)? = null) {
+              on: Boolean = false, iconOnly: Boolean = false, extra: (@Composable androidx.compose.foundation.layout.BoxScope.() -> Unit)? = null) {
     val style = Kit.style
     val shape = when (style) {
         Style.TONAL -> RoundedCornerShape(if (primary) 24.dp else 16.dp)
         Style.MARQUEE -> RoundedCornerShape(10.dp)
         Style.HALO -> RoundedCornerShape(50)
     }
-    val h = when (style) { Style.TONAL -> if (primary) 60.dp else 52.dp; Style.MARQUEE -> 46.dp; Style.HALO -> 48.dp }
+    val k = Kit.k
+    val h = when (style) { Style.TONAL -> if (primary) 60.dp else 52.dp; Style.MARQUEE -> 46.dp; Style.HALO -> 48.dp } * k
     Focusable(onClick, modifier, shape) { f ->
         val bg: Modifier
         val ink: Color
@@ -176,23 +182,43 @@ fun KitButton(label: String, icon: ImageVector?, onClick: () -> Unit, modifier: 
                 Style.HALO -> { bg = Modifier.background(Color(0x40000000)).border(1.dp, Kit.line, shape); ink = Palette.Text }
             }
         }
-        val showLabel = !iconOnly || (f && style != Style.MARQUEE) || icon == null
-        Row(Modifier.height(h).then(bg).padding(horizontal = if (showLabel) (if (primary) 20.dp else 16.dp) else 0.dp)
-            .then(if (!showLabel) Modifier.size(h, h) else Modifier),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            if (icon != null) {
-                if (primary && style == Style.TONAL) Box(Modifier.size(34.dp).clip(CircleShape).background(ink), contentAlignment = Alignment.Center) {
-                    androidx.compose.material3.Icon(icon, null, Modifier.size(20.dp), tint = Kit.accent)
-                } else androidx.compose.material3.Icon(icon, label, Modifier.size(if (primary) 24.dp else 22.dp),
-                    tint = if (on && !f && !primary) Kit.accent else ink)
+        val showLabel = !iconOnly || icon == null
+        Box {
+            Row(Modifier.height(h).then(bg).padding(horizontal = if (showLabel) (if (primary) 20.dp else 16.dp) * k else 0.dp)
+                .then(if (!showLabel) Modifier.size(h, h) else Modifier),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                if (icon != null) {
+                    if (primary && style == Style.TONAL) Box(Modifier.size(34.dp * k).clip(CircleShape).background(ink), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.Icon(icon, null, Modifier.size(20.dp * k), tint = Kit.accent)
+                    } else androidx.compose.material3.Icon(icon, label, Modifier.size((if (primary) 24.dp else 22.dp) * k),
+                        tint = if (on && !f && !primary) Kit.accent else ink)
+                }
+                if (showLabel) Text(label, color = ink, fontSize = (if (primary) 17.sp else 15.sp) * Kit.soft,
+                    fontWeight = if (primary) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1, softWrap = false,
+                    modifier = Modifier.padding(start = if (icon != null) 10.dp * k else 0.dp))
             }
-            if (showLabel) Text(label, color = ink, fontSize = if (primary) 17.sp else 15.sp,
-                fontWeight = if (primary) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1, softWrap = false,
-                modifier = Modifier.padding(start = if (icon != null) 10.dp else 0.dp))
-            extra?.invoke()
+            extra?.invoke(this)
         }
     }
 }
+
+/**
+ * An icon-only action (details page): its name is shown by the row's caption, [count] in a small gold badge on the
+ * top right (Sequel / Prequel, Connections, Production), [on] tints the icon in the accent.
+ */
+@Composable
+fun KitIcon(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, on: Boolean = false, count: Int? = null) {
+    val badge: (@Composable androidx.compose.foundation.layout.BoxScope.() -> Unit)? = if (count == null) null else {
+        {
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 1.dp).size(16.dp * Kit.soft).clip(CircleShape).background(Gold),
+                contentAlignment = Alignment.Center) { Text("$count", color = Color.Black, fontSize = 10.sp * Kit.soft, fontWeight = FontWeight.Bold, maxLines = 1) }
+        }
+    }
+    KitButton(label, icon, onClick, modifier, on = on, iconOnly = true, extra = badge)
+}
+
+/** Awards and badges: a warm yellow gold, the same in every skin. */
+val Gold = Color(0xFFE8C15A)
 
 /** Display text: a title in the look's display face. */
 @Composable

@@ -33,6 +33,8 @@ sealed interface Screen {
     data object Calendar : Screen
     data class Service(val id: String) : Screen
     data class Person(val id: String, val name: String) : Screen
+    /** A production company's page (IMDb co id): its films and shows. */
+    data class Company(val id: String, val name: String) : Screen
     data class YouTube(val tab: String = "HOME") : Screen
     data class YtPlay(val id: String, val title: String) : Screen
     data class Music(val tab: String = "HOME") : Screen

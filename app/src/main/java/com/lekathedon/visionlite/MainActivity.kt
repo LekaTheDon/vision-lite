@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
             val skin = com.lekathedon.visionlite.ui.Skin.of(skinKey)
             com.lekathedon.visionlite.ui.Theme.skin = skin
             com.lekathedon.visionlite.ui.Theme.style = com.lekathedon.visionlite.ui.Style.of(styleKey)
+            val sizeKey by app.prefs.uiSize.flow.collectAsState()
+            com.lekathedon.visionlite.ui.Theme.scale = com.lekathedon.visionlite.ui.Theme.scaleOf(sizeKey)
             val look = remember(skin) { Look(skin) }
             val asked by app.prefs.deviceAsked.flow.collectAsState()
             val saved = rememberSaveableStateHolder()
@@ -157,6 +159,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Calendar -> com.lekathedon.visionlite.browse.CalendarPage(nav)
                         is Screen.Service -> com.lekathedon.visionlite.browse.ServicePage(nav, s.id)
                         is Screen.Person -> com.lekathedon.visionlite.browse.PersonPage(nav, s.id, s.name)
+                        is Screen.Company -> com.lekathedon.visionlite.browse.CompanyPage(nav, s.id, s.name)
                         is Screen.YouTube -> com.lekathedon.visionlite.youtube.YouTubeScreen(nav, s.tab)
                         is Screen.YtPlay -> com.lekathedon.visionlite.youtube.YtPlayer(nav, s)
                         is Screen.Music -> com.lekathedon.visionlite.music.MusicScreen(nav, s.tab)

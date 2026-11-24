@@ -48,8 +48,12 @@ class Prefs(context: Context) {
     val oledBlack = Flag("oled_black", false)
     /** Colour skin (ui/Look.kt Skin): oled, tint, night, ember, moss. First run takes the old OLED switch. */
     val skin = Text("skin", if (oledBlack.value) "oled" else "tint")
-    /** The look past Home (ui/Look.kt Style): tonal (default), marquee, halo. */
-    val style = Text("style", "tonal")
+    /** The look past Home (ui/Look.kt Style): marquee (Haven's, default since 0.37.1), tonal, halo. */
+    val style = Text("style", "marquee").also { t ->
+        if (!sp.getBoolean("style_marquee_v1", false)) { t.value = "marquee"; sp.edit().putBoolean("style_marquee_v1", true).apply() }
+    }
+    /** Buttons, icons and switches past Home: smallest, small (default, a third under 0.37.0), medium, large. */
+    val uiSize = Text("ui_size", "small")
     /** Play picks the best link by itself (off until autoplay is safe). */
     val autoplay = Flag("autoplay", false)
     /** IMDb ids dropped from Continue watching (hold menu), one per line; playing the title again brings it back. */

@@ -321,6 +321,8 @@ fun Settings(nav: Nav, start: String? = null) {
                 com.lekathedon.visionlite.ui.Skin.TINT -> "Tinted · colours from the title's art"
                 com.lekathedon.visionlite.ui.Skin.OLED -> "OLED black · pure black pages"
                 else -> it.label } }, m) }
+        row { m -> Choice("Button size", "Buttons, icons and switches past Home", p.uiSize,
+            com.lekathedon.visionlite.ui.Theme.sizes.map { (k, l) -> k to if (k == "small") "$l · default" else l }, m) }
         head("Rows")
         row { m -> Link("Arrange rows", "Turn rows on or off, change the order, refresh", m) { nav.push(Screen.Rows) } }
         row { m -> Link("Your interests", "The genres you watch most (learned) and the ones you like: each gets a \"Because you like\" row", m) { nav.push(Screen.Interests) } }
@@ -717,7 +719,8 @@ fun Settings(nav: Nav, start: String? = null) {
 
 /** The page's icon on a rounded tile in its colour. */
 @Composable
-private fun IconTile(g: Page, size: androidx.compose.ui.unit.Dp) {
+private fun IconTile(g: Page, size0: androidx.compose.ui.unit.Dp) {
+    val size = size0 * Kit.soft
     val style = Kit.style
     val c = if (Theme.skin.tinted) g.tint else Kit.accent
     Box(Modifier.size(size).clip(when (style) { Style.TONAL -> RoundedCornerShape(size * 0.36f); Style.MARQUEE -> RoundedCornerShape(size * 0.22f); Style.HALO -> CircleShape })

@@ -4,6 +4,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -86,17 +88,24 @@ internal fun leaveApp(activity: android.app.Activity?) {
     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)
 }
 
+/** "Leave Nuvio Vision?" in the look and skin (Settings › Home and look), like every page past Home. */
 @Composable
 internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
     val stay = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { stay.requestFocus() } }
     androidx.activity.compose.BackHandler { onStay() }
-    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.background(Palette.Card).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Leave Nuvio Vision?", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button("Stay", onStay, Modifier.focusRequester(stay))
-                Button("Leave", onLeave)
+    com.lekathedon.visionlite.ui.Inside(true) {
+        val K = com.lekathedon.visionlite.ui.Kit
+        Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+            Column(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).background(K.card)
+                .border(1.dp, K.line, androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).padding(horizontal = 36.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                com.lekathedon.visionlite.ui.Eyebrow("Nuvio Vision")
+                com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "LEAVE?" else "Leave the app?", 28.sp, Modifier.padding(top = 6.dp), maxLines = 1)
+                Row(Modifier.padding(top = 22.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    com.lekathedon.visionlite.ui.KitButton("Stay", null, onStay, Modifier.focusRequester(stay), primary = true)
+                    com.lekathedon.visionlite.ui.KitButton("Leave", null, onLeave)
+                }
             }
         }
     }
