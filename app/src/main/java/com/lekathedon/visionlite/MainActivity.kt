@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lekathedon.visionlite.detail.Detail
-import com.lekathedon.visionlite.home.Home
 import com.lekathedon.visionlite.player.Player
 import com.lekathedon.visionlite.search.Search
 import com.lekathedon.visionlite.settings.Addons
@@ -53,8 +52,12 @@ class MainActivity : ComponentActivity() {
         window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
         setContent {
             val nav = remember { Nav() }
-            val oled by app.prefs.oledBlack.flow.collectAsState()
-            val look = remember(oled) { Look(oled) }
+            val skinKey by app.prefs.skin.flow.collectAsState()
+            val styleKey by app.prefs.style.flow.collectAsState()
+            val skin = com.lekathedon.visionlite.ui.Skin.of(skinKey)
+            com.lekathedon.visionlite.ui.Theme.skin = skin
+            com.lekathedon.visionlite.ui.Theme.style = com.lekathedon.visionlite.ui.Style.of(styleKey)
+            val look = remember(skin) { Look(skin) }
             val asked by app.prefs.deviceAsked.flow.collectAsState()
             val saved = rememberSaveableStateHolder()
             val setupDone by com.lekathedon.visionlite.integrations.Integrations.setupDone.flow.collectAsState()
@@ -105,6 +108,9 @@ class MainActivity : ComponentActivity() {
                   // The pill on a hub's page shows that hub, however the page was reached.
                   androidx.compose.runtime.LaunchedEffect(nav.current) { com.lekathedon.visionlite.home.hubOf(nav.current)?.let { com.lekathedon.visionlite.anime.Hubs.setSection(it) } }
                   Box(Modifier.fillMaxSize().padding(top = if (hub != null) 50.dp else 0.dp)) {
+                    // Past Home (not the player) every screen wears the look: its font and parts (ui/Kit.kt).
+                    val inside = nav.current != Screen.Home && nav.current !is Screen.Player && nav.current !is Screen.YtPlay
+                    com.lekathedon.visionlite.ui.Inside(inside) {
                     // Home keeps its scroll/focus position under the screens opened from it.
                     when (val s = nav.current) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
@@ -121,8 +127,7 @@ class MainActivity : ComponentActivity() {
                                     onLater = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen() })
                             }
                             else saved.SaveableStateProvider("home") {
-                                if (app.prefs.homeLook.flow.collectAsState().value == "classic") Home(nav)
-                                else com.lekathedon.visionlite.home.EchoHome(nav)
+                                com.lekathedon.visionlite.home.EchoHome(nav)
                             }
                         is Screen.Detail -> Detail(nav, s)
                         is Screen.VodSeries -> com.lekathedon.visionlite.iptv.VodSeriesScreen(nav, s.pl, s.id)
@@ -165,6 +170,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.SignIn -> com.lekathedon.visionlite.integrations.SignInScreen(nav, s.id)
                         is Screen.Integration -> com.lekathedon.visionlite.integrations.ServiceScreen(nav, s.id)
                         is Screen.Report -> com.lekathedon.visionlite.report.ReportScreen(nav, s.kind)
+                    }
                     }
                   }
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).

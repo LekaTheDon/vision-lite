@@ -60,6 +60,16 @@ import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
+import com.lekathedon.visionlite.ui.Kit
+import com.lekathedon.visionlite.ui.KitButton
+import com.lekathedon.visionlite.ui.KitChip
+import com.lekathedon.visionlite.ui.DisplayText
+import com.lekathedon.visionlite.ui.Eyebrow
+import com.lekathedon.visionlite.ui.Style
+import com.lekathedon.visionlite.ui.skinPage
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -118,7 +128,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     val isSeries = if (m != null && t == null && AnimeMeta.isAnimeId(s.id)) m.type == "series" else s.type == "series" || t?.type == "series"
     var sheet by remember(s.id) { mutableStateOf<Sheet?>(null) }
 
-    Box(Modifier.fillMaxSize().background(look.page)) {
+    val style = Kit.style
+    Box(Modifier.fillMaxSize().skinPage(look.skin)) {
         if (!look.oled) ArtTint(backdrop ?: m?.poster)
         if (m == null && t == null) {
             Text(if (loaded) "No details for ${s.name}" else s.name, color = Palette.Text, fontSize = 24.sp, modifier = Modifier.padding(48.dp))
@@ -155,39 +166,78 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 com.lekathedon.visionlite.device.Tier.trailerHeight(2160))
         }
 
-        Box(Modifier.fillMaxWidth().height(460.dp)) {
+        if (style == Style.TONAL) {
+            // Tonal: the art in a big rounded frame on the right, gone once you scroll past the top.
+            val atTop by remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
+            val a by androidx.compose.animation.core.animateFloatAsState(if (atTop) 1f else 0f, label = "frame")
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 26.dp, end = 26.dp).size(430.dp, 488.dp)
+                .graphicsLayer { alpha = a }.clip(RoundedCornerShape(34.dp)).background(Kit.card)
+                .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(34.dp))) {
+                Img(backdrop, 430.dp, 488.dp, Modifier.fillMaxSize())
+                trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
+            }
+        } else Box(Modifier.fillMaxWidth().height(if (style == Style.MARQUEE) 540.dp else 460.dp)) {
             Img(backdrop, 960.dp, 540.dp, Modifier.fillMaxSize())
             trailer?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xF0000000), 0.42f to Color(0x99000000), 0.75f to Color.Transparent)))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to look.page)))
+            val pg = look.page
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to pg.copy(alpha = 0.94f), 0.42f to pg.copy(alpha = 0.6f), 0.75f to Color.Transparent)))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to pg)))
         }
 
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 40.dp, bottom = 120.dp)) {
             // ---------------------------------------------------------------- billboard
             item(key = "hero") {
-                Column(Modifier.width(600.dp).heightIn(min = 380.dp)) {
-                    var logoFailed by remember(logo) { mutableStateOf(logo == null) }
-                    if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.size(340.dp, 110.dp), contentScale = ContentScale.Fit,
-                        alignment = Alignment.BottomStart, onError = { logoFailed = true })
-                    else Text(name, color = Palette.Text, fontSize = 34.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                    Facts(m, t, isSeries)
+                Column(Modifier.width(when (style) { Style.TONAL -> 440.dp; Style.MARQUEE -> 560.dp; Style.HALO -> 600.dp })
+                    .heightIn(min = 380.dp).padding(top = if (style == Style.MARQUEE) 90.dp else 0.dp)) {
                     val more by androidx.compose.runtime.produceState(MoreRatings.R(), imdbId) { imdbId?.let { value = MoreRatings.of(it, isSeries) } }
-                    Ratings(t, traktRating, more)
                     val plot = m?.description ?: t?.plot
-                    plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.85f), fontSize = 14.sp, lineHeight = 20.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
                     val crew = t?.let { (if (isSeries) it.creators else it.directors).take(2).joinToString(", ") { p -> p.name } }.orEmpty()
-                    if (crew.isNotBlank()) Text((if (isSeries) "Created by " else "Directed by ") + crew, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
                     val stars = t?.cast?.take(4)?.joinToString(", ") { it.name }?.ifBlank { null } ?: m?.cast?.take(4)?.joinToString(", ")?.ifBlank { null }
-                    stars?.let { Text("Starring $it", color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp)) }
-                    GuideChips(t?.guide.orEmpty())
+                    when (style) {
+                        Style.TONAL -> {
+                            Facts(m, t, isSeries)
+                            DisplayText(name, 46.sp, Modifier.padding(top = 16.dp), maxLines = 3)
+                            plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.84f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
+                            ScoreTiles(t, traktRating, more)
+                            if (crew.isNotBlank()) Text((if (isSeries) "Created by " else "Directed by ") + crew, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                            GuideChips(t?.guide.orEmpty())
+                        }
+                        Style.MARQUEE -> {
+                            val genres = (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).take(2).joinToString("  ·  ")
+                            Eyebrow(listOfNotNull(genres.ifBlank { null }, crew.ifBlank { null }?.let { (if (isSeries) "Created by " else "By ") + it }).joinToString("  ·  "))
+                            DisplayText(name, 52.sp, Modifier.padding(top = 12.dp, bottom = 4.dp), maxLines = 2)
+                            Facts(m, t, isSeries)
+                            Ratings(t, traktRating, more)
+                            plot?.let {
+                                Row(Modifier.padding(top = 14.dp)) {
+                                    Box(Modifier.padding(top = 9.dp, end = 12.dp).size(30.dp, 2.dp).background(Kit.accent))
+                                    Text(it, color = Palette.Text.copy(alpha = 0.88f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            GuideChips(t?.guide.orEmpty())
+                        }
+                        Style.HALO -> {
+                            var logoFailed by remember(logo) { mutableStateOf(logo == null) }
+                            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.size(340.dp, 110.dp), contentScale = ContentScale.Fit,
+                                alignment = Alignment.BottomStart, onError = { logoFailed = true })
+                            else DisplayText(name, 42.sp, color = Kit.accent)
+                            next?.let { n -> Text("Up next: S${n.season} E${n.number}" + (eps.firstOrNull { it.season == n.season && it.episode == n.number }?.title?.let { " · $it" } ?: ""),
+                                color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp)) }
+                            plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.88f), fontSize = 15.sp, lineHeight = 23.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
+                            Facts(m, t, isSeries)
+                            Ratings(t, traktRating, more)
+                            stars?.let { Text("Starring $it", color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp)) }
+                            GuideChips(t?.guide.orEmpty())
+                        }
+                    }
 
                     // Back up at the buttons: the whole billboard shows again (logo, facts, plot), not just the buttons' line.
                     // Vision's hero actions: accent Play pill, round icon buttons, Sequel / Connections pills with a yellow
                     // count; the row scrolls sideways instead of squeezing the last button (user 2026-11-22).
-                    Row(Modifier.padding(top = 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
+                    Row(Modifier.padding(top = if (style == Style.TONAL) 22.dp else 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
                         heroFocused = it.hasFocus
                         if (it.hasFocus && (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0)) scope.launch { list.animateScrollToItem(0) }
-                    }, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    }, horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 4.dp else 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         val heroMod = Modifier
                         val playLabel = when {
                             !isSeries -> "Play"
@@ -224,6 +274,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         if (cn && t != null && t.connections.isNotEmpty()) CountPill(com.lekathedon.visionlite.ui.Icons.AccountTree, "Connections", t.connections.size, {
                             sheet = Sheet.Links("Connections", t.connections.groupBy { it.link!! }.toSortedMap().map { (l, v) -> l.heading to v })
                         }, heroMod)
+                        // Marquee: when a film started now would end.
+                        if (style == Style.MARQUEE && !isSeries) t?.runtimeMin?.let { min ->
+                            val ends = remember(min) { android.text.format.DateFormat.getTimeFormat(App.instance).format(java.util.Date(System.currentTimeMillis() + min * 60_000L)) }
+                            Text("Ends at $ends", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
+                        }
                     }
                 }
             }
@@ -231,15 +286,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             // ---------------------------------------------------------------- episodes
             if (isSeries && eps.isNotEmpty()) {
                 item(key = "seasons") {
-                    LazyRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(seasons) { n ->
-                            Focusable({ season = n }, shape = RoundedCornerShape(50), onFocus = { season = n }) { f ->
-                                Text(if (n == 0) "Specials" else "Season $n", color = if (f) Color.Black else Palette.Text, fontSize = 14.sp,
-                                    fontWeight = if (n == season) FontWeight.Bold else FontWeight.Normal,
-                                    modifier = Modifier.background(if (f) Color.White else if (n == season) Color(0x44FFFFFF) else Color(0x1AFFFFFF)).padding(horizontal = 16.dp, vertical = 7.dp))
-                            }
-                        }
-                    }
+                    val counts = remember(eps) { eps.groupingBy { it.season }.eachCount() }
+                    SeasonTabs(seasons, season, counts) { season = it }
                 }
                 item(key = "episodes") {
                     val inSeason = remember(eps, season) { eps.filter { it.season == season } }
@@ -250,9 +298,9 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         if (i > 0) epRow.scrollToItem(i)
                     }
                     Column {
-                        LazyRow(Modifier.padding(top = 12.dp), state = epRow, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(Modifier.padding(top = 14.dp), state = epRow, horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 14.dp else 16.dp)) {
                             items(inSeason, key = { it.videoId }) { e ->
-                                EpisodeCard(e, showRating(e), (e.season to e.episode) in watched, next?.let { it.season == e.season && it.number == e.episode } == true, blurOn,
+                                EpisodeCard(e, style, showRating(e), (e.season to e.episode) in watched, next?.let { it.season == e.season && it.number == e.episode } == true, blurOn,
                                     onFocus = { focusedEp = e }) { nav.push(Screen.Streams("series", e.videoId, "$name S${e.season}E${e.episode}", s.id)) }
                             }
                         }
@@ -273,6 +321,22 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         season = n
                         scope.launch { list.animateScrollToItem(1) }
                     }
+                }
+            }
+
+            // ---------------------------------------------------------------- credits (Marquee: dotted leaders)
+            if (style == Style.MARQUEE && t != null) item(key = "credits") {
+                val lines = listOfNotNull(
+                    t.creators.take(2).joinToString(", ") { it.name }.ifBlank { null }?.let { "Created by" to it },
+                    t.directors.take(2).joinToString(", ") { it.name }.ifBlank { null }?.let { "Directed by" to it },
+                    t.writers.take(2).joinToString(", ") { it.name }.ifBlank { null }?.let { "Written by" to it },
+                    t.cast.take(3).joinToString(", ") { it.name }.ifBlank { null }?.let { "Starring" to it },
+                    t.genres.take(3).joinToString(", ").ifBlank { null }?.let { "Genres" to it },
+                    t.year?.let { "First out" to it.toString() },
+                    t.runtimeMin?.let { "Runtime" to "$it min" })
+                if (lines.isNotEmpty()) Column(Modifier.padding(top = 26.dp).width(620.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    com.lekathedon.visionlite.ui.KitHeader("Credits", Modifier.padding(bottom = 4.dp))
+                    lines.forEach { (k, v) -> Leader(k, v) }
                 }
             }
 
@@ -322,7 +386,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 Header("Parental guide", "IMDb")
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     guide.forEach { g ->
-                        Column(Modifier.clip(RoundedCornerShape(10.dp)).background(Palette.Card).padding(horizontal = 14.dp, vertical = 10.dp).width(150.dp)) {
+                        Column(Modifier.clip(RoundedCornerShape(Kit.rowR)).background(Kit.card).padding(horizontal = 14.dp, vertical = 10.dp).width(150.dp)) {
                             Text(g.category, color = Palette.TextDim, fontSize = 12.sp, maxLines = 2)
                             Text(g.severity, color = severityColor(g.severity), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
                         }
@@ -358,12 +422,19 @@ private fun Facts(m: Meta?, t: Imdb.Title?, series: Boolean) {
     val runtime = t?.runtimeMin?.let { if (it >= 60 && !series) "${it / 60}h ${it % 60}m" else "${it}m" } ?: m?.runtime
     val genres = (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).take(3).joinToString(" · ").ifBlank { null }
     val seasons = t?.seasons?.filter { it > 0 }?.size?.takeIf { series && it > 0 }?.let { if (it == 1) "1 season" else "$it seasons" }
-    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        t?.certificate?.let {
-            Text(it, color = Palette.Text, fontSize = 12.sp, modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Color(0x33FFFFFF)).padding(horizontal = 5.dp, vertical = 1.dp))
-            Spacer(Modifier.width(10.dp))
+    val style = Kit.style
+    Row(Modifier.padding(top = if (style == Style.TONAL) 0.dp else 12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 8.dp else 0.dp)) {
+        if (style == Style.TONAL) {
+            // Tonal: the facts as coloured chips.
+            listOfNotNull(t?.certificate, years, seasons ?: runtime, (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).firstOrNull()).forEach { KitChip(it) }
+        } else {
+            t?.certificate?.let {
+                KitChip(it)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(listOfNotNull(years, seasons, runtime, genres).joinToString(if (style == Style.MARQUEE) "  •  " else "  ·  "), color = Palette.TextDim, fontSize = 14.sp)
         }
-        Text(listOfNotNull(years, seasons, runtime, genres).joinToString("  ·  "), color = Palette.TextDim, fontSize = 14.sp)
         // Leave out: reached from Search, so it says why it shows nowhere else.
         val id = t?.id ?: m?.id
         val loRev by com.lekathedon.visionlite.recs.LeaveOut.revision.collectAsState()
@@ -402,41 +473,105 @@ private fun Ratings(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
     }
 }
 
-/** Vision's PlayButton: a filled pill, play icon and label; white when focused. */
+/** The main action in the look (Tonal block with a round icon, Marquee gradient slab, Halo accent pill). */
 @Composable
-private fun PlayPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    com.lekathedon.visionlite.ui.Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
-        Row(Modifier.height(48.dp).background(if (f) Color.White else Color(0xFFE6E6E6).copy(alpha = 0.92f)).padding(horizontal = 22.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Play, null, Modifier.size(24.dp), tint = Color.Black)
-            Text(label, color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 8.dp))
-        }
-    }
-}
+private fun PlayPill(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
+    KitButton(label, com.lekathedon.visionlite.ui.Icons.Play, onClick, modifier, primary = true)
 
-/** Vision's ActionIconButton: round, the icon only; its name shows beside it while focused. [on] tints the icon. */
+/** An icon action: its name shows beside it while focused (Tonal, Halo); [on] tints the icon in the accent. */
 @Composable
-private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    com.lekathedon.visionlite.ui.Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
-        Row(Modifier.height(48.dp).background(if (f) Color.White else Color(0x2EFFFFFF)).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.material3.Icon(icon, label, Modifier.size(24.dp), tint = if (f) Color.Black else if (on) Color(0xFFF5C518) else Color.White)
-            if (f) Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
-        }
-    }
-}
+private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) =
+    KitButton(label, icon, onClick, modifier, on = on, iconOnly = true)
 
-/** Vision's SequelPrequelPill (also Connections): card pill, icon, label, then the count in a yellow circle. */
+/** Sequel / Prequel and Connections: label and the count in a small badge. */
 @Composable
-private fun CountPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    com.lekathedon.visionlite.ui.Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
-        Row(Modifier.height(48.dp).background(if (f) Color.White else Color(0x2EFFFFFF)).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.material3.Icon(icon, null, Modifier.size(20.dp), tint = if (f) Color.Black else Color.White)
-            Text(label, color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false,
-                modifier = Modifier.padding(horizontal = 8.dp))
-            Box(Modifier.size(24.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFF5C518)), contentAlignment = Alignment.Center) {
-                Text("$count", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+private fun CountPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) =
+    KitButton(label, icon, onClick, modifier, extra = {
+        Box(Modifier.padding(start = 10.dp).size(24.dp).clip(if (Kit.style == Style.TONAL) RoundedCornerShape(8.dp) else CircleShape).background(Color(0xFFF5C518)),
+            contentAlignment = Alignment.Center) { Text("$count", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+    })
+
+/** Tonal's score tiles: one rounded square per source, IMDb in its yellow. */
+@Composable
+private fun ScoreTiles(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
+    val tiles = buildList {
+        t?.rating?.let { add("%.1f".format(it) to "IMDB") }
+        more.tomatoes?.let { add("$it" to "TOMATO") }
+        trakt?.let { add("${(it * 10).toInt()}" to "TRAKT") }
+        more.tmdb?.let { add(it.removeSuffix("%") to "TMDB") }
+        t?.metascore?.let { add("$it" to "META") }
+        more.letterboxd?.let { add("%.1f".format(it) to "LBXD") }
+    }.take(5)
+    if (tiles.isEmpty()) return
+    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        tiles.forEachIndexed { i, (v, k) ->
+            val imdb = i == 0 && t?.rating != null
+            Column(Modifier.size(62.dp).clip(RoundedCornerShape(22.dp)).background(if (imdb) ImdbYellow else Kit.card2),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(v, color = if (imdb) Color(0xFF111111) else Palette.Text, fontFamily = com.lekathedon.visionlite.ui.Fonts.tonalDisplay,
+                    fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text(k, color = if (imdb) Color(0xFF5A4A00) else Palette.TextDim, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
             }
         }
+    }
+}
+
+/** Seasons in the look: Tonal joined segments, Marquee radio dots over an underline, Halo pills. Focus opens the season. */
+@Composable
+private fun SeasonTabs(seasons: List<Int>, season: Int, counts: Map<Int, Int>, pick: (Int) -> Unit) {
+    val style = Kit.style
+    LazyRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(when (style) { Style.TONAL -> 3.dp; Style.MARQUEE -> 26.dp; Style.HALO -> 8.dp })) {
+        items(seasons.size) { idx ->
+            val n = seasons[idx]
+            val name = if (n == 0) "Specials" else "Season $n"
+            val sel = n == season
+            when (style) {
+                Style.TONAL -> {
+                    val big = 20.dp; val small = 8.dp
+                    val shape = when {
+                        sel || seasons.size == 1 -> RoundedCornerShape(big)
+                        idx == 0 -> RoundedCornerShape(big, small, small, big)
+                        idx == seasons.lastIndex -> RoundedCornerShape(small, big, big, small)
+                        else -> RoundedCornerShape(small)
+                    }
+                    Focusable({ pick(n) }, shape = shape, onFocus = { pick(n) }) { _ ->
+                        Text(name, color = if (sel) Kit.onAccent else Palette.TextDim, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.background(if (sel) Kit.accent else Kit.card2).padding(horizontal = 18.dp, vertical = 10.dp))
+                    }
+                }
+                Style.MARQUEE -> Focusable({ pick(n) }, shape = RoundedCornerShape(8.dp), onFocus = { pick(n) }) { _ ->
+                    Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, if (sel) Kit.accent else Palette.TextDim, CircleShape).padding(3.5.dp)) {
+                                if (sel) Box(Modifier.fillMaxSize().clip(CircleShape).background(Kit.accent))
+                            }
+                            Text(name, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                            counts[n]?.let { Text("  $it episodes", color = Palette.TextDim, fontSize = 12.sp) }
+                        }
+                        Box(Modifier.padding(top = 7.dp).fillMaxWidth().height(2.dp).background(if (sel) Kit.accent else Color.Transparent))
+                    }
+                }
+                Style.HALO -> Focusable({ pick(n) }, shape = RoundedCornerShape(50), onFocus = { pick(n) }) { _ ->
+                    Text(name, color = if (sel) Kit.onAccent else Palette.TextDim, fontSize = 14.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.background(if (sel) Kit.accent else Color(0x40000000)).border(1.dp, if (sel) Color.Transparent else Kit.line, RoundedCornerShape(50))
+                            .padding(horizontal = 18.dp, vertical = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+/** Marquee's credit line: tracked label, dotted leader, name. */
+@Composable
+private fun Leader(k: String, v: String) {
+    val dot = Kit.line
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(k.uppercase(), color = Palette.TextDim, fontFamily = Kit.label, fontSize = 12.sp, letterSpacing = 3.sp, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.weight(1f).height(10.dp).padding(horizontal = 8.dp).drawBehind {
+            drawLine(dot, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 2f,
+                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(2f, 6f)))
+        })
+        Text(v, color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 380.dp))
     }
 }
 
@@ -462,47 +597,75 @@ private fun severityColor(s: String) = when (s.lowercase()) {
 /** A person's round photo, name and role (cast, creators & crew); OK opens their page (Follow is there). */
 @Composable
 private fun PersonCircle(p: Imdb.Person, open: () -> Unit) {
-    Focusable(open, Modifier.width(110.dp), shape = RoundedCornerShape(10.dp)) { f ->
+    Focusable(open, Modifier.width(110.dp), shape = RoundedCornerShape(Kit.rowR)) { f ->
         Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(90.dp).clip(CircleShape).background(Palette.Card), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(90.dp).clip(if (Kit.style == Style.TONAL) RoundedCornerShape(30.dp) else CircleShape).background(Kit.card2), contentAlignment = Alignment.Center) {
                 if (p.photo != null) Img(p.photo, 90.dp, 90.dp, Modifier.fillMaxSize())
                 else Text(p.name.take(1), color = Palette.Text, fontSize = 30.sp)
             }
-            Text(p.name, color = if (f) Color.White else Palette.Text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+            Text(p.name, color = Palette.Text, fontSize = 13.sp, fontWeight = if (Kit.style == Style.TONAL) FontWeight.SemiBold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             p.role?.let { Text(it, color = Palette.TextDim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
 
 @Composable
-private fun Header(t: String, by: String? = null) {
-    Row(Modifier.padding(top = 26.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
-        Text(t, color = Palette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-        by?.let { Text("  $it", color = Palette.TextDim, fontSize = 12.sp) }
-    }
-}
+private fun Header(t: String, by: String? = null) = com.lekathedon.visionlite.ui.KitHeader(t, Modifier.padding(top = 30.dp, bottom = 12.dp), by)
 
 @Composable
-private fun EpisodeCard(e: Ep, showRating: Boolean, watched: Boolean, isNext: Boolean, blurOn: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun EpisodeCard(e: Ep, style: Style, showRating: Boolean, watched: Boolean, isNext: Boolean, blurOn: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
     val aired = e.airedMs == null || e.airedMs <= System.currentTimeMillis()
-    // Not out yet: nothing to play, so pressing it does nothing (user 2026-11-19).
-    Focusable({ if (aired) onClick() }, Modifier.size(260.dp, 146.dp), RoundedCornerShape(10.dp), onFocus) { f ->
-        Box(Modifier.fillMaxSize().background(Palette.Card)) {
-            Img(e.image, 260.dp, 146.dp, Modifier.fillMaxSize(), blur = blurOn && !watched)
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color(0xE6000000))))
+    val title = e.title ?: "Episode ${e.episode}"
+    val meta = listOfNotNull(e.airedMs?.let { date(it) }, if (watched) "Watched" else if (isNext) "Up next" else null,
+        if (showRating && e.rating != null) "★ %.1f".format(e.rating) else null).joinToString(" · ")
+    @Composable fun art(w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp, r: androidx.compose.ui.unit.Dp, overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) =
+        Box(Modifier.size(w, h).clip(RoundedCornerShape(r)).background(Kit.card2)) {
+            Img(e.image, w, h, Modifier.fillMaxSize(), blur = blurOn && !watched)
             if (!aired) Box(Modifier.fillMaxSize().background(Color(0x99000000)))
-            Row(Modifier.align(Alignment.TopStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (isNext) Pill("Next", Color.White, Color.Black)
-                if (watched) Pill("✓ Watched", Color(0xCC121316), Color.White)
-                if (!aired) e.airedMs?.let { Pill(date(it), Color(0xCC121316), Color.White) }
+            overlay()
+        }
+    // Not out yet: nothing to play, so pressing it does nothing (user 2026-11-19).
+    when (style) {
+        Style.TONAL -> Focusable({ if (aired) onClick() }, Modifier.width(232.dp), RoundedCornerShape(26.dp), onFocus) { f ->
+            Column(Modifier.fillMaxWidth().background(if (f) Kit.lerp(Kit.card, Kit.accent, 0.24f) else Kit.card).padding(8.dp).padding(bottom = 6.dp)) {
+                art(216.dp, 122.dp, 20.dp) {
+                    Box(Modifier.padding(8.dp).size(34.dp).clip(RoundedCornerShape(12.dp)).background(if (isNext) Kit.accent else Color(0xCC000000)), contentAlignment = Alignment.Center) {
+                        Text("${e.episode}", color = if (isNext) Kit.onAccent else Color.White, fontFamily = com.lekathedon.visionlite.ui.Fonts.tonalDisplay, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                    if (watched) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(26.dp).clip(CircleShape).background(Kit.accent), contentAlignment = Alignment.Center) {
+                        Text("✓", color = Kit.onAccent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 12.dp))
+                Text(meta, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 8.dp))
             }
-            if (showRating && e.rating != null) Row(Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC000000)).padding(horizontal = 5.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("★", color = ImdbYellow, fontSize = 11.sp)
-                Text(" %.1f".format(e.rating), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Style.MARQUEE -> Focusable({ if (aired) onClick() }, Modifier.width(240.dp), RoundedCornerShape(10.dp), onFocus) { f ->
+            Column {
+                art(240.dp, 135.dp, 10.dp) {
+                    if (isNext) Text("UP NEXT", color = Kit.onAccent, fontFamily = Kit.label, fontSize = 11.sp, letterSpacing = 2.sp,
+                        modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(4.dp)).background(Kit.accent).padding(horizontal = 7.dp, vertical = 3.dp))
+                }
+                Text("${e.episode}. $title", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp))
+                Text(meta, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
             }
-            Text("${e.episode}. ${e.title ?: "Episode ${e.episode}"}", color = Color.White, fontSize = 14.sp, fontWeight = if (f) FontWeight.SemiBold else FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
+        }
+        Style.HALO -> Focusable({ if (aired) onClick() }, Modifier.width(280.dp), RoundedCornerShape(18.dp), onFocus) { f ->
+            Column(Modifier.fillMaxWidth().background(Kit.card).border(1.dp, Kit.line, RoundedCornerShape(18.dp))) {
+                art(280.dp, 150.dp, 0.dp) {
+                    Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        KitChip("EPISODE ${e.episode}", strong = isNext)
+                        if (watched) KitChip("✓ Watched")
+                        if (!aired) e.airedMs?.let { KitChip(date(it)) }
+                    }
+                }
+                Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (showRating && e.rating != null) Text("★ %.1f".format(e.rating), color = ImdbYellow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(e.airedMs?.let { date(it) } ?: "", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp))
+            }
         }
     }
 }
@@ -585,11 +748,11 @@ private fun Reviews(imdbId: String, series: Boolean, open: (Sheet) -> Unit) {
         }
     }
     Row(Modifier.padding(top = 26.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Reviews", color = Palette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+        com.lekathedon.visionlite.ui.KitHeader("Reviews")
         listOf("imdb" to "IMDb", "trakt" to "Trakt").forEach { (k, label) ->
-            Focusable({ prefs.reviewsSource.value = k }, shape = RoundedCornerShape(50)) { f ->
-                Text(label, color = if (f) Color.Black else Palette.Text, fontSize = 13.sp, fontWeight = if (src == k) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.background(if (f) Color.White else if (src == k) Color(0x44FFFFFF) else Color(0x1AFFFFFF)).padding(horizontal = 14.dp, vertical = 5.dp))
+            Focusable({ prefs.reviewsSource.value = k }, shape = RoundedCornerShape(if (Kit.style == Style.MARQUEE) 6.dp else 50.dp)) { f ->
+                Text(label, color = if (src == k) Kit.onAccent else Palette.Text, fontSize = 13.sp, fontWeight = if (src == k) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.background(if (src == k) Kit.accent else Kit.card2).padding(horizontal = 14.dp, vertical = 5.dp))
             }
         }
         if (total > 0) Text("$total", color = Palette.TextDim, fontSize = 12.sp)
@@ -602,8 +765,8 @@ private fun Reviews(imdbId: String, series: Boolean, open: (Sheet) -> Unit) {
             items(list) { r ->
                 var reveal by remember(r) { mutableStateOf(!r.spoiler) }
                 Focusable({ if (!reveal) reveal = true else open(Sheet.Text(r.summary.ifBlank { r.author }, listOfNotNull(r.summary.ifBlank { null }, r.text).joinToString("\n\n"))) },
-                    Modifier.size(340.dp, 190.dp), RoundedCornerShape(10.dp)) { f ->
-                    Column(Modifier.fillMaxSize().background(if (f) Color(0xFF2A2A30) else Palette.Card).padding(14.dp)) {
+                    Modifier.size(340.dp, 190.dp), RoundedCornerShape(Kit.cardR)) { f ->
+                    Column(Modifier.fillMaxSize().background(if (f) Kit.card2 else Kit.card).padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(r.author, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             r.rating?.let { Text("★ $it/10", color = ImdbYellow, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp)) }
@@ -628,7 +791,7 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
     val first = remember { FocusRequester() }
     LaunchedEffect(sh) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color(0xD9000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.widthIn(max = 820.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(24.dp)) {
+        Column(Modifier.widthIn(max = 820.dp).clip(RoundedCornerShape(Kit.cardR)).background(Kit.card).padding(24.dp)) {
             when (sh) {
                 is Sheet.Links -> {
                     Text(sh.title, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)

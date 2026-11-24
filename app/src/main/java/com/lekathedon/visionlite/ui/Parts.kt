@@ -77,10 +77,13 @@ fun Focusable(
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     LaunchedEffect(focused) { if (focused) onFocus() }
+    // Past Home the ring is the look's (Kit); Home and the player keep the white ring.
+    val inside = LocalInside.current
     Box(
         modifier
             .clip(shape)
-            .border(if (focused) 3.dp else 0.dp, if (focused) Palette.Focus else Color.Transparent, shape)
+            .border(if (!focused) 0.dp else if (inside) Kit.ringWidth else 3.dp,
+                if (!focused) Color.Transparent else if (inside) Kit.ringColor else Palette.Focus, shape)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
     ) { content(focused) }
 }
@@ -88,6 +91,7 @@ fun Focusable(
 /** A text button for lists and dialogs. */
 @Composable
 fun Button(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    if (LocalInside.current) { KitButton(text, null, onClick, modifier); return }
     Focusable(onClick, modifier) { f ->
         Text(
             text,

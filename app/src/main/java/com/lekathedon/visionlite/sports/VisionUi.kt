@@ -193,7 +193,7 @@ internal fun DrawScope.drawThemeGlow(accent: Color, top: Color, width: Float, he
 
 /** Lite has one page colour (OLED black or the base); Vision's guide backdrops aren't carried over. */
 internal fun resolveBackdrop(@Suppress("UNUSED_PARAMETER") backdrop: String): Color =
-    if (App.instance.prefs.oledBlack.value) Palette.Black else Palette.Base
+    Palette.Base
 
 internal fun Modifier.guideBackdrop(backdrop: String): Modifier = this.background(resolveBackdrop(backdrop))
 

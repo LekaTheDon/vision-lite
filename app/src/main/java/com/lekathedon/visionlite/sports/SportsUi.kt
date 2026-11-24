@@ -305,19 +305,26 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
             game?.let { ClockWindow(it, playing, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
             ytShown?.let { YtWindow(it, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
             if (musicShown != null) MusicWindow(Modifier.align(Alignment.CenterStart).padding(start = 40.dp))
-            Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(388.dp).fillMaxHeight().clip(RoundedCornerShape(18.dp))
-                .background(Color(0xF2161618)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)).padding(top = 20.dp)) {
-                Text(kicker, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.padding(horizontal = 24.dp))
-                Text(if (tab == PanelTab.LIVE) game?.title ?: tab.title else tab.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+            // The panel wears the look and skin (the clock on Home keeps its own shape).
+            val style = com.lekathedon.visionlite.ui.Kit.style
+            Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(400.dp).fillMaxHeight().clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
+                .background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(top = 20.dp)) {
+                com.lekathedon.visionlite.ui.Eyebrow(kicker, Modifier.padding(horizontal = 24.dp))
+                com.lekathedon.visionlite.ui.DisplayText(if (tab == PanelTab.LIVE) game?.title ?: tab.title else tab.title, 24.sp,
+                    Modifier.padding(horizontal = 24.dp, vertical = 6.dp), maxLines = 1)
                 // Tabs: focus moving over a tab opens it (as Vision); Down goes into its list.
                 androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
                     contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(tabs, key = { it.name }) { t ->
                         Focusable({ if (t == PanelTab.YOUTUBE || t == PanelTab.MUSIC) ytRound++ }, if (t == tab) Modifier.focusRequester(tabFocus) else Modifier,
-                            RoundedCornerShape(50), onFocus = { if (tab != t) tab = t }) { f ->
-                            Text(t.chip, color = if (f) Color.Black else if (t == tab) Color.White else Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.background(if (f) Color.White else if (t == tab) Color(0x26FFFFFF) else Color.Transparent).padding(horizontal = 10.dp, vertical = 5.dp))
+                            RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) 4.dp else 50.dp), onFocus = { if (tab != t) tab = t }) { f ->
+                            val sel = t == tab
+                            if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                                Text(t.chip.uppercase(), color = if (sel) Palette.Text else Palette.TextDim, fontFamily = com.lekathedon.visionlite.ui.Kit.label, fontSize = 13.sp, letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold)
+                                Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(2.dp).background(if (sel) com.lekathedon.visionlite.ui.Kit.accent else Color.Transparent))
+                            }
+                            else Text(t.chip, color = if (sel) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.TextDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.background(if (sel) com.lekathedon.visionlite.ui.Kit.accent else com.lekathedon.visionlite.ui.Kit.card2).padding(horizontal = 11.dp, vertical = 6.dp))
                         }
                     }
                 }
@@ -329,13 +336,14 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                         items(lines, key = { it.key }) { l ->
                             Column {
                                 l.header?.let { Text(it, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 4.dp)) }
-                                Focusable(l.open, if (l == lines.first()) Modifier.focusRequester(first) else Modifier) { f ->
-                                    Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x12FFFFFF)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Focusable(l.open, if (l == lines.first()) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.rowR)) { f ->
+                                    val halo = f && style == com.lekathedon.visionlite.ui.Style.HALO
+                                    Row(Modifier.fillMaxWidth().background(when { halo -> com.lekathedon.visionlite.ui.Kit.accent; f && style == com.lekathedon.visionlite.ui.Style.TONAL -> com.lekathedon.visionlite.ui.Kit.lerp(com.lekathedon.visionlite.ui.Kit.card2, com.lekathedon.visionlite.ui.Kit.accent, 0.25f); f -> com.lekathedon.visionlite.ui.Kit.card2; else -> Color(0x0FFFFFFF) }).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         val wide = tab == PanelTab.YOUTUBE || tab == PanelTab.MUSIC
-                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x22FFFFFF))) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
+                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else 4.dp)).background(Color(0x22FFFFFF))) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
                                         Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                                            Text(l.title, color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(l.sub, color = if (f) Color.DarkGray else Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(l.title, color = if (halo) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(l.sub, color = if (halo) com.lekathedon.visionlite.ui.Kit.onAccent.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
                                 }
@@ -380,7 +388,7 @@ private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modi
     val s by androidx.compose.runtime.produceState<com.lekathedon.visionlite.youtube.YtStreams?>(null, v.videoId) {
         value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.youtube.Yt.streams(v.videoId!!, 1080) } }.getOrNull()
     }
-    Column(modifier.width(560.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF2161618))) {
+    Column(modifier.width(560.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f))) {
         Box(Modifier.fillMaxWidth().height(315.dp).background(Color.Black)) {
             Img(v.image, 560.dp, 315.dp, Modifier.fillMaxSize())
             val url = s?.video ?: s?.hls
@@ -396,7 +404,7 @@ private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modi
 private fun MusicWindow(modifier: Modifier) {
     val now by com.lekathedon.visionlite.music.MusicPlayer.now.collectAsState()
     val n = now
-    Column(modifier.width(420.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF2161618)).padding(16.dp)) {
+    Column(modifier.width(420.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f)).padding(16.dp)) {
         Box(Modifier.fillMaxWidth().height(236.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
             n?.art?.let { Img(it, 388.dp, 236.dp, Modifier.fillMaxSize()) }
         }

@@ -46,6 +46,10 @@ class Prefs(context: Context) {
     val askProfile = Flag("lp_ask_start", true)
     /** Pure black page instead of the colour tint. */
     val oledBlack = Flag("oled_black", false)
+    /** Colour skin (ui/Look.kt Skin): oled, tint, night, ember, moss. First run takes the old OLED switch. */
+    val skin = Text("skin", if (oledBlack.value) "oled" else "tint")
+    /** The look past Home (ui/Look.kt Style): tonal (default), marquee, halo. */
+    val style = Text("style", "tonal")
     /** Play picks the best link by itself (off until autoplay is safe). */
     val autoplay = Flag("autoplay", false)
     /** IMDb ids dropped from Continue watching (hold menu), one per line; playing the title again brings it back. */
@@ -150,8 +154,6 @@ class Prefs(context: Context) {
     // Home
     /** "s", "m", "l". */
     val posterSize = Text("poster_size", "m")
-    /** "echo" (Vision's Echo look) or "classic". */
-    val homeLook = Text("home_look", "echo")
     /** Trailers on Home (Vision's IMDb source): after [trailerDelay] seconds of rest on the billboard or an opened poster. */
     val trailers = Flag("trailers", true)
     val trailerDelay = Text("trailer_delay", "5")

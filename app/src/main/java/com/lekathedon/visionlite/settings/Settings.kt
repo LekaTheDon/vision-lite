@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.lekathedon.visionlite.ui.Icons
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,11 @@ import com.lekathedon.visionlite.data.Prefs
 import com.lekathedon.visionlite.ui.Button
 import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.LocalLook
+import com.lekathedon.visionlite.ui.Kit
+import com.lekathedon.visionlite.ui.KitSwitch
+import com.lekathedon.visionlite.ui.Style
+import com.lekathedon.visionlite.ui.Theme
+import com.lekathedon.visionlite.ui.skinPage
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
@@ -145,7 +151,6 @@ private val SubHdrBrightOpts = listOf("30" to "Dim", "58" to "Normal (Vision)", 
 private val SortOpts = listOf("addon" to "Add-on order", "quality" to "Best quality", "biggest" to "Biggest file", "smallest" to "Smallest file")
 private val QualityOpts = listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p")
 private val SizeOpts = listOf("0" to "No limit", "5" to "5 GB", "10" to "10 GB", "20" to "20 GB", "40" to "40 GB", "80" to "80 GB")
-private val LookOpts = listOf("echo" to "Modern", "classic" to "Classic")
 private val PosterOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large")
 private val WatchedOpts = listOf("show" to "Show", "dim" to "Dim", "hide" to "Hide")
 private val EpRatingOpts = listOf("all" to "Show all", "watched" to "Watched only", "off" to "Hide")
@@ -306,8 +311,16 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
     }
     pages += page("Home and look", "Rows, posters, clock, background", {
-        "${label(LookOpts, p.homeLook.flow.collectAsState().value)}${if (p.oledBlack.flow.collectAsState().value) " · OLED black" else ""}"
+        "${com.lekathedon.visionlite.ui.Style.of(p.style.flow.collectAsState().value).label} · ${com.lekathedon.visionlite.ui.Skin.of(p.skin.flow.collectAsState().value).label}"
     }) {
+        head("Look and skin")
+        row { m -> Choice("Look", "Fonts, shapes, buttons and switches past Home (Home, its pill and the clock keep theirs)", p.style,
+            com.lekathedon.visionlite.ui.Style.entries.map { it.key to "${it.label} · ${it.about}" }, m) }
+        row { m -> Choice("Skin", "The app's colours, Home included", p.skin,
+            com.lekathedon.visionlite.ui.Skin.entries.map { it.key to when (it) {
+                com.lekathedon.visionlite.ui.Skin.TINT -> "Tinted · colours from the title's art"
+                com.lekathedon.visionlite.ui.Skin.OLED -> "OLED black · pure black pages"
+                else -> it.label } }, m) }
         head("Rows")
         row { m -> Link("Arrange rows", "Turn rows on or off, change the order, refresh", m) { nav.push(Screen.Rows) } }
         row { m -> Link("Your interests", "The genres you watch most (learned) and the ones you like: each gets a \"Because you like\" row", m) { nav.push(Screen.Interests) } }
@@ -321,13 +334,11 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Poster size", "", p.posterSize, PosterOpts, m) }
         row { m -> Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings, m) }
         head("Look")
-        row { m -> Choice("Home look", "", p.homeLook, LookOpts, m) }
         row { m ->
             val rows by com.lekathedon.visionlite.home.BillboardRows.rows.collectAsState()
             Choice("Billboard titles", "Which row feeds the big billboard on Home", p.billboardSource,
                 listOf("" to "Continue watching, then first row", "random" to "A random row each visit") + rows, m)
         }
-        row { m -> Toggle("OLED black", "Pure black pages instead of the colour tint", p.oledBlack, m) }
         row { m -> Toggle("Clock", "Time in the top bar", p.clock, m) }
         row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
             listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"), m) }
@@ -618,9 +629,13 @@ fun Settings(nav: Nav, start: String? = null) {
     LaunchedEffect(jumpPane) { if (jumpPane) { androidx.compose.runtime.withFrameNanos { }; runCatching { paneFirst.requestFocus() }; jumpPane = false } }
     androidx.activity.compose.BackHandler(enabled = inPane) { runCatching { groupReq[sel].requestFocus() } }
     val g = pages[sel]
-    val oled = p.oledBlack.flow.collectAsState().value
+    val skin = Theme.skin
+    val oled = !skin.tinted
+    val style = Kit.style
+    // Tinted: each settings page takes its own colour as the accent (no title art here).
+    LaunchedEffect(sel, skin) { if (skin.tinted) Theme.artAccent = Kit.lerp(g.tint, Color.White, 0.25f) }
     val wash by androidx.compose.animation.animateColorAsState(g.tint.copy(alpha = 0.16f), androidx.compose.animation.core.tween(500), label = "wash")
-    Box(Modifier.fillMaxSize().background(if (oled) Color.Black else Color(0xFF05070D)).drawBehind {
+    Box(Modifier.fillMaxSize().then(if (oled) Modifier.skinPage(skin) else Modifier.background(Color(0xFF05070D))).drawBehind {
         if (oled) return@drawBehind
         drawRect(Brush.radialGradient(listOf(BrandCyan.copy(alpha = 0.14f), Color.Transparent), Offset(size.width * 0.08f, 0f), size.width * 0.55f))
         drawRect(Brush.radialGradient(listOf(BrandViolet.copy(alpha = 0.16f), Color.Transparent), Offset(size.width * 0.95f, size.height), size.width * 0.6f))
@@ -630,7 +645,9 @@ fun Settings(nav: Nav, start: String? = null) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             com.lekathedon.visionlite.ui.VisionWordmark(30.dp)
             Box(Modifier.padding(horizontal = 16.dp).size(1.dp, 22.dp).background(Color(0x40FFFFFF)))
-            Text("Settings", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(if (style == Style.MARQUEE) "SETTINGS" else "Settings", color = Palette.Text, fontFamily = Kit.display,
+                fontSize = if (style == Style.MARQUEE) 22.sp else 26.sp, fontWeight = FontWeight.ExtraBold,
+                letterSpacing = if (style == Style.MARQUEE) 4.sp else (-0.3).sp, modifier = Modifier.weight(1f))
             Clock()
         }
     Row(Modifier.fillMaxSize()) {
@@ -675,22 +692,18 @@ fun Settings(nav: Nav, start: String? = null) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconTile(g, 56.dp)
                     Column(Modifier.weight(1f).padding(start = 18.dp)) {
-                        Text(g.name, color = Palette.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        com.lekathedon.visionlite.ui.DisplayText(g.name, if (style == Style.MARQUEE) 34.sp else 30.sp, maxLines = 1)
                         Text(g.about, color = Palette.TextDim, fontSize = 14.sp)
                     }
-                    Text(g.summary(), color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-                        modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(50)).background(g.tint.copy(alpha = 0.22f))
-                            .border(1.dp, g.tint.copy(alpha = 0.5f), RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 6.dp))
+                    Text((if (style == Style.HALO) "" else "● ") + g.summary(), color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                        modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(if (style == Style.TONAL) 12.dp else 50.dp)).background(Kit.lerp(Kit.card, Kit.accent, 0.22f))
+                            .border(1.dp, Kit.accent.copy(alpha = 0.45f), RoundedCornerShape(if (style == Style.TONAL) 12.dp else 50.dp)).padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             }
             g.items.forEachIndexed { i, it ->
                 item(key = "$sel:$i") {
                     when (it) {
-                        is Head -> Row(Modifier.padding(start = 4.dp, top = 24.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(4.dp, 14.dp).clip(RoundedCornerShape(2.dp)).background(g.tint))
-                            Text(it.text.uppercase(), color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 8.dp))
-                        }
+                        is Head -> GroupHead(it.text)
                         is Line -> it.content(if (i == firstRow) Modifier.focusRequester(paneFirst) else Modifier)
                         is Block -> it.content()
                     }
@@ -705,9 +718,15 @@ fun Settings(nav: Nav, start: String? = null) {
 /** The page's icon on a rounded tile in its colour. */
 @Composable
 private fun IconTile(g: Page, size: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.3f))
-        .background(Brush.linearGradient(listOf(g.tint, g.tint.copy(alpha = 0.55f)))), contentAlignment = Alignment.Center) {
-        androidx.compose.material3.Icon(g.icon, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
+    val style = Kit.style
+    val c = if (Theme.skin.tinted) g.tint else Kit.accent
+    Box(Modifier.size(size).clip(when (style) { Style.TONAL -> RoundedCornerShape(size * 0.36f); Style.MARQUEE -> RoundedCornerShape(size * 0.22f); Style.HALO -> CircleShape })
+        .background(when (style) {
+            Style.TONAL -> SolidColor(Kit.lerp(Kit.card, c, 0.3f))
+            Style.MARQUEE -> SolidColor(Kit.card2)
+            Style.HALO -> Brush.linearGradient(listOf(c, c.copy(alpha = 0.55f)))
+        }), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Icon(g.icon, null, tint = when (style) { Style.TONAL -> c; Style.MARQUEE -> Palette.Text; Style.HALO -> Color.White }, modifier = Modifier.size(size * 0.56f))
     }
 }
 
@@ -765,8 +784,22 @@ private fun tvWatch() {
 }
 
 @Composable
-private fun SectionHead(t: String) = Text(t.uppercase(), color = Color(0xCCFFFFFF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-    letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 4.dp, top = 22.dp, bottom = 2.dp))
+private fun SectionHead(t: String) = GroupHead(t)
+
+/** A group's heading in the look: Tonal a heavy title with an accent bar, Marquee tracked capitals, Halo small spaced caps. */
+@Composable
+private fun GroupHead(t: String) {
+    when (Kit.style) {
+        Style.TONAL -> Row(Modifier.padding(start = 4.dp, top = 26.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(RoundedCornerShape(4.dp)).background(Kit.accent))
+            Text(t, color = Palette.Text, fontFamily = com.lekathedon.visionlite.ui.Fonts.tonalDisplay, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(start = 10.dp))
+        }
+        Style.MARQUEE -> com.lekathedon.visionlite.ui.Eyebrow(t, Modifier.padding(start = 4.dp, top = 26.dp, bottom = 6.dp))
+        Style.HALO -> Text(t.uppercase(), color = Palette.TextDim, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
+            modifier = Modifier.padding(start = 12.dp, top = 22.dp, bottom = 4.dp))
+    }
+}
 
 /**
  * Settings › This TV, Vision's device check the Lite way: Check runs the probes (picture, decoders, soundbar, memory,
@@ -800,7 +833,7 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
                 ?: "Reads the TV, box, soundbar and memory, then tests the internet (about 10 s)" }, m,
             value = if (step != null) "Checking…" else "Check") { check() }
         if (f == null) return@Column
-        Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Glass).border(1.dp, GlassEdge, RoundedCornerShape(14.dp)).padding(horizontal = 18.dp, vertical = 12.dp)) {
+        Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(Kit.rowR)).background(Glass).border(1.dp, GlassEdge, RoundedCornerShape(Kit.rowR)).padding(horizontal = 18.dp, vertical = 12.dp)) {
             com.lekathedon.visionlite.device.findings(f).forEach { Text(it, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(vertical = 1.dp)) }
         }
         val diff = DeviceCheck.differing(f)
@@ -812,7 +845,7 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
                 color = BrandCyan, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, start = 4.dp))
         }
         val auto = p.tvAuto.value
-        Focusable({ p.tvAuto.value = !auto; if (!auto) DeviceCheck.useRecommended(f) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { foc ->
+        Focusable({ p.tvAuto.value = !auto; if (!auto) DeviceCheck.useRecommended(f) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { foc ->
             RowText("Let the app decide", "Uses the recommendations by itself, and again whenever you change TV or soundbar", null, foc, switch = auto)
         }
         DeviceCheck.choices(f).groupBy { it.section }.forEach { (section, list) ->
@@ -887,7 +920,7 @@ private fun DriverRow(g: Integrations.Group, title: String, m: Modifier) {
         else ChoiceOf(title, g.driverDoes, d?.id ?: "", able.map { it.id to it.name }, m) { id -> Integrations.setDriver(g, Integrations.byId(id)) }
         able.filter { it.id != d?.id }.forEach { s ->
             val on = Integrations.helper(s).value
-            Focusable({ Integrations.setHelper(s, !on) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
+            Focusable({ Integrations.setHelper(s, !on) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
                 RowText("Also use ${s.name}", if (on) g.helperDoes else "Off: makes no calls", null, f, switch = on)
             }
         }
@@ -896,14 +929,21 @@ private fun DriverRow(g: Integrations.Group, title: String, m: Modifier) {
 
 @Composable
 private fun GroupItem(g: Page, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Focusable(onClick, modifier.padding(vertical = 2.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
-        Row(Modifier.fillMaxWidth().background(if (f) GlassFocus else if (selected) Color(0x1AFFFFFF) else Color.Transparent)
+    val style = Kit.style
+    Focusable(onClick, modifier.padding(vertical = 2.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
+        Row(Modifier.fillMaxWidth().background(when {
+                f && style == Style.TONAL -> Kit.lerp(Kit.card, Kit.accent, 0.22f)
+                f && style == Style.HALO -> Kit.accent.copy(alpha = 0.9f)
+                f -> Kit.card2
+                selected -> Kit.card
+                else -> Color.Transparent
+            })
             .padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             IconTile(g, 32.dp)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(g.name, color = if (f || selected) Palette.Text else Color(0xB3FFFFFF), fontSize = 15.sp,
-                    fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
-                if (f || selected) Text(g.summary(), color = Palette.TextDim, fontSize = 12.sp, maxLines = 1)
+                val ink = if (f && style == Style.HALO) Kit.onAccent else if (f || selected) Palette.Text else Palette.TextDim
+                Text(g.name, color = ink, fontSize = 15.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                if (f || selected) Text(g.summary(), color = if (f && style == Style.HALO) Kit.onAccent.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 12.sp, maxLines = 1)
             }
         }
     }
@@ -924,12 +964,12 @@ private fun SportsSwitch(title: String, sub: String, modifier: Modifier, get: (c
                          set: (com.lekathedon.visionlite.sports.SportsSettings, Boolean) -> com.lekathedon.visionlite.sports.SportsSettings) {
     var on by remember { mutableStateOf(get(com.lekathedon.visionlite.sports.Sports.settings)) }
     Focusable({ on = !on; com.lekathedon.visionlite.sports.SportsMine.saveSettings(set(com.lekathedon.visionlite.sports.Sports.settings, on)) },
-        modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f -> RowText(title, sub, null, f, switch = on) }
+        modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f -> RowText(title, sub, null, f, switch = on) }
 }
 
 @Composable
 private fun Link(title: String, sub: String, modifier: Modifier = Modifier, value: String = "›", onClick: () -> Unit) {
-    Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f -> RowText(title, sub, value.ifEmpty { "›" }, f) }
+    Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f -> RowText(title, sub, value.ifEmpty { "›" }, f) }
 }
 
 @Composable
@@ -937,7 +977,7 @@ private fun Toggle(title: String, sub: String, flag: Prefs.Flag, modifier: Modif
     val on by flag.flow.collectAsState()
     var saved by remember { mutableStateOf(false) }
     LaunchedEffect(saved) { if (saved) { kotlinx.coroutines.delay(3_000); saved = false } }
-    Focusable({ flag.value = !on; saved = true }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
+    Focusable({ flag.value = !on; saved = true }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
         RowText(title, sub, null, f, switch = on, badge = if (saved) "✓ Saved: ${if (on) "On" else "Off"}" else null)
     }
 }
@@ -960,7 +1000,7 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
     // Every pick is acknowledged on the row: "✓ Saved" for a few seconds; a pick away from the recommendation stays marked "Your choice".
     var saved by remember { mutableStateOf(false) }
     LaunchedEffect(saved) { if (saved) { kotlinx.coroutines.delay(3_000); saved = false } }
-    Focusable({ open = true; reopened = true }, modifier.focusRequester(me).padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
+    Focusable({ open = true; reopened = true }, modifier.focusRequester(me).padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
         RowText(title, sub, shown, f,
             hint = recommended?.let { r -> if (r == current) "✓ Recommended" else "Recommended: " + (options.firstOrNull { it.first == r }?.second ?: r) },
             badge = when { saved -> "✓ Saved: $shown"; recommended != null && recommended != current -> "Your choice"; else -> null })
@@ -969,53 +1009,64 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
         val reqs = remember(options) { List(options.size) { FocusRequester() } }
         val at = options.indexOfFirst { it.first == current }.coerceAtLeast(0)
         LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { reqs[at].requestFocus() } }
-        Column(Modifier.width(460.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xF20B0E17))
-            .border(1.dp, Brush.linearGradient(listOf(BrandCyan.copy(alpha = 0.6f), BrandViolet.copy(alpha = 0.6f))), RoundedCornerShape(20.dp)).padding(22.dp)) {
-            Text(title, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        com.lekathedon.visionlite.ui.Inside(true) {
+        Column(Modifier.width(480.dp).clip(RoundedCornerShape(Kit.cardR + 4.dp)).background(Kit.card)
+            .border(1.dp, Kit.accent.copy(alpha = 0.5f), RoundedCornerShape(Kit.cardR + 4.dp)).padding(22.dp)) {
+            com.lekathedon.visionlite.ui.DisplayText(title, 22.sp, maxLines = 1)
             if (sub.isNotEmpty()) Text(sub, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
             LazyColumn(Modifier.padding(top = 10.dp).heightIn(max = 380.dp)) {
                 items(options.size) { i ->
                     val (id, name) = options[i]
-                    Focusable({ onPick(id); saved = true; open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) GlassFocus else if (id == current) Glass else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
+                    Focusable({ onPick(id); saved = true; open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
+                        val halo = f && Kit.style == Style.HALO
+                        Row(Modifier.fillMaxWidth().background(if (halo) Kit.accent else if (f) Kit.lerp(Kit.card2, Kit.accent, 0.2f) else if (id == current) Kit.card2 else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, color = Palette.Text, fontSize = 16.sp, fontWeight = if (id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                            Text(name, color = if (halo) Kit.onAccent else Palette.Text, fontSize = 16.sp, fontWeight = if (id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
                             if (id == recommended) Text("Recommended", color = Good, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                             else if (id == current && recommended != null) Text("Your choice", color = BrandCyan, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
-                            if (id == current) androidx.compose.material3.Icon(Icons.Check, null, tint = BrandCyan, modifier = Modifier.size(20.dp))
+                            if (id == current) androidx.compose.material3.Icon(Icons.Check, null, tint = if (halo) Kit.onAccent else Kit.accent, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
             }
         }
+        }
     }
 }
 
-/** A settings row: name and note on the left, the value (or a switch) on the right; focused = white card, dark text. */
+/**
+ * A settings row in the look: Tonal = coloured block, focused in the accent's tone; Marquee = hairline tile, focused a
+ * shade lighter; Halo = plain list line that fills with the accent when focused. The value (or switch) sits right.
+ */
 @Composable
 private fun RowText(title: String, sub: String, value: String?, focused: Boolean, switch: Boolean? = null, hint: String? = null, badge: String? = null) {
-    val fg = Palette.Text
-    val dim = if (focused) Color(0xD9FFFFFF) else Palette.TextDim
-    Row(Modifier.fillMaxWidth().background(if (focused) GlassFocus else Glass).border(1.dp, GlassEdge, RoundedCornerShape(14.dp))
-        .padding(horizontal = 18.dp, vertical = 13.dp),
+    val style = Kit.style
+    val halo = style == Style.HALO && focused
+    val fg = if (halo) Kit.onAccent else Palette.Text
+    val dim = if (halo) Kit.onAccent.copy(alpha = 0.72f) else if (focused) Palette.Text.copy(alpha = 0.82f) else Palette.TextDim
+    val shape = RoundedCornerShape(Kit.rowR)
+    val bg = when (style) {
+        Style.TONAL -> Modifier.background(if (focused) Kit.lerp(Kit.card, Kit.accent, 0.2f) else Kit.card)
+        Style.MARQUEE -> Modifier.background(if (focused) Kit.card2 else Kit.card).border(1.dp, Kit.line, shape)
+        Style.HALO -> if (focused) Modifier.background(Kit.accent.copy(alpha = 0.92f)) else Modifier.background(Color(0x0DFFFFFF))
+    }
+    Row(Modifier.fillMaxWidth().then(bg).padding(horizontal = 18.dp, vertical = if (style == Style.TONAL) 14.dp else 13.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = fg, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(title, color = fg, fontSize = 16.sp, fontWeight = if (style == Style.HALO) FontWeight.Bold else FontWeight.SemiBold)
             if (sub.isNotEmpty()) Text(sub, color = dim, fontSize = 12.sp, maxLines = 2)
             if (hint != null || badge != null) Row {
-                if (badge != null) Text(badge, color = BrandCyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 10.dp))
-                if (hint != null) Text(hint, color = Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                if (badge != null) Text(badge, color = if (halo) Kit.onAccent else Kit.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 10.dp))
+                if (hint != null) Text(hint, color = if (halo) Kit.onAccent else Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
         }
-        if (switch != null) {
-            val track = if (switch) Brush.horizontalGradient(listOf(BrandCyan, BrandViolet)) else SolidColor(Color(0x33FFFFFF))
-            val knob = if (switch) Color.White else Color(0xFFBDBDBD)
-            Box(Modifier.padding(start = 16.dp).size(44.dp, 24.dp).clip(RoundedCornerShape(50)).background(track).padding(3.dp),
-                contentAlignment = if (switch) Alignment.CenterEnd else Alignment.CenterStart) {
-                Box(Modifier.size(18.dp).clip(RoundedCornerShape(50)).background(knob))
-            }
-        } else if (value != null) Text(value, color = if (focused) Palette.Text else dim, fontSize = 15.sp, fontWeight = if (focused) FontWeight.Medium else FontWeight.Normal,
-            maxLines = 1, modifier = Modifier.padding(start = 16.dp))
+        if (switch != null) KitSwitch(switch, focused, Modifier.padding(start = 16.dp))
+        else if (value != null) when (style) {
+            Style.TONAL -> Text(value, color = if (focused) Kit.onAccent else Kit.lerp(Palette.Text, Kit.accent, 0.4f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(12.dp)).background(if (focused) Kit.accent else Kit.tonal).padding(horizontal = 12.dp, vertical = 6.dp))
+            Style.MARQUEE -> Text(value, color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
+            Style.HALO -> Text(if (value == "›") value else "$value  ›", color = if (halo) Kit.onAccent else dim, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
+        }
     }
 }
 

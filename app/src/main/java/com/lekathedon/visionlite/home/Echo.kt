@@ -193,6 +193,12 @@ object BillboardRows {
  */
 internal object LoadingHold { var key by androidx.compose.runtime.mutableStateOf<String?>(null) }
 
+/** Home's Up/Down move under way: the row it is going to, and the job that takes focus there. */
+private class RowMover {
+    var target: String? = null
+    var job: kotlinx.coroutines.Job? = null
+}
+
 /** Each Home row's slots by row key, so focus can go back to a row after one of its cards was removed. */
 private val RowRegistry = HashMap<String, RowSlots>()
 
@@ -396,6 +402,55 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         }
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Up/Down between rows, done by Home itself (user 2026-11-24: holding Down stopped on a row "as if it's the last",
+    // then needed several presses). Compose's own search only finds rows already laid out, and while a held Down
+    // outruns the layout it finds nothing and focus stays. Here every press names the next row by its place in the
+    // list; a row not built yet is scrolled in and focused a frame later. Presses that come while a move is still
+    // under way count on from where that move is going, so a long press keeps walking down row by row.
+    val rowOrder by androidx.compose.runtime.rememberUpdatedState((if (cw.isNotEmpty()) listOf("cw") else emptyList()) + visible.map { it.key })
+    val mover = remember { RowMover() }
+    val moveRow: (Boolean) -> Boolean = moveRow@{ down ->
+        val order = rowOrder
+        val from = mover.target ?: HomeFocus.row ?: return@moveRow false
+        val at = order.indexOf(from)
+        if (at < 0) return@moveRow false
+        val to = at + if (down) 1 else -1
+        if (to >= order.size) return@moveRow true          // the last row: stay
+        if (to < 0) {                                       // above the first row: the billboard's View title
+            mover.target = null; mover.job?.cancel()
+            scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { viewTitle.requestFocus() } }
+            return@moveRow true
+        }
+        mover.target = order[to]
+        if (mover.job?.isActive == true) return@moveRow true
+        mover.job = scope.launch {
+            var frames = 0
+            while (frames < 90) {
+                val key = mover.target ?: break
+                val slots = RowRegistry[key]
+                val req = slots?.let { it.reqs[it.target] ?: it.reqs[0] }
+                if (slots != null && req != null) {
+                    slots.entered = true
+                    if (runCatching { req.requestFocus() }.isSuccess) {
+                        HomeFocus.row = key
+                        if (mover.target == key) { mover.target = null; break } else { frames = 0; continue }
+                    }
+                } else if (slots != null && slots.reqs.isNotEmpty()) {
+                    // The row's entry card is scrolled out of the row: the row brings it in and focuses it.
+                    slots.entered = true; slots.goTo(slots.target); HomeFocus.row = key
+                    if (mover.target == key) { mover.target = null; break } else { frames = 0; continue }
+                } else if (listState.layoutInfo.visibleItemsInfo.none { it.key == key }) {
+                    // Not built yet: bring the row on screen (item 0 is the billboard).
+                    val idx = 1 + rowOrder.indexOf(key)
+                    if (idx > 0) runCatching { listState.scrollToItem(idx) }
+                }
+                withFrameNanos { }
+                frames++
+            }
+            if (frames >= 90) mover.target = null
+        }
+        true
+    }
     // Rows load ahead of you: the next 3 rows under the screen are asked before you reach them, so going Down lands on
     // titles, not on a row still loading.
     val visibleKeys by androidx.compose.runtime.rememberUpdatedState(visible.map { it.key })
@@ -458,7 +513,15 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             else (1f - listState.firstVisibleItemScrollOffset / heroPx).coerceIn(0f, 1f)
         })
         CompositionLocalProvider(LocalBringIntoViewSpec provides pageSpec, LocalTrailer provides trailerLook) {
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 300.dp)) {
+            LazyColumn(Modifier.fillMaxSize().onPreviewKeyEvent { e ->
+                // Only from a row's card (the billboard, pill and clock keep their own Up/Down).
+                if (e.type != KeyEventType.KeyDown || (HomeFocus.row == null && mover.target == null)) false
+                else when (e.key) {
+                    Key.DirectionDown -> moveRow(true)
+                    Key.DirectionUp -> moveRow(false)
+                    else -> false
+                }
+            }, state = listState, contentPadding = PaddingValues(bottom = 300.dp)) {
                 item(key = "hero") {
                     Billboard(
                         entry, enriched[entry?.m?.id], heroEntries.size, heroIndex, viewTitle, if (clockOn) clockFocus else pillHome,
@@ -544,7 +607,8 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             onFocus = { clockFocused = it; if (it) HomeFocus.row = null }, onClick = { clockPanel = true },
             onLeft = { pillEnd++ }
         )
-        if (clockPanel) com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } }
+        // Inside the clock the look and skin apply (only the clock itself keeps Home's shape).
+        if (clockPanel) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } } }
         hold?.let { (row, m) -> HoldMenu(row, m, scope) { removed ->
             hold = null
             val old = LastFocus
@@ -776,7 +840,7 @@ fun BoxScope.TopPill(
         @Composable fun item(k: String, label: String?, selected: Boolean = false, white: Boolean = false, face: Pair<String, String>? = null, onClick: () -> Unit) =
             PillItem(label, k == entryKey || open || entering, selected, Modifier.focusRequester(r(k)).onFocusChanged { if (it.isFocused) focusedKey = k }, white, face, onClick)
         // Where you are: Home and the hub's name on the clock's dark capsule, up to the line.
-        Row(Modifier.fillMaxHeight().clip(shape).background(Color(0xFF121316).copy(alpha = 0.86f)).padding(end = 4.dp),
+        Row(Modifier.fillMaxHeight().clip(shape).background(com.lekathedon.visionlite.ui.Theme.skin.capsule.copy(alpha = 0.86f)).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             item("home", "Home", selected = current == null) { if (current != null) nav.popToHome() }
             item("section", Sections.label(section), white = true) { if (!choosing) { choosing = true; pending = "s:$section" } }
@@ -826,6 +890,10 @@ fun hubOf(s: Screen): String? {
 /** The hub page each menu screen is (for the pill on that page): its label, or null when it isn't one. */
 fun hubPageOf(s: Screen): String? = hubOf(s)?.let { key -> Sections.pages(key).firstOrNull { it.second == s }?.first }
 
+/** The pill and clock keep their shape; their focus takes the skin's colour (white on OLED and Tinted). */
+private fun pillRing(): Color = com.lekathedon.visionlite.ui.Theme.skin.let { if (it == com.lekathedon.visionlite.ui.Skin.OLED || it.tinted) Color(0xCCFFFFFF) else it.accent }
+private fun pillFocusFill(): Color = com.lekathedon.visionlite.ui.Theme.skin.let { if (it == com.lekathedon.visionlite.ui.Skin.OLED || it.tinted) Color(0x40FFFFFF) else it.accent.copy(alpha = 0.3f) }
+
 @Composable
 private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
 
@@ -839,7 +907,7 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
     val tint = Color.White.copy(alpha = if (f || selected || white) 1f else 0.85f)
     Box(
         modifier.fillMaxHeight().focusProperties { this.canFocus = canFocus }.clip(shape)
-            .then(if (f) Modifier.background(Color(0x40FFFFFF)).border(1.5.dp, Color(0xCCFFFFFF), shape)
+            .then(if (f) Modifier.background(pillFocusFill()).border(1.5.dp, pillRing(), shape)
                 else if (selected) Modifier.background(Color(0x26FFFFFF)).border(1.dp, Color(0x40FFFFFF), shape) else Modifier)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = if (face != null) 2.dp else 11.dp),
@@ -893,7 +961,7 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
     val shape = RoundedCornerShape(50)
     Box(
         modifier.padding(top = 12.dp, end = 25.dp).height(25.dp)
-            .then(if (f) Modifier.border(1.5.dp, Color.White, shape) else Modifier)
+            .then(if (f) Modifier.border(1.5.dp, pillRing(), shape) else Modifier)
             .focusRequester(me)
             // Between the menu and the billboard (Vision's LegacyClockFocus): Up = the menu's Home, Left = the menu's
             // last item (the profile: the clock sits right of it), Down = the billboard.
@@ -907,7 +975,7 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
                     else -> false
                 }
             }
-            .clip(shape).background(Color(0xFF121316).copy(alpha = 0.86f))
+            .clip(shape).background(com.lekathedon.visionlite.ui.Theme.skin.capsule.copy(alpha = 0.86f))
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = 11.dp),
         contentAlignment = Alignment.Center
