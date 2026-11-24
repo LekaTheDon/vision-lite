@@ -289,6 +289,23 @@ class Trakt(private val prefs: Prefs) {
         if (c in 200..299) Net.json.decodeFromString<List<Comment>>(t) else emptyList()
     }.getOrDefault(emptyList())
 
+    /** Signed in to Trakt (rating needs it). */
+    fun signedIn() = on()
+
+    /**
+     * Rates a film or show on Trakt (1-10; 0 = remove the rating). The engine reads your Trakt ratings
+     * (sync/ratings/all) as taste, so the next build learns from it. True when Trakt took it.
+     */
+    suspend fun rate(imdb: String, tv: Boolean, rating: Int): Boolean {
+        if (!on()) return false
+        val body = buildJsonObject {
+            put(if (tv) "shows" else "movies", kotlinx.serialization.json.buildJsonArray { add(buildJsonObject {
+                if (rating > 0) put("rating", rating.coerceIn(1, 10))
+                putJsonObject("ids") { put("imdb", imdb) } }) })
+        }
+        return runCatching { call("POST", if (rating > 0) "sync/ratings" else "sync/ratings/remove", body).first in 200..299 }.getOrDefault(false)
+    }
+
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {
         if (action == "start") undrop(imdb, season != null)

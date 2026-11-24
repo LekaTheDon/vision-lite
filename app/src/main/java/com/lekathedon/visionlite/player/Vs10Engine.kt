@@ -28,18 +28,9 @@ object Vs10Engine {
      * service isn't there. The output is one short line, so it is read after the process ends.
      */
     fun cycle(): Step? {
-        val process = runCatching {
-            ProcessBuilder("su", "-c", "sh $SERVICE cycle").redirectErrorStream(true).start()
-        }.getOrNull() ?: return null
-        return try {
-            if (!process.waitFor(10, TimeUnit.SECONDS) || process.exitValue() != 0) return null
-            val output = process.inputStream.bufferedReader().readText()
-            parse(output.trim().lines().lastOrNull().orEmpty())
-        } catch (e: Exception) {
-            null
-        } finally {
-            process.destroy()
-        }
+        // The shared root shell (link/Root.kt): one Magisk grant per run, no toast per press.
+        val output = com.lekathedon.visionlite.link.Root.run("sh $SERVICE cycle", 10) ?: return null
+        return parse(output.trim().lines().lastOrNull().orEmpty())
     }
 
     /** The service prints "<sdr|hdr10|mpv> <off|hdr10|dv>", or "none <source>". */

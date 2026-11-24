@@ -39,6 +39,8 @@ object VisionRows {
     val BECAUSE = listOf("v/because1", "v/because2")
     /** Moods: one row of tiles, every mood (Scout's 12 + Vision's 11); a tile opens that mood's page. */
     const val MOODS = "v/moods"
+    /** Scout: Build your own, Ask Scout, Mixes, then the places you watch most and Scout's set (tiles open its pages). */
+    const val SCOUT = "v/scout"
     const val SERVICES = "v/services"
     /** "Because you like Tom Hardy": two of your favourite people (actors, directors, writers), a different two every 12 h. */
     val FAVS = listOf("v/fav1", "v/fav2")
@@ -51,7 +53,7 @@ object VisionRows {
     /** key to title, in Vision's order. */
     val all: List<Pair<String, String>> = listOf(
         COMING_UP to "Coming up", PICKS to "Vision Picks",
-        BECAUSE[0] to "Because you watched · 1", FAVS[0] to "Because you like · 1", MOODS to "Moods",
+        BECAUSE[0] to "Because you watched · 1", FAVS[0] to "Because you like · 1", MOODS to "Moods", SCOUT to "Scout",
         BECAUSE[1] to "Because you watched · 2", FAVS[1] to "Because you like · 2",
         GENRE_ROWS[0] to "Because you like · genre 1", GENRE_ROWS[1] to "Because you like · genre 2",
         SERVICES to "Streaming services", GENRES to "Genres", DECADES to "Decades"

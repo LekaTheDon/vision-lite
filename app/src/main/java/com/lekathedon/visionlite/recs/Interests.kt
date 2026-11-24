@@ -231,6 +231,9 @@ object Interests {
         (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { Learned(it.optString("id"), it.optDouble("s"), it.optInt("n")) }
     }.orEmpty()
 
+    /** The countries you watch most (share of your watching, 0..1): Scout's ranking lifts them. */
+    fun countryWeights(hub: Hub): Map<String, Double> = countries(hub)
+
     private fun countries(hub: Hub): Map<String, Double> = stored(hub)?.optJSONObject("c")?.let { o -> o.keys().asSequence().associateWith { o.optDouble(it) } }.orEmpty()
 
     /** For the engine's scoring: learned (0..1 of the strongest) with liked ones at 1. */

@@ -20,7 +20,7 @@ class Commands(private val ctx: Context) {
     fun handle(cmd: String, a: JSONObject): JSONObject = when (cmd) {
         "ping" -> ok().put("app", "visionlite").put("version", com.lekathedon.visionlite.BuildConfig.VERSION_NAME)
         "status" -> status()
-        "wake" -> if (Root.run("input keyevent KEYCODE_WAKEUP", 4) != null) ok() else err("No root access to wake the box")
+        "wake" -> if (wake()) ok() else err("Android didn't let Nuvio Vision wake the box")
         "start" -> open(null)
         "play" -> play(a)
         "details" -> details(a)
@@ -111,12 +111,24 @@ class Commands(private val ctx: Context) {
         return r
     }
 
+    /** Wakes the screen with a wake lock (no root); root's key press only if that didn't work. */
+    @Suppress("DEPRECATION")
+    private fun wake(): Boolean {
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isInteractive) return true
+        runCatching {
+            pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "visionlite:wake").acquire(3_000)
+        }
+        repeat(10) { if (pm.isInteractive) return true; Thread.sleep(100) }
+        return Root.run("input keyevent KEYCODE_WAKEUP", 4) != null
+    }
+
     // ---- Opening screens ----
 
     /** Brings Lite to the front (waking the box first) and hands it [screen]; null = just Home as it is. */
     private fun open(screen: Screen?): JSONObject {
         val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (!pm.isInteractive) Root.run("input keyevent KEYCODE_WAKEUP", 4)
+        if (!pm.isInteractive) wake()
         screen?.let { LinkState.open.trySend(it) }
         if (LinkState.front) return ok()
         val i = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)

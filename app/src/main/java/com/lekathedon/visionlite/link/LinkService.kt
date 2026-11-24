@@ -78,9 +78,13 @@ class LinkService : Service() {
          */
         fun grantOnce(c: Context) {
             val pkg = c.packageName
+            // Root only for what's missing: nothing runs once both are granted (or on a device without root).
+            val idleOk = (c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(pkg)
+            if (Settings.canDrawOverlays(c) && idleOk) return
             val script = buildString {
                 if (!Settings.canDrawOverlays(c)) append("appops set $pkg SYSTEM_ALERT_WINDOW allow; ")
-                append("dumpsys deviceidle whitelist +$pkg >/dev/null")
+                if (!idleOk) append("dumpsys deviceidle whitelist +$pkg >/dev/null; ")
+                append("true")
             }
             Root.run(script, 10)
         }

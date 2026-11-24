@@ -56,6 +56,10 @@ class Prefs(context: Context) {
     val afr = Text("afr", "off")
     /** Match resolution: the TV takes the smallest mode that fits the video (never below 720p). */
     val matchRes = Flag("match_res", false)
+    /** Quiet playback: 4 s into a title, other apps are closed (root: force-stopped). Off = nothing runs. */
+    val quietPlayback = Flag("quiet_playback", false)
+    /** Rate on Trakt after finishing a film or a show's episode (only when Trakt is signed in). */
+    val rateAfter = Flag("rate_after", true)
     init { if (afr.value == "seamless") afr.value = "always" }
     /** The first-start device check was answered (Use these or Not now). */
     val deviceAsked = Flag("device_asked", false)

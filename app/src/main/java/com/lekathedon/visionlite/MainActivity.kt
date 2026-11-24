@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Discover -> com.lekathedon.visionlite.browse.Discover(nav)
                         is Screen.Genre -> com.lekathedon.visionlite.browse.GenrePage(nav, s.slug)
                         is Screen.Mood -> com.lekathedon.visionlite.browse.MoodPage(nav, s.key)
+                        is Screen.Scout -> com.lekathedon.visionlite.browse.ScoutPage(nav, s.id)
                         is Screen.Decade -> com.lekathedon.visionlite.browse.DecadePage(nav, s.slug)
                         Screen.Calendar -> com.lekathedon.visionlite.browse.CalendarPage(nav)
                         is Screen.Service -> com.lekathedon.visionlite.browse.ServicePage(nav, s.id)
@@ -169,6 +170,7 @@ class MainActivity : ComponentActivity() {
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).
                   com.lekathedon.visionlite.sports.SportsHost(nav)
                   com.lekathedon.visionlite.home.TasteMenuHost()
+                  com.lekathedon.visionlite.home.RateHost()
                   // Vision's Ambient Mode: idle minutes off the player → 4K backdrops from your rows.
                   com.lekathedon.visionlite.ui.ScreensaverHost(nav)
                   // Vision TB: a source that stopped working (or came back), told once.

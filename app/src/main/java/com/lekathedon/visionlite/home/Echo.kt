@@ -339,6 +339,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             "genre" -> nav.push(Screen.Genre(m.id.removePrefix("genre:")))
             "decade" -> nav.push(Screen.Decade(m.id.removePrefix("decade:")))
             "mood" -> nav.push(Screen.Mood(m.id.removePrefix("mood:")))
+            "scout" -> nav.push(Screen.Scout(m.id.removePrefix("scout:")))
             "person" -> nav.push(Screen.Person(m.id, m.name))
             else -> if (m.id.startsWith("tt")) nav.push(Screen.Detail(m.type, m.id, m.name)) else scope.launch { openTitle(nav, m) }
         }

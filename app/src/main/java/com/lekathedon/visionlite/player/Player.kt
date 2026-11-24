@@ -303,12 +303,15 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                             if (stamps.size >= 48) return@setVideoFrameMetadataListener
                             stamps.add(t)
                             if (stamps.size == 48) {
-                                val sorted = stamps.sorted().drop(8)
-                                val fps = 1_000_000f * (sorted.size - 1) / (sorted.last() - sorted.first()).coerceAtLeast(1)
+                                // Median frame gap, not first-to-last span: dropped/skipped frames at a live start made
+                                // a 25 fps channel read 20.3 fps (2026-11-24). Only a real video rate counts.
+                                val gaps = stamps.sorted().drop(8).zipWithNext { a, b -> b - a }.filter { it > 0 }.sorted()
+                                val raw = if (gaps.isEmpty()) 0f else 1_000_000f / gaps[gaps.size / 2]
+                                val fps = DisplayMatch.standard(raw)
                                 val header = f.frameRate
-                                val differs = header <= 0 || kotlin.math.abs(DisplayMatch.snap(fps) - DisplayMatch.snap(header)) / fps > 0.02f
-                                android.util.Log.i("DisplayMatch", "measured %.3f fps (header %.3f)".format(fps, header))
-                                if (fps in 10f..121f && differs) main.post { DisplayMatch.apply(context, fps, f.width, f.height, true, resMatch) }
+                                val differs = fps != null && (header <= 0 || kotlin.math.abs(DisplayMatch.snap(fps) - DisplayMatch.snap(header)) / fps > 0.02f)
+                                android.util.Log.i("DisplayMatch", "measured %.3f fps -> %s (header %.3f)".format(raw, fps, header))
+                                if (fps != null && differs) main.post { DisplayMatch.apply(context, fps, f.width, f.height, true, resMatch) }
                             }
                         }
                     }
@@ -504,7 +507,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             runCatching { myAss?.release() }; if (assRef[0] === myAss) assRef[0] = null
         }
     }
-    DisposableEffect(Unit) { onDispose { DisplayMatch.restore(context) } }
+    DisposableEffect(Unit) { QuietPlayback.playing(context); onDispose { QuietPlayback.closed(); DisplayMatch.restore(context) } }
     // The phone's Next episode press (only for an episode).
     androidx.compose.runtime.LaunchedEffect(s.url) {
         while (com.lekathedon.visionlite.link.LinkState.next.tryReceive().isSuccess) { }
@@ -806,6 +809,9 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
             val p = pct()
             PlayerReturn.mark()
             if (p > 0f) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { trakt.scrobble("stop", imdb, season, episode, p) }
+            // Finished: ask for a rating (Settings › Recommendations › Rate after watching).
+            if (p >= 90f || player.playbackState == MediaPlayer.STATE_ENDED)
+                com.lekathedon.visionlite.home.Rate.afterWatching(imdb, season != null, s.title.replace(Regex("""\s+S\d+\s*E\d+.*$"""), "").ifBlank { s.title })
         }
     }
 }

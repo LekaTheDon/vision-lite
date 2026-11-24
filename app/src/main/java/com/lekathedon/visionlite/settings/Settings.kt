@@ -272,6 +272,9 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Skip intro and outro", "IntroDB, AniSkip for anime", p.skipIntro, SkipOpts, m) }
         head("Pausing")
         row { m -> Choice("Step back after pause", "Replays a few seconds when you press play again", p.rewindOnResume, RewindOpts, m) }
+        head("While playing")
+        row { m -> Toggle("Quiet playback", "Closes other apps 4 s into a title so the box gives it everything. With root they are force-stopped", p.quietPlayback, m) }
+        row { m -> Toggle("Rate after watching", "Asks for a Trakt rating when you finish a film or a show's episode; it steers your recommendations", p.rateAfter, m) }
         head("Picture, sound and engine")
         row { m -> Toggle("True black bars", "Bars around the film are the TV's own black, not the app's grey-ish black in HDR/DV (Vision)", p.blackBars, m) }
         row { m -> Link("This TV", "Dolby Vision, frame rate, passthrough, engine and buffer are set for this TV", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }

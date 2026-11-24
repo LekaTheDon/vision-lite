@@ -285,7 +285,166 @@ object BrowseTiles {
     }
 }
 
-// Scout is no longer a page (0.27): its engine fills Home's Vision Picks, "Because you watched" and mood rows.
+// ---------------------------------------------------------------- Scout (recs/Scout.kt): Scout finds, the engine ranks
+
+private val scoutBuildGroups = listOf(ScoutGroupRef.MOOD, ScoutGroupRef.DECADE, ScoutGroupRef.REGION, ScoutGroupRef.COUNTRY, ScoutGroupRef.LANGUAGE,
+    ScoutGroupRef.LENGTH, ScoutGroupRef.THEME, ScoutGroupRef.ACCLAIM, ScoutGroupRef.GENRE)
+private typealias ScoutGroupRef = com.lekathedon.visionlite.recs.ScoutGroup
+
+/** A Scout tile's page: "build", "ask", "mixes", or one slice (films + shows; an award's categories). */
+@Composable
+fun ScoutPage(nav: Nav, id: String) {
+    when (id) {
+        "build" -> ScoutBuildPage(nav)
+        "ask" -> ScoutAskPage(nav)
+        "mixes" -> ScoutMixesPage(nav)
+        else -> ScoutSlicePage(nav, id)
+    }
+}
+
+private fun LazyListScopeResults(nav: Nav, slice: com.lekathedon.visionlite.recs.ScoutSlice?, scope: androidx.compose.foundation.lazy.LazyListScope, store: MutableMap<String, RailData>) {
+    if (slice == null) return
+    val hub = com.lekathedon.visionlite.anime.Hubs.now()
+    if (slice.movie != null) scope.item(key = "films|${slice.id}") { LoadingRail("Films", nav, store, key = "films|${slice.id}") { _, page -> com.lekathedon.visionlite.recs.Scout.page(slice, false, page, hub) } }
+    if (slice.tv != null) scope.item(key = "shows|${slice.id}") { LoadingRail("Shows", nav, store, key = "shows|${slice.id}") { _, page -> com.lekathedon.visionlite.recs.Scout.page(slice, true, page, hub) } }
+}
+
+private fun noKey() = if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else null
+
+@Composable
+private fun ScoutSlicePage(nav: Nav, id: String) {
+    val slice = remember(id) { com.lekathedon.visionlite.recs.ScoutSlices.byId(id) } ?: return
+    val store = rememberRails(id)
+    val award = slice.award
+    if (award != null && award.tabs.isNotEmpty()) {
+        val tabs = remember(id) { com.lekathedon.visionlite.recs.Scout.awardTabs(award) }
+        var tab by rememberSaveable(id) { mutableStateOf(tabs.firstOrNull()?.first?.label ?: "") }
+        Page(slice.title, noKey() ?: "Scout · ${slice.group.label}") {
+            Chips(tabs.map { it.first.label to it.first.label }, tab, Modifier.padding(top = 12.dp)) { tab = it }
+            val t = tabs.firstOrNull { it.first.label == tab } ?: return@Page
+            val sub = com.lekathedon.visionlite.recs.ScoutSlice("$id|$tab", slice.group, tab, award = com.lekathedon.visionlite.recs.ScoutAward(t.first.awards, award.winners))
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
+                item(key = sub.id) { LoadingRail(if (t.second) "Shows" else "Films", nav, store, key = sub.id) { _, page -> com.lekathedon.visionlite.recs.Scout.page(sub, t.second, page) } }
+            }
+        }
+        return
+    }
+    Page(slice.title, noKey() ?: "Scout · ${slice.group.label} · ranked by your taste") {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 60.dp)) {
+            if (award != null) {
+                listOf(false, true).forEach { tv -> if (com.lekathedon.visionlite.recs.Scout.awardIds(award, tv).isNotEmpty())
+                    item(key = "a|$tv") { LoadingRail(if (tv) "Shows" else "Films", nav, store, key = "a|$tv") { _, page -> com.lekathedon.visionlite.recs.Scout.page(slice, tv, page) } } }
+            } else LazyListScopeResults(nav, slice, this, store)
+        }
+    }
+}
+
+/** Build your own: one choice in any group, all of them in one search (UK and Ireland + Drama + 1990s). */
+@Composable
+private fun ScoutBuildPage(nav: Nav) {
+    var build by rememberSaveable(stateSaver = androidx.compose.runtime.saveable.Saver<com.lekathedon.visionlite.recs.ScoutBuild, String>(
+        { it.encode() }, { com.lekathedon.visionlite.recs.ScoutBuild.decode(it) ?: com.lekathedon.visionlite.recs.ScoutBuild() })) { mutableStateOf(com.lekathedon.visionlite.recs.ScoutBuild()) }
+    val slice = remember(build) { build.slice() }
+    val store = rememberRails(build.encode())
+    Page("Build your own", noKey() ?: slice?.title ?: "Pick one or more: they all apply together") {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
+            scoutBuildGroups.forEach { g ->
+                val opts = com.lekathedon.visionlite.recs.ScoutSlices.inGroup(g).filter { it.award == null }
+                item(key = "g|${g.name}") {
+                    Column(Modifier.padding(top = 10.dp)) {
+                        Text(g.label, color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 13.sp)
+                        Chips(opts.map { it.id to it.title }, build.picks[g], Modifier.padding(top = 4.dp)) { build = build.press(g, it) }
+                    }
+                }
+            }
+            if (!build.empty) item(key = "clear") { Button("Start over", { build = com.lekathedon.visionlite.recs.ScoutBuild() }, Modifier.padding(top = 12.dp)) }
+            LazyListScopeResults(nav, slice, this, store)
+        }
+    }
+}
+
+/** Ask Scout: what to watch, mood, length, family night, then tune it. */
+@Composable
+private fun ScoutAskPage(nav: Nav) {
+    var code by rememberSaveable { mutableStateOf(com.lekathedon.visionlite.recs.ScoutAsk().encode()) }
+    val ask = remember(code) { com.lekathedon.visionlite.recs.ScoutAsk.decode(code) ?: com.lekathedon.visionlite.recs.ScoutAsk() }
+    fun set(a: com.lekathedon.visionlite.recs.ScoutAsk) { code = a.encode() }
+    val slice = remember(code) { ask.slice() }
+    val store = rememberRails(code)
+    Page("Ask Scout", noKey() ?: ask.title()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
+            item(key = "watch") { ScoutChoice("What") { Chips(com.lekathedon.visionlite.recs.AskWatch.entries.map { it.code to it.label }, ask.watch.code) { c ->
+                val w = com.lekathedon.visionlite.recs.AskWatch.entries.first { it.code == c }
+                set(ask.copy(watch = w, mood = ask.mood?.takeIf { it in com.lekathedon.visionlite.recs.AskMood.choicesFor(w, ask.family) },
+                    time = ask.time.takeIf { it in com.lekathedon.visionlite.recs.AskTime.choicesFor(w) } ?: com.lekathedon.visionlite.recs.AskTime.ANY, tunes = emptySet())) } } }
+            item(key = "mood") { ScoutChoice("Mood") { Chips(com.lekathedon.visionlite.recs.AskMood.choicesFor(ask.watch, ask.family).map { it.code to it.label }, ask.mood?.code) { c ->
+                set(ask.copy(mood = if (ask.mood?.code == c) null else com.lekathedon.visionlite.recs.AskMood.entries.first { it.code == c })) } } }
+            item(key = "time") { ScoutChoice("Length") { Chips(com.lekathedon.visionlite.recs.AskTime.choicesFor(ask.watch).map { it.code to it.label }, ask.time.code) { c ->
+                set(ask.copy(time = com.lekathedon.visionlite.recs.AskTime.entries.first { it.code == c })) } } }
+            item(key = "family") { ScoutChoice("Family night (up to PG, no horror)") { Chips(listOf("x" to "Off", "f" to "On"), if (ask.family) "f" else "x") { c ->
+                val on = c == "f"; set(ask.copy(family = on, mood = ask.mood?.takeIf { it in com.lekathedon.visionlite.recs.AskMood.choicesFor(ask.watch, on) })) } } }
+            item(key = "tune") { ScoutChoice("Tune it") { Chips(com.lekathedon.visionlite.recs.AskTune.entries.map { it.code to (if (it in ask.tunes) "✓ " else "") + it.label }, null) { c ->
+                val t = com.lekathedon.visionlite.recs.AskTune.entries.first { it.code == c }
+                val opposite = mapOf("l" to "r", "r" to "l", "n" to "o", "o" to "n", "a" to "c", "c" to "a")[c]
+                set(ask.copy(tunes = if (t in ask.tunes) ask.tunes - t else ask.tunes.filter { it.code != opposite }.toSet() + t)) } } }
+            LazyListScopeResults(nav, slice, this, store)
+        }
+    }
+}
+
+@Composable
+private fun ScoutChoice(label: String, chips: @Composable () -> Unit) {
+    Column(Modifier.padding(top = 10.dp)) {
+        Text(label, color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 13.sp)
+        Box(Modifier.padding(top = 4.dp)) { chips() }
+    }
+}
+
+/**
+ * Mixes: Scout's ready-made ones and Mix your own (decade · kind · mood · from), plus the occasion episode lists.
+ * Shuffle plays a random episode of a random show in the mix (autoplay picks the link, as Play does).
+ */
+@Composable
+private fun ScoutMixesPage(nav: Nav) {
+    var code by rememberSaveable { mutableStateOf(com.lekathedon.visionlite.recs.ScoutMix.READY.first().second.encode()) }
+    var occasion by rememberSaveable { mutableStateOf("") }
+    val mix = remember(code) { com.lekathedon.visionlite.recs.ScoutMix.decode(code) ?: com.lekathedon.visionlite.recs.ScoutMix() }
+    val store = rememberRails(code, occasion)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val shows = remember(code) { mutableStateListOf<com.lekathedon.visionlite.addons.MetaPreview>() }
+    var note by remember { mutableStateOf<String?>(null) }
+    val occ = com.lekathedon.visionlite.recs.ScoutOccasions.Occasion.entries.firstOrNull { it.code == occasion }
+    Page("Mixes", noKey() ?: note ?: (occ?.label ?: mix.title())) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
+            item(key = "ready") { ScoutChoice("Ready-made") { Chips(com.lekathedon.visionlite.recs.ScoutMix.READY.map { it.second.encode() to it.first }, code.takeIf { occ == null }) { code = it; occasion = "" } } }
+            item(key = "year") { ScoutChoice("Through the year") { Chips(com.lekathedon.visionlite.recs.ScoutOccasions.ordered().map { o ->
+                o.code to o.label + if (com.lekathedon.visionlite.recs.ScoutOccasions.inSeason(o, java.time.LocalDate.now())) " · in season" else "" }, occasion.ifEmpty { null }) { occasion = if (occasion == it) "" else it } } }
+            item(key = "own") { Text("Mix your own", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp)) }
+            item(key = "decade") { ScoutChoice("Decade") { Chips(com.lekathedon.visionlite.recs.MixDecade.entries.map { it.code to it.label }, mix.decade.code) { c -> code = mix.copy(decade = com.lekathedon.visionlite.recs.MixDecade.entries.first { it.code == c }).encode(); occasion = "" } } }
+            item(key = "kind") { ScoutChoice("Kind") { Chips(com.lekathedon.visionlite.recs.MixKind.entries.map { it.code to it.label }, mix.kind.code) { c -> code = mix.copy(kind = com.lekathedon.visionlite.recs.MixKind.entries.first { it.code == c }).encode(); occasion = "" } } }
+            item(key = "feel") { ScoutChoice("Mood") { Chips(com.lekathedon.visionlite.recs.MixFeel.entries.map { it.code to it.label }, mix.feel.code) { c -> code = mix.copy(feel = com.lekathedon.visionlite.recs.MixFeel.entries.first { it.code == c }).encode(); occasion = "" } } }
+            item(key = "from") { ScoutChoice("From") { Chips(com.lekathedon.visionlite.recs.MixFrom.entries.map { it.code to it.label }, mix.from.code) { c -> code = mix.copy(from = com.lekathedon.visionlite.recs.MixFrom.entries.first { it.code == c }).encode(); occasion = "" } } }
+            item(key = "shuffle") {
+                Button("Shuffle: play a random episode", {
+                    scope.launch {
+                        note = "Picking an episode…"
+                        val pick = if (occ != null) com.lekathedon.visionlite.recs.ScoutShuffle.occasion(occ) else com.lekathedon.visionlite.recs.ScoutShuffle.fromShows(shows.toList())
+                        note = if (pick == null) "Nothing to shuffle yet: let the shows load first" else null
+                        pick?.let { nav.push(com.lekathedon.visionlite.ui.Screen.Streams("series", it.streamId, it.label, it.imdb)) }
+                    }
+                }, Modifier.padding(top = 14.dp))
+            }
+            if (occ != null) item(key = "occ|${occ.code}") {
+                val eps = remember(occ) { com.lekathedon.visionlite.recs.ScoutShuffle.occasionCards(occ) }
+                Rail("${occ.label} episodes", eps, nav, subOf = { it.releaseInfo }, key = "occ|${occ.code}")
+            } else item(key = "mix|$code") {
+                LoadingRail("Shows in this mix", nav, store, key = "mix|$code") { _, page ->
+                    com.lekathedon.visionlite.recs.ScoutShuffle.mixShows(mix, page).also { shows.addAll(it) }
+                }
+            }
+        }
+    }
+}
 
 // ---------------------------------------------------------------- Calendar
 

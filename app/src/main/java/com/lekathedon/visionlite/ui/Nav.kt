@@ -28,6 +28,8 @@ sealed interface Screen {
     data class Genre(val slug: String) : Screen
     data class Decade(val slug: String) : Screen
     data class Mood(val key: String) : Screen
+    /** Scout (recs/Scout.kt): "build", "ask", "mixes" or a slice id. */
+    data class Scout(val id: String) : Screen
     data object Calendar : Screen
     data class Service(val id: String) : Screen
     data class Person(val id: String, val name: String) : Screen

@@ -486,8 +486,16 @@ object DeviceCheck {
      */
     suspend fun autoUpdate(context: Context): Int {
         if (!p.tvAuto.value || !p.deviceAsked.value) return 0
-        val before = saved()?.print()
+        val old = saved()
         val f = probe(context, speed = false)
-        return if (before != f.print()) withContext(Dispatchers.Main) { useRecommended(f) } else 0
+        if (old?.print() == f.print()) return 0
+        // Only settings still on the last recommendation move: anything set otherwise is yours, recorded or not
+        // (picks made before "yours" was remembered were reset to the recommendation, e.g. Match resolution, 2026-11-24).
+        val lastRec = old?.let { o -> choices(o).associate { it.key to it.recommended } } ?: return 0
+        return withContext(Dispatchers.Main) {
+            val d = differing(f).filter { !isMine(it.key) && current(it.key) == lastRec[it.key] }
+            d.forEach { set(it.key, it.recommended) }
+            d.size
+        }
     }
 }

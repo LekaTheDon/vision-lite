@@ -106,6 +106,9 @@ fun TasteMenuHost() {
             com.lekathedon.visionlite.ui.Button(if (verdict == "watched") "Watched ✓ (undo)" else "Watched", {
                 if (verdict == "watched") Recs.forget(cur.id) else Ticks.watched(cur); close()
             }, Modifier.fillMaxWidth())
+            if (Rate.available()) com.lekathedon.visionlite.ui.Button(Rate.mine(cur.id).takeIf { it > 0 }?.let { "Rated $it/10 on Trakt (change)" } ?: "Rate on Trakt…", {
+                close(); scope.launch { imdbIdOf(cur)?.let { id -> Rate.ask(id, tv, cur.name) } }
+            }, Modifier.fillMaxWidth())
             com.lekathedon.visionlite.ui.Button(if (saved) "Remove from Library" else "Add to Library", {
                 scope.launch { imdbIdOf(cur)?.let { id -> Saves.toggle(Saved(cur.type, id, cur.name, cur.poster)) } }; close()
             }, Modifier.fillMaxWidth())

@@ -52,7 +52,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     /** Leave out: a left-out title, or a tile about something left out (a Horror genre tile, a "Korean" mood). */
     private fun leftOut(m: MetaPreview) = com.lekathedon.visionlite.recs.LeaveOut.on() && (if (m.type == "movie" || m.type == "series") com.lekathedon.visionlite.recs.LeaveOut.hides(m) else com.lekathedon.visionlite.recs.LeaveOut.rowHidden(m.name, m.id))
     private val rowOrder get() = Hubs.rowOrder(hub)
-    private val engineKeys = listOf(VisionRows.PICKS) + VisionRows.BECAUSE + VisionRows.MOODS
+    private val engineKeys = listOf(VisionRows.PICKS) + VisionRows.BECAUSE + VisionRows.MOODS + VisionRows.SCOUT
     /** Mood rows' TMDB top-up, once per mood per app run (2 TMDB requests; nothing without a key). */
     val rows: StateFlow<List<Row>> get() = state
     private val loading = HashMap<String, Job>()
@@ -148,7 +148,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val vision = VisionRows.forHub(hub).map { (key, title) ->
             old[key] ?: Row(key, title, null, null, emptyList(), done = false, kind = when (key) {
                 VisionRows.COMING_UP -> RowKind.COMING; VisionRows.SERVICES -> RowKind.SERVICES
-                VisionRows.GENRES, VisionRows.DECADES, VisionRows.MOODS -> RowKind.TILES
+                VisionRows.GENRES, VisionRows.DECADES, VisionRows.MOODS, VisionRows.SCOUT -> RowKind.TILES
                 in VisionRows.ranked -> RowKind.RANKED; else -> RowKind.POSTER
             })
         }
@@ -268,6 +268,8 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             }
             // Every mood a tile (its picture: the engine's first title for it, none = its colour). No requests.
             VisionRows.MOODS -> com.lekathedon.visionlite.recs.Moods.tiles(hub)
+            // Scout's tiles: no requests (pages ask TMDB when opened).
+            VisionRows.SCOUT -> if (hub == Hub.ANIME) emptyList() else com.lekathedon.visionlite.recs.Scout.tiles(hub)
             // Each hub its own services: the anime-only ones (Crunchyroll, HIDIVE, RetroCrush, d Anime Store, U-NEXT, ADN, Anime Times, Toei, Anime Generation) only in Anime.
             VisionRows.SERVICES -> if (!Services.on()) emptyList() else Services.S.entries.filter { it.anime == (hub == Hub.ANIME) }.map { s ->
                 val art = Services.art.value.firstOrNull { it.id == s.id }
