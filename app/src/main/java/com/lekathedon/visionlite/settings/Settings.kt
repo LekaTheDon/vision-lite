@@ -403,6 +403,18 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Update channels, VOD and guide", "Downloaded once in full; after that a quiet update at 05:00 changes only what the provider changed",
             p.iptvUpdateHours, listOf("12" to "Every 12 hours", "24" to "Every day", "48" to "Every 2 days"), m) }
         row { m -> Toggle("Update on app start", "Also update every time the app starts (heavier; off like TiviMate)", p.iptvUpdateOnStart, m) }
+        row { m -> Choice("Live rewind", "Pause and rewind live channels: what you watch is kept on disk (never more than 30 % of free space; emptied on channel change)",
+            p.liveRewind, listOf("0" to "Off", "15" to "15 minutes", "30" to "30 minutes", "60" to "1 hour", "120" to "2 hours"), m) }
+        head("Remote buttons in Live TV")
+        com.lekathedon.visionlite.player.LiveKeys.Button.entries.forEach { b ->
+            row { m ->
+                p.liveKeys.flow.collectAsState().value
+                ChoiceOf(b.label, "Default: ${b.default.label}", com.lekathedon.visionlite.player.LiveKeys.get(b).name,
+                    com.lekathedon.visionlite.player.LiveKeys.Action.entries.map { it.name to it.label }, m) { pick ->
+                    com.lekathedon.visionlite.player.LiveKeys.set(b, com.lekathedon.visionlite.player.LiveKeys.Action.valueOf(pick)) }
+            }
+        }
+        row { m -> Link("Reset all buttons", "Back to the defaults (TiviMate's layout, Left / Right rewind)", m, value = "Reset") { com.lekathedon.visionlite.player.LiveKeys.reset() } }
         head("Sports")
         row { m -> Link("My teams", "Follow teams and leagues", m) { nav.push(Screen.SportsTeams) } }
         row { m -> SportsSwitch("Remind me of my teams' games", "A card a few minutes before they start", m, { it.remindMyTeams }) { s, v -> s.copy(remindMyTeams = v) } }
@@ -459,7 +471,7 @@ fun Settings(nav: Nav, start: String? = null) {
             Link(if (diff.isEmpty()) "Set by This TV" else "Use what This TV chose", sub, m,
                 value = if (diff.isEmpty()) "This TV ›" else "${diff.size} change${if (diff.size == 1) "" else "s"}") {
                 if (diff.isEmpty() || f == null) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true }
-                else diff.forEach { DeviceCheck.set(it.key, it.recommended) }
+                else diff.forEach { DeviceCheck.pick(it.key, it.recommended, it.recommended) }
             }
         }
         head("Scrolling")
@@ -736,7 +748,7 @@ private fun tvWatch() {
     listOf(p.dv7.flow, p.afr.flow, p.engine.flow, p.buffer.flow, p.maxQuality.flow, p.sizeLimit.flow, p.tvFacts.flow).forEach { it.collectAsState().value }
     listOf(p.matchRes.flow, p.dv5To81.flow, p.stripHdr10Plus.flow, p.ptAc3.flow, p.ptEac3.flow, p.ptTruehd.flow, p.ptDts.flow, p.ptDtshd.flow, p.tvAuto.flow).forEach { it.collectAsState().value }
     listOf(p.perfClass.flow).forEach { it.collectAsState().value }; p.trailers.flow.collectAsState().value
-    p.dns.flow.collectAsState().value; listOf(p.quietA11y.flow, p.fastHorizontal.flow, p.fullExit.flow).forEach { it.collectAsState().value }
+    p.dns.flow.collectAsState().value; p.tvMine.flow.collectAsState().value; listOf(p.quietA11y.flow, p.fastHorizontal.flow, p.fullExit.flow).forEach { it.collectAsState().value }
 }
 
 @Composable
@@ -781,7 +793,11 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
         val diff = DeviceCheck.differing(f)
         Link(if (diff.isEmpty()) "Everything is set right" else "Use all recommended",
             if (diff.isEmpty()) "Every setting below matches this TV" else diff.joinToString(" · ") { "${it.title}: ${it.label(it.recommended)}" }, Modifier,
-            value = if (diff.isEmpty()) "✓" else "${diff.size} change${if (diff.size == 1) "" else "s"}") { note = "Used ${DeviceCheck.useRecommended(f)} recommendations" }
+            value = if (diff.isEmpty()) "✓" else "${diff.size} change${if (diff.size == 1) "" else "s"}") { note = "Used ${DeviceCheck.useRecommended(f, keepMine = false)} recommendations" }
+        DeviceCheck.yours(f).takeIf { it.isNotEmpty() }?.let { y ->
+            Text("Your choices (kept when the app re-checks): " + y.joinToString(" · ") { "${it.title}: ${it.label(DeviceCheck.current(it.key))}" },
+                color = BrandCyan, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, start = 4.dp))
+        }
         val auto = p.tvAuto.value
         Focusable({ p.tvAuto.value = !auto; if (!auto) DeviceCheck.useRecommended(f) }, Modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { foc ->
             RowText("Let the app decide", "Uses the recommendations by itself, and again whenever you change TV or soundbar", null, foc, switch = auto)
@@ -789,7 +805,7 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
         DeviceCheck.choices(f).groupBy { it.section }.forEach { (section, list) ->
             SectionHead(section)
             list.forEach { c ->
-                ChoiceOf(c.title, c.why, DeviceCheck.current(c.key), c.options, Modifier, recommended = c.recommended) { DeviceCheck.set(c.key, it) }
+                ChoiceOf(c.title, c.why, DeviceCheck.current(c.key), c.options, Modifier, recommended = c.recommended) { DeviceCheck.pick(c.key, it, c.recommended) }
             }
             if (section == "Playback") Toggle("Backup engine", "When one engine can't play a file, the other takes over where it stopped", p.engineBackup)
         }
@@ -816,7 +832,7 @@ private fun toDos(nav: Nav, p: Prefs): List<ToDo> {
     val f = DeviceCheck.saved()
     if (f == null)
         out += ToDo("Check this TV", "Finds the best Dolby Vision, sound, frame-rate and buffer settings for this box") { nav.push(Screen.ThisTv) }
-    else if (!p.tvAuto.value) DeviceCheck.differing(f).let { d ->
+    else if (!p.tvAuto.value) DeviceCheck.differing(f).filter { !DeviceCheck.isMine(it.key) }.let { d ->
         if (d.isNotEmpty()) out += ToDo("${d.size} suggestions for this TV", "OK uses them: " + d.joinToString { "${it.title} ${it.label(it.recommended)}" }) { DeviceCheck.useRecommended(f) }
     }
     return out
@@ -906,7 +922,11 @@ private fun Link(title: String, sub: String, modifier: Modifier = Modifier, valu
 @Composable
 private fun Toggle(title: String, sub: String, flag: Prefs.Flag, modifier: Modifier = Modifier) {
     val on by flag.flow.collectAsState()
-    Focusable({ flag.value = !on }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f -> RowText(title, sub, null, f, switch = on) }
+    var saved by remember { mutableStateOf(false) }
+    LaunchedEffect(saved) { if (saved) { kotlinx.coroutines.delay(3_000); saved = false } }
+    Focusable({ flag.value = !on; saved = true }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
+        RowText(title, sub, null, f, switch = on, badge = if (saved) "✓ Saved: ${if (on) "On" else "Off"}" else null)
+    }
 }
 
 @Composable
@@ -924,8 +944,13 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
     val me = remember { FocusRequester() }
     LaunchedEffect(open) { if (!open && reopened) { androidx.compose.runtime.withFrameNanos { }; runCatching { me.requestFocus() } } }
     val shown = options.firstOrNull { it.first == current }?.second ?: options.first().second
+    // Every pick is acknowledged on the row: "✓ Saved" for a few seconds; a pick away from the recommendation stays marked "Your choice".
+    var saved by remember { mutableStateOf(false) }
+    LaunchedEffect(saved) { if (saved) { kotlinx.coroutines.delay(3_000); saved = false } }
     Focusable({ open = true; reopened = true }, modifier.focusRequester(me).padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { f ->
-        RowText(title, sub, shown, f, hint = recommended?.takeIf { it != current }?.let { r -> "Recommended: " + (options.firstOrNull { it.first == r }?.second ?: r) })
+        RowText(title, sub, shown, f,
+            hint = recommended?.let { r -> if (r == current) "✓ Recommended" else "Recommended: " + (options.firstOrNull { it.first == r }?.second ?: r) },
+            badge = when { saved -> "✓ Saved: $shown"; recommended != null && recommended != current -> "Your choice"; else -> null })
     }
     if (open) Dialog(onDismissRequest = { open = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val reqs = remember(options) { List(options.size) { FocusRequester() } }
@@ -938,11 +963,12 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
             LazyColumn(Modifier.padding(top = 10.dp).heightIn(max = 380.dp)) {
                 items(options.size) { i ->
                     val (id, name) = options[i]
-                    Focusable({ onPick(id); open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { f ->
+                    Focusable({ onPick(id); saved = true; open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { f ->
                         Row(Modifier.fillMaxWidth().background(if (f) GlassFocus else if (id == current) Glass else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Text(name, color = Palette.Text, fontSize = 16.sp, fontWeight = if (id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
                             if (id == recommended) Text("Recommended", color = Good, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+                            else if (id == current && recommended != null) Text("Your choice", color = BrandCyan, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                             if (id == current) androidx.compose.material3.Icon(Icons.Check, null, tint = BrandCyan, modifier = Modifier.size(20.dp))
                         }
                     }
@@ -954,7 +980,7 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
 
 /** A settings row: name and note on the left, the value (or a switch) on the right; focused = white card, dark text. */
 @Composable
-private fun RowText(title: String, sub: String, value: String?, focused: Boolean, switch: Boolean? = null, hint: String? = null) {
+private fun RowText(title: String, sub: String, value: String?, focused: Boolean, switch: Boolean? = null, hint: String? = null, badge: String? = null) {
     val fg = Palette.Text
     val dim = if (focused) Color(0xD9FFFFFF) else Palette.TextDim
     Row(Modifier.fillMaxWidth().background(if (focused) GlassFocus else Glass).border(1.dp, GlassEdge, RoundedCornerShape(14.dp))
@@ -963,7 +989,10 @@ private fun RowText(title: String, sub: String, value: String?, focused: Boolean
         Column(Modifier.weight(1f)) {
             Text(title, color = fg, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             if (sub.isNotEmpty()) Text(sub, color = dim, fontSize = 12.sp, maxLines = 2)
-            if (hint != null) Text(hint, color = Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            if (hint != null || badge != null) Row {
+                if (badge != null) Text(badge, color = BrandCyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 10.dp))
+                if (hint != null) Text(hint, color = Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
         }
         if (switch != null) {
             val track = if (switch) Brush.horizontalGradient(listOf(BrandCyan, BrandViolet)) else SolidColor(Color(0x33FFFFFF))

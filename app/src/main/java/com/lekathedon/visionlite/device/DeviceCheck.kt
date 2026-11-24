@@ -315,12 +315,13 @@ object DeviceCheck {
             val sys = f.dnsMs["system"] ?: -1
             val fastest = working.filterKeys { it != "system" }.minByOrNull { it.value }
             val (rec, why) = when {
+                // The absolute best: the fastest that answers wins; the box's own only when nothing beats it (3 ms = noise).
                 f.dnsBlocked.isNotEmpty() && fastest != null -> fastest.key to
                     "Your internet provider's DNS blocks ${f.dnsBlocked.joinToString()}; ${name(fastest.key)} finds them (${fastest.value} ms)"
                 sys < 0 && fastest != null -> fastest.key to "Your provider's DNS didn't answer properly; ${name(fastest.key)} did (${fastest.value} ms)"
-                fastest != null && sys > 150 && fastest.value * 2 < sys -> fastest.key to
-                    "Your provider's DNS is slow here ($sys ms); ${name(fastest.key)} answers in ${fastest.value} ms"
-                else -> "system" to (if (sys >= 0) "Your provider's DNS answers in $sys ms and blocks nothing the app uses" else "Nothing answered better")
+                fastest != null && fastest.value < sys - 3 -> fastest.key to
+                    "${name(fastest.key)} answers in ${fastest.value} ms, your provider's DNS in $sys ms"
+                else -> "system" to (if (sys >= 0) "Your provider's DNS is the fastest here ($sys ms) and blocks nothing the app uses" else "Nothing answered better")
             }
             add(Choice("dns", "Speed and network", "DNS (who looks up addresses)", opts, rec, why))
         }
@@ -406,13 +407,35 @@ object DeviceCheck {
     /** Rows whose setting differs from the recommendation. */
     fun differing(f: Facts): List<Choice> = choices(f).filter { current(it.key) != it.recommended }
 
-    /** One press: every recommendation applied. Returns how many settings changed. */
-    fun useRecommended(f: Facts): Int {
-        val d = differing(f)
+    private fun mine(): MutableMap<String, String> = p.tvMine.value.split(';').mapNotNull { s ->
+        s.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap().toMutableMap()
+    private fun saveMine(m: Map<String, String>) { p.tvMine.value = m.entries.joinToString(";") { "${it.key}=${it.value}" } }
+
+    /** You picked [v] on a row: set, and remembered as yours when it isn't the recommendation (re-checks keep it). */
+    fun pick(key: String, v: String, recommended: String?) {
+        set(key, v)
+        val m = mine()
+        if (v == recommended) m.remove(key) else m[key] = v
+        saveMine(m)
+    }
+
+    /** The row holds a value you chose yourself (not the recommendation). */
+    fun isMine(key: String): Boolean = mine()[key]?.let { it == current(key) } == true
+
+    /**
+     * Recommendations applied. [keepMine] (automatic paths: Let the app decide, a re-check) leaves your own picks alone;
+     * the "Use all recommended" button passes false and clears them. Returns how many settings changed.
+     */
+    fun useRecommended(f: Facts, keepMine: Boolean = true): Int {
+        val d = differing(f).filter { !keepMine || !isMine(it.key) }
         d.forEach { set(it.key, it.recommended) }
+        if (!keepMine) saveMine(emptyMap())
         p.deviceAsked.value = true
         return d.size
     }
+
+    /** Rows set by you, away from the recommendation. */
+    fun yours(f: Facts): List<Choice> = choices(f).filter { isMine(it.key) && current(it.key) != it.recommended }
 
     /**
      * Let the app decide: on app start, a quick check (no speed test); when the TV or soundbar changed since the last

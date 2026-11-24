@@ -198,6 +198,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var failNote by remember(s.url) { mutableStateOf<String?>(null) }
     remember(s.id) { Sync.open(if (s.type == "live") "" else s.id); 0 }
+    // Live rewind: a fresh ring for this channel before the player opens it (Timeshift.kt); deleted when the player goes.
+    remember(s.url) { if (s.type == "live") Timeshift.begin(s.url, s.headers); 0 }
+    DisposableEffect(s.url) { onDispose { if (s.type == "live") Timeshift.end(s.url) } }
     var firstFrame by remember(s.url, gen) { mutableStateOf(false) }
     val exoStats = remember(s.url, gen, felAllowed, addonSubs) { ExoStats() }
     // True while DV7 plays on the native FEL path: seek thumbnails stay off then (they took a third hardware decoder
@@ -246,7 +249,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
         } else {
             val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
-            val data = androidx.media3.datasource.DefaultDataSource.Factory(context, http)
+            // Live: the bytes the player downloads are also kept for rewind (no second connection).
+            if (s.type == "live") Timeshift.leave()
+            val data = androidx.media3.datasource.DefaultDataSource.Factory(context, if (s.type == "live") Timeshift.tee(http) else http)
             // This TV › Dolby Vision: Vision's converter (DV7/DV5 -> 8.1 via libdovi, HDR10 base layer, HDR10+ strip) reads MKV
             // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
             // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
@@ -411,6 +416,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     session.startupFailover = true
                     session.reason = "MPV couldn't start it"
                     switchTo(Engine.EXO, "startup-failover", at); return
+                }
+                // Rewinding live and the oldest minutes were dropped under the paused picture: on from the oldest kept.
+                if (s.type == "live" && Timeshift.state.value.ring && error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    player.seekTo(0); player.prepare(); return
                 }
                 if (sportsFailover()) return
                 if (liveReconnect(if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) "Fell behind live" else "Signal dropped")) return

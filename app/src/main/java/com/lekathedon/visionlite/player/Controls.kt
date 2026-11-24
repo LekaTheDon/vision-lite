@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.sizeIn
@@ -424,11 +425,14 @@ private fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Uni
 }
 
 @Composable
-internal fun SidePanel(title: String, items: List<String>, selected: Int, onPick: (Int) -> Unit) {
+internal fun SidePanel(title: String, items: List<String>, selected: Int, bottom: Boolean = false, onPick: (Int) -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(30); runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Color(0xF0101114)).padding(24.dp)) {
+        // bottom = the live player's popup over its control bar (TiviMate style), not a side panel.
+        Column((if (bottom) Modifier.align(Alignment.BottomStart).padding(start = 48.dp, bottom = 120.dp).width(440.dp)
+            .heightIn(max = 470.dp).background(Color(0xF0101114), RoundedCornerShape(14.dp)).padding(20.dp)
+        else Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Color(0xF0101114)).padding(24.dp))) {
             Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
             LazyColumn {
                 itemsIndexed(items) { i, label ->
@@ -446,14 +450,14 @@ internal fun SidePanel(title: String, items: List<String>, selected: Int, onPick
 
 /** The file's tracks of [type]; picking one pins it, "Off" turns subtitles off. */
 @Composable
-internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, close: () -> Unit) {
+internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, bottom: Boolean = false, close: () -> Unit) {
     val groups = player.currentTracks.groups.filter { it.type == type }
     val options = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
     val off = allowOff && player.trackSelectionParameters.disabledTrackTypes.contains(type)
     val selected = if (off) 0 else options.indexOfFirst { (g, i) -> g.isTrackSelected(i) }.let { if (allowOff && it >= 0) it + 1 else it }
     val labels = (if (allowOff) listOf("Off") else emptyList()) + options.map { (g, i) -> trackLabel(g.getTrackFormat(i), type) }
-    if (labels.isEmpty()) { SidePanel(title, listOf("None in this file"), -1) { close() }; return }
-    SidePanel(title, labels, selected) { pick ->
+    if (labels.isEmpty()) { SidePanel(title, listOf("None in this file"), -1, bottom) { close() }; return }
+    SidePanel(title, labels, selected, bottom) { pick ->
         val b = player.trackSelectionParameters.buildUpon()
         if (allowOff && pick == 0) b.setTrackTypeDisabled(type, true)
         else {

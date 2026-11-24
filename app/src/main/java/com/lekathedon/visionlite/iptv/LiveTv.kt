@@ -70,6 +70,8 @@ fun LiveTv(nav: Nav) {
     val status by Iptv.status.collectAsState()
     val scope = rememberCoroutineScope()
     var managing by rememberSaveable { mutableStateOf(false) }
+    var arranging by remember { mutableStateOf(false) }
+    val grev by Groups.rev.collectAsState()
     val playlists = remember(version) { Iptv.playlists() }
     // Shown from iptv.db at once; an update due runs in the background (IptvSync), never tied to this page.
     LaunchedEffect(Unit) { if (playlists.isNotEmpty()) { IptvSync.kick(); IptvSync.arm(); IptvSync.prepareVod() } }
@@ -78,9 +80,15 @@ fun LiveTv(nav: Nav) {
         Playlists(onDone = { managing = false; IptvSync.kick(); IptvSync.arm() })
         return
     }
+    if (arranging) {
+        androidx.activity.compose.BackHandler { arranging = false }
+        val all = remember { Groups.arrange("live", Iptv.allGroups(), { it.first }, withHidden = true).map { it.first } }
+        GroupArrange("Arrange / hide Live TV groups", "live", all, onChanged = {}) { arranging = false }
+        return
+    }
     var group by rememberSaveable { mutableStateOf<String?>(if (Iptv.favourites().isNotEmpty()) "★" else null) }
-    val groups by produceState(Iptv.groupsCached(), version) { value = withContext(Dispatchers.IO) { Iptv.groups() } }
-    val channels by produceState(Iptv.channelsCached(group), version, group) { value = withContext(Dispatchers.IO) { Iptv.channels(group) } }
+    val groups by produceState(Iptv.groupsCached(), version, grev) { value = withContext(Dispatchers.IO) { Iptv.groups() } }
+    val channels by produceState(Iptv.channelsCached(group), version, group, grev) { value = withContext(Dispatchers.IO) { Iptv.channels(group) } }
     var focused by remember { mutableStateOf<Channel?>(null) }
     var minute by remember { mutableStateOf(System.currentTimeMillis() / 60_000) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); minute = System.currentTimeMillis() / 60_000 } }
@@ -91,6 +99,7 @@ fun LiveTv(nav: Nav) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Live TV", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(status.ifEmpty { "${channels.size} channels" }, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp).weight(1f))
+            Button("Arrange / hide groups", { arranging = true }, Modifier.padding(end = 8.dp))
             Button("Refresh", { IptvSync.kick(force = true) }, Modifier.padding(end = 8.dp))
             Button("Playlists", { managing = true })
         }

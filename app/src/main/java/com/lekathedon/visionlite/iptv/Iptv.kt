@@ -368,14 +368,16 @@ object Iptv {
     // ---- reading ----
 
     /** Groups across all playlists, in playlist order, with channel counts. */
-    fun groups(): List<Pair<String, Int>> {
+    fun groups(): List<Pair<String, Int>> = Groups.arrange("live", allGroups(), { it.first })
+    /** Every group, hidden ones too, in playlist order (Arrange / hide). */
+    fun allGroups(): List<Pair<String, Int>> {
         val v = _version.value
         groupCache?.takeIf { it.first == v }?.let { return it.second }
         return db.readableDatabase.rawQuery("SELECT grp, COUNT(*) FROM ch GROUP BY grp ORDER BY MIN(rowid)", null).use { c ->
             buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) }
         }.also { groupCache = v to it }
     }
-    fun groupsCached(): List<Pair<String, Int>> = groupCache?.second.orEmpty()
+    fun groupsCached(): List<Pair<String, Int>> = groupCache?.second.orEmpty().let { Groups.arrange("live", it, { g -> g.first }) }
     @Volatile private var groupCache: Pair<Int, List<Pair<String, Int>>>? = null
 
     /** [group] null = all; "★" = favourites. */
@@ -394,7 +396,10 @@ object Iptv {
         val all = db.readableDatabase.rawQuery("SELECT $COLS FROM ch $where ORDER BY rowid", args).use { c ->
             buildList { while (c.moveToNext()) add(readChannel(c)) }
         }
-        return if (favs != null) all.filter { it.key in favs } else all
+        if (favs != null) return all.filter { it.key in favs }
+        // All channels leaves out the groups you hid (Groups.kt).
+        if (group == null) { val hid = Groups.hidden("live"); if (hid.isNotEmpty()) return all.filter { it.group !in hid } }
+        return all
     }
 
     /** What is on now and next on a channel. */

@@ -71,10 +71,16 @@ class Prefs(context: Context) {
     val stripHdr10Plus = Flag("strip_hdr10plus", false)
     /** Playback buffer: "small", "normal" or "large" (large only offered with 3+ GB of RAM). */
     val buffer = Text("buffer", "normal")
+    /** Live rewind (timeshift) in minutes kept on disk per channel; "0" = off. */
+    val liveRewind = Text("live_rewind", "30")
+    /** Live player remote buttons you assigned, "BUTTON=ACTION;…" (player/LiveKeys.kt); empty = defaults. */
+    val liveKeys = Text("live_keys", "")
     /** Let the app decide: the device check reruns when the TV or soundbar changes and applies its recommendations. */
     val tvAuto = Flag("tv_auto", false)
     /** The last device check's findings (JSON, DeviceCheck.Facts). */
     val tvFacts = Text("tv_facts", "")
+    /** Device settings you picked yourself over the recommendation, "key=value;…": automatic re-checks leave them alone. */
+    val tvMine = Text("tv_mine", "")
     /** Performance class chosen in This TV ("light"/"standard"/"full"); "" = measured from memory (device/Tier.kt). */
     val perfClass = Text("perf_class", "")
     /** Newest app exit (ms) already looked at by the "closed unexpectedly" prompt (report/Problems.kt). */
@@ -166,6 +172,8 @@ class Prefs(context: Context) {
     val vodRows = Text("vod_rows", "")
     /** VOD page: categories you moved, in your order ("kind\tgroup" per line); the rest keep the provider's order. */
     val vodOrder = Text("vod_order", "")
+    /** Hidden IPTV groups, "kind\tgroup" lines (kind live / movie / series); iptv/Groups.kt. */
+    val groupsHidden = Text("groups_hidden", "")
     /** Keep this setup in the Nuvio account (integrations/CloudSetup), box-wide; on = restored on any device you sign in on. */
     val cloudSetup = Flag("cloud_setup", true)
     /** Rotating rows (home/Rotation.kt): a fresh set of themed rows under your own every start. */

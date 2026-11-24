@@ -51,6 +51,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import com.lekathedon.visionlite.App
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.MediaItem
 import com.lekathedon.visionlite.iptv.Channel
 import com.lekathedon.visionlite.iptv.EpgProgram
 import com.lekathedon.visionlite.iptv.Iptv
@@ -71,15 +74,18 @@ private fun t(ms: Long) = hm.format(Date(ms))
 private val Gold = Color(0xFFD9DC8E)
 private val Glass = Color(0xEE0E0F12)
 
-private enum class LivePanel { LIST, GUIDE, OPTIONS, AUDIO, SUBS, STATS, SLEEP }
+private enum class LivePanel { LIST, GROUPS, GUIDE, OPTIONS, AUDIO, SUBS, STATS, SLEEP }
+
+private fun span(ms: Long): String { val s = ms / 1000; return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
 /**
- * The live TV player's own controls (not the film player's): a channel banner with now / next, a channel list over
- * the picture, this channel's guide, typed channel numbers and an options menu. Keys while nothing is open:
- * Up / Down and CH± = next / previous channel, OK = channel list, hold OK or Menu = options, Right or Guide = this
- * channel's guide, Left = the channel before, Info = banner, digits = channel number, Play/Pause = pause.
- * Cost: nothing runs while hidden but a 30 s clock; the guide is read from the local guide file only when shown.
+ * The live TV player's own controls, TiviMate style. Every button does what you assigned in Settings › Live TV and
+ * more › Remote buttons (LiveKeys.kt); defaults: OK = channel list (left), hold OK / Menu = control bar along the
+ * bottom, Up / Down = channels, Left / Right = rewind / forward (live rewind, Timeshift.kt), Guide = this channel's
+ * programmes next to the channel list, Play/Pause = pause live. Nothing opens on the right.
+ * Cost: nothing runs while hidden but a 30 s clock (1 s while rewound, for the "behind live" line).
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 internal fun LiveControls(
     player: Player,
@@ -103,6 +109,7 @@ internal fun LiveControls(
     var aspect by remember { mutableIntStateOf(0) }
     var sleepAt by remember { mutableStateOf<Long?>(null) }
     val root = remember { FocusRequester() }
+    val ts by Timeshift.state.collectAsState()
 
     val channel by produceState<Channel?>(null, s.url) { value = withContext(Dispatchers.IO) { Iptv.byUrl(s.url) } }
     val nowNext by produceState(emptyList<EpgProgram>(), channel, minute) {
@@ -132,54 +139,142 @@ internal fun LiveControls(
     }
     LaunchedEffect(panel) { if (panel == null) runCatching { root.requestFocus() } }
 
-    fun zap(step: Int) { Iptv.zap(s.url, step)?.let { tune(it, null) } }
-    var okHeld by remember { mutableStateOf(false) }
-    var okDown by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(!player.playWhenReady) }
     DisposableEffect(player) {
         val l = object : Player.Listener { override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { paused = !playWhenReady } }
         player.addListener(l); onDispose { player.removeListener(l) }
     }
+    // While rewound: a 1 s tick for the "behind live" line.
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(ts.ring) { while (ts.ring) { delay(1_000); tick++ } }
+
+    // ---- live rewind ----
+    fun ringItem(uri: android.net.Uri) = MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.APPLICATION_M3U8)
+        .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()).build()
+    fun behind(): Long = if (ts.ring && player.duration != C.TIME_UNSET) (player.duration - player.currentPosition).coerceAtLeast(0) else 0
+    /** Into the ring [back] ms before what's on screen; paused when [pause]. */
+    fun enterRing(back: Long, pause: Boolean): Boolean {
+        if (engine != Engine.EXO) return false
+        val lag = (player.bufferedPosition - player.currentPosition).coerceIn(0, 60_000)
+        val uri = Timeshift.enter() ?: return false
+        val kept = Timeshift.state.value.keptMs
+        player.setMediaItem(ringItem(uri), (kept - lag - back).coerceAtLeast(0)); player.prepare(); player.playWhenReady = !pause
+        return true
+    }
+    fun goLive() {
+        if (!ts.ring) { if (!player.playWhenReady) player.play(); return }
+        Timeshift.leave(); player.setMediaItem(MediaItem.fromUri(s.url)); player.prepare(); player.play()
+        note = "Live"; banner = SystemClock.uptimeMillis()
+    }
+    fun applySeek(d: Long) {
+        when {
+            engine != Engine.EXO -> note = "Live rewind needs ExoPlayer (hold OK › Engine)"
+            ts.ring -> {
+                val t = player.currentPosition + d
+                if (d > 0 && player.duration != C.TIME_UNSET && t >= player.duration - 3_000) goLive() else player.seekTo(t.coerceAtLeast(0))
+            }
+            d < 0 && ts.on -> if (!enterRing(-d, false)) note = "Nothing to rewind yet"
+            player.isCurrentMediaItemLive && player.isCurrentMediaItemSeekable && player.duration != C.TIME_UNSET ->
+                player.seekTo((player.currentPosition + d).coerceIn(0, player.duration))
+            d > 0 -> note = "You're watching live"
+            App.instance.prefs.liveRewind.value == "0" -> note = "Live rewind is off · Settings › Live TV and more"
+            else -> note = "This channel can't be rewound (HLS link without a rewind window)"
+        }
+        banner = SystemClock.uptimeMillis()
+    }
+    // Presses add up (10 s, then 3 s per repeat while held) and are applied once you stop: one seek, not twenty.
+    var pending by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(pending) { if (pending == 0L) return@LaunchedEffect; delay(650); val d = pending; pending = 0; applySeek(d) }
+    fun seekBy(d: Long) { pending += d; banner = SystemClock.uptimeMillis() }
+    fun pauseToggle() {
+        if (!player.playWhenReady) { player.play(); return }
+        if (!(ts.on && !ts.ring && enterRing(0, pause = true))) player.pause()
+        banner = SystemClock.uptimeMillis()
+    }
+    fun startOver() {
+        val c = channel ?: return
+        val pr = now ?: run { note = "Nothing in the guide right now"; return }
+        Iptv.startOverUrl(c, pr)?.let { playArchive(it, "${c.name} · ${pr.title}", c.headers) } ?: run { note = "No catch-up for this show" }
+    }
+
+    fun zap(step: Int) { Iptv.zap(s.url, step)?.let { tune(it, null) } }
+    fun perform(a: LiveKeys.Action, repeat: Int) {
+        when (a) {
+            LiveKeys.Action.NONE -> {}
+            LiveKeys.Action.CHANNELS -> panel = LivePanel.LIST
+            LiveKeys.Action.GROUPS -> panel = LivePanel.GROUPS
+            LiveKeys.Action.GUIDE -> panel = LivePanel.GUIDE
+            LiveKeys.Action.MENU -> panel = LivePanel.OPTIONS
+            LiveKeys.Action.INFO -> banner = SystemClock.uptimeMillis()
+            LiveKeys.Action.REWIND -> seekBy(if (repeat == 0) -10_000 else -3_000)
+            LiveKeys.Action.FORWARD -> seekBy(if (repeat == 0) 10_000 else 3_000)
+            LiveKeys.Action.PLAY_PAUSE -> if (repeat == 0) pauseToggle()
+            LiveKeys.Action.GO_LIVE -> if (repeat == 0) goLive()
+            LiveKeys.Action.START_OVER -> if (repeat == 0) startOver()
+            LiveKeys.Action.ZAP_PREV -> if (repeat % 5 == 0) zap(-1)
+            LiveKeys.Action.ZAP_NEXT -> if (repeat % 5 == 0) zap(1)
+            LiveKeys.Action.LAST_CHANNEL -> if (repeat == 0) scope.launch {
+                withContext(Dispatchers.IO) { Iptv.previous(s.url) }?.let { tune(it, null) } ?: run { note = "No channel before this one" }
+            }
+            LiveKeys.Action.FAVOURITE -> channel?.takeIf { repeat == 0 }?.let { c ->
+                Iptv.toggleFavourite(c); note = if (Iptv.isFavourite(c)) "Added to favourites" else "Removed from favourites"
+            }
+            LiveKeys.Action.RECORD -> channel?.takeIf { repeat == 0 }?.let { c ->
+                if (recording != null) { Recorder.stop(recording.id); note = "Recording stopped" }
+                else { Recorder.recordNow(c, now?.title ?: c.name, now?.stopMs?.plus(120_000L)); note = "Recording" }
+            }
+            LiveKeys.Action.AUDIO -> panel = LivePanel.AUDIO
+            LiveKeys.Action.SUBTITLES -> panel = LivePanel.SUBS
+            LiveKeys.Action.PICTURE -> if (repeat == 0) {
+                aspect = (aspect + 1) % 3
+                onAspect(listOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT, androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL)[aspect])
+                note = "Picture: ${listOf("Fit", "Zoom", "Stretch")[aspect]}"
+            }
+            LiveKeys.Action.SLEEP -> panel = LivePanel.SLEEP
+            LiveKeys.Action.STATS -> panel = LivePanel.STATS
+        }
+    }
+    // A key with a hold action of its own decides on release (short) or on its first repeat (hold).
+    var downKey by remember { mutableStateOf<Key?>(null) }
+    var heldFired by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().focusRequester(root).focusable().onPreviewKeyEvent { e ->
-        val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
         if (e.key == Key.Back) {
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            // The channel list handles its own Back (programmes → channels → groups → closed).
+            if (panel in listOf(LivePanel.LIST, LivePanel.GROUPS, LivePanel.GUIDE)) return@onPreviewKeyEvent false
             if (panel != null) { panel = if (panel in listOf(LivePanel.AUDIO, LivePanel.SUBS, LivePanel.SLEEP, LivePanel.STATS)) LivePanel.OPTIONS else null; return@onPreviewKeyEvent true }
+            if (pending != 0L) { pending = 0; return@onPreviewKeyEvent true }
             if (bannerOn) { bannerOn = false; return@onPreviewKeyEvent true }
             return@onPreviewKeyEvent false
         }
         if (panel != null) return@onPreviewKeyEvent false
-        // OK: short = channel list, hold = options (decided on release / first repeat).
-        // okDown: only a press that started here counts (not the release of a press that picked something in a panel).
-        if (ok) {
-            when {
-                e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> { okHeld = false; okDown = true }
-                e.type == KeyEventType.KeyDown -> if (okDown && !okHeld) { okHeld = true; okDown = false; HoldGuard.held(); panel = LivePanel.OPTIONS }
-                e.type == KeyEventType.KeyUp -> { if (okDown && !okHeld) panel = LivePanel.LIST; okDown = false }
+        if (e.type == KeyEventType.KeyDown) {
+            val digit = when (e.key) {
+                Key.Zero, Key.NumPad0 -> 0; Key.One, Key.NumPad1 -> 1; Key.Two, Key.NumPad2 -> 2; Key.Three, Key.NumPad3 -> 3
+                Key.Four, Key.NumPad4 -> 4; Key.Five, Key.NumPad5 -> 5; Key.Six, Key.NumPad6 -> 6; Key.Seven, Key.NumPad7 -> 7
+                Key.Eight, Key.NumPad8 -> 8; Key.Nine, Key.NumPad9 -> 9; else -> -1
             }
+            if (digit >= 0) { if (digits.length < 5) digits += digit; return@onPreviewKeyEvent true }
+        }
+        val (short, long) = LiveKeys.buttonOf(e.key) ?: return@onPreviewKeyEvent false
+        val sa = LiveKeys.get(short)
+        val la = long?.let { LiveKeys.get(it) }
+        val rc = e.nativeKeyEvent.repeatCount
+        val ownHold = la != null && la != sa
+        if (!ownHold) {
+            // Same action held: act on press, and again while held for the repeating ones (rewind, channels).
+            if (e.type == KeyEventType.KeyDown && (rc == 0 || LiveKeys.repeats(sa))) perform(sa, rc)
             return@onPreviewKeyEvent true
         }
-        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        val digit = when (e.key) {
-            Key.Zero, Key.NumPad0 -> 0; Key.One, Key.NumPad1 -> 1; Key.Two, Key.NumPad2 -> 2; Key.Three, Key.NumPad3 -> 3
-            Key.Four, Key.NumPad4 -> 4; Key.Five, Key.NumPad5 -> 5; Key.Six, Key.NumPad6 -> 6; Key.Seven, Key.NumPad7 -> 7
-            Key.Eight, Key.NumPad8 -> 8; Key.Nine, Key.NumPad9 -> 9; else -> -1
-        }
-        if (digit >= 0) { if (digits.length < 5) digits += digit; return@onPreviewKeyEvent true }
-        when (e.key) {
-            Key.DirectionUp, Key.ChannelUp -> zap(-1)
-            Key.DirectionDown, Key.ChannelDown -> zap(1)
-            Key.DirectionRight, Key.Guide -> panel = LivePanel.GUIDE
-            Key.DirectionLeft, Key.LastChannel -> scope.launch {
-                withContext(Dispatchers.IO) { Iptv.previous(s.url) }?.let { tune(it, null) } ?: run { note = "No channel before this one" }
+        when {
+            e.type == KeyEventType.KeyDown && rc == 0 -> { downKey = e.key; heldFired = false }
+            e.type == KeyEventType.KeyDown -> if (downKey == e.key) {
+                if (!heldFired) { heldFired = true; HoldGuard.held(); perform(la!!, 0) }
+                else if (LiveKeys.repeats(la!!)) perform(la, rc)
             }
-            Key.Menu -> panel = LivePanel.OPTIONS
-            Key.Info -> banner = SystemClock.uptimeMillis()
-            Key.MediaPlayPause -> if (player.playWhenReady) player.pause() else player.play()
-            Key.MediaPlay -> player.play()
-            Key.MediaPause -> player.pause()
-            else -> return@onPreviewKeyEvent false
+            e.type == KeyEventType.KeyUp -> { if (downKey == e.key && !heldFired) perform(sa, 0); downKey = null }
         }
         true
     }) {
@@ -188,76 +283,98 @@ internal fun LiveControls(
         if (digits.isNotEmpty()) Text(digits, color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 32.dp, end = 48.dp).background(Color(0xCC000000), RoundedCornerShape(10.dp))
                 .padding(horizontal = 22.dp, vertical = 6.dp))
-        if (paused) Text("❚❚  Paused · Play to go on", color = Color.White, fontSize = 15.sp,
+        if (paused) Text("❚❚  Paused" + (if (ts.ring) " · ${span(behind())} behind live" else "") + " · Play to go on", color = Color.White, fontSize = 15.sp,
             modifier = Modifier.align(Alignment.TopStart).padding(top = 32.dp, start = 48.dp).background(Color(0xCC000000), RoundedCornerShape(8.dp))
                 .padding(horizontal = 14.dp, vertical = 6.dp))
 
-        if ((bannerOn || panel == LivePanel.OPTIONS) && panel != LivePanel.LIST && panel != LivePanel.GUIDE)
-            Banner(channel, s.title, nowNext, now, nowMs, recording != null, sleepAt, player, Modifier.align(Alignment.BottomStart))
+        val listOpen = panel == LivePanel.LIST || panel == LivePanel.GROUPS || panel == LivePanel.GUIDE
+        val bar = panel in listOf(LivePanel.OPTIONS, LivePanel.AUDIO, LivePanel.SUBS, LivePanel.SLEEP)
+        if ((bannerOn || bar || pending != 0L) && !listOpen) {
+            tick
+            val shift = Shift(ts.on, ts.ring, ts.keptMs, (behind() - pending).coerceIn(0, maxOf(ts.keptMs, behind())), pending != 0L)
+            Banner(channel, s.title, nowNext, now, nowMs, recording != null, sleepAt, player, shift, if (bar) 96.dp else 0.dp, Modifier.align(Alignment.BottomStart))
+        }
 
         when (panel) {
-            LivePanel.LIST -> ChannelList(s.url, minute, onPick = { c, list -> panel = null; tune(c, list) }, onClose = { panel = null })
-            LivePanel.GUIDE -> channel?.let { c ->
-                GuidePanel(c, minute, onLive = { panel = null },
-                    onArchive = { url, title -> panel = null; playArchive(url, "${c.name} · $title", c.headers) },
-                    onNote = { note = it })
-            }
-            LivePanel.OPTIONS -> {
+            LivePanel.LIST, LivePanel.GROUPS, LivePanel.GUIDE -> ChannelList(s.url, minute, startGroups = panel == LivePanel.GROUPS,
+                guideOf = if (panel == LivePanel.GUIDE) channel else null,
+                onPick = { c, list -> panel = null; tune(c, list) },
+                onArchive = { c, url, title -> panel = null; playArchive(url, "${c.name} · $title", c.headers) },
+                onNote = { note = it }, onClose = { panel = null })
+            LivePanel.OPTIONS, LivePanel.AUDIO, LivePanel.SUBS, LivePanel.SLEEP -> {
                 val c = channel
                 val items = buildList<Pair<String, () -> Unit>> {
+                    if (engine == Engine.EXO && (ts.on || player.isCurrentMediaItemSeekable)) add("⏪  10 s" to { seekBy(-10_000) })
+                    add((if (paused) "▶  Play" else "❚❚  Pause") to { pauseToggle() })
+                    if (ts.ring) { add("10 s  ⏩" to { seekBy(10_000) }); add("●  Live" to { goLive() }) }
                     if (c != null) {
-                        now?.let { pr -> Iptv.startOverUrl(c, pr)?.let { url -> add("⟲ Start over · ${pr.title}" to { panel = null; playArchive(url, "${c.name} · ${pr.title}", c.headers) }) } }
-                        add((if (Iptv.isFavourite(c)) "★ Remove from favourites" else "☆ Add to favourites") to {
-                            Iptv.toggleFavourite(c); note = if (Iptv.isFavourite(c)) "Added to favourites" else "Removed from favourites"; panel = null
-                        })
-                        add((if (recording != null) "■ Stop recording" else "● Record " + (now?.let { "\"${it.title}\" (to ${t(it.stopMs)})" } ?: "now (2 h)")) to {
-                            if (recording != null) { Recorder.stop(recording.id); note = "Recording stopped" }
-                            else { Recorder.recordNow(c, now?.title ?: c.name, now?.stopMs?.plus(120_000L)); note = "Recording" }
-                            panel = null
-                        })
-                        add("Guide for this channel" to { panel = LivePanel.GUIDE })
+                        now?.let { pr -> Iptv.startOverUrl(c, pr)?.let { url -> add("⟲  Start over" to { panel = null; playArchive(url, "${c.name} · ${pr.title}", c.headers) }) } }
+                        add("Guide" to { panel = LivePanel.GUIDE })
+                        add((if (Iptv.isFavourite(c)) "★  Favourite" else "☆  Favourite") to { perform(LiveKeys.Action.FAVOURITE, 0) })
+                        add((if (recording != null) "■  Stop recording" else "●  Record") to { perform(LiveKeys.Action.RECORD, 0) })
                     }
                     add("Audio" to { panel = LivePanel.AUDIO })
-                    add("Subtitles / captions" to { panel = LivePanel.SUBS })
-                    add("Picture · ${listOf("Fit", "Zoom", "Stretch")[aspect]}" to {
-                        aspect = (aspect + 1) % 3
-                        onAspect(listOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT, androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
-                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL)[aspect])
-                        note = "Picture: ${listOf("Fit", "Zoom", "Stretch")[aspect]}"
-                    })
-                    add((sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: "Sleep timer") to { panel = LivePanel.SLEEP })
+                    add("Subtitles" to { panel = LivePanel.SUBS })
+                    add("Picture · ${listOf("Fit", "Zoom", "Stretch")[aspect]}" to { perform(LiveKeys.Action.PICTURE, 0) })
+                    add((sleepAt?.let { "Sleep · ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: "Sleep") to { panel = LivePanel.SLEEP })
+                    add("Last channel" to { panel = null; perform(LiveKeys.Action.LAST_CHANNEL, 0) })
                     add("Stats" to { panel = LivePanel.STATS })
-                    add("Engine · ${engine.label} (switch)" to { panel = null; onEngine() })
+                    add("Engine · ${engine.label}" to { panel = null; onEngine() })
                 }
-                SidePanel(c?.name ?: s.title, items.map { it.first }, -1) { i -> items[i].second() }
-            }
-            LivePanel.AUDIO -> TrackPanel("Audio", player, C.TRACK_TYPE_AUDIO, allowOff = false) { panel = null }
-            LivePanel.SUBS -> TrackPanel("Subtitles / captions", player, C.TRACK_TYPE_TEXT, allowOff = true) { panel = null }
-            LivePanel.STATS -> StatsPanel(remember(engine) { stats() }, Modifier.align(Alignment.TopEnd))
-            LivePanel.SLEEP -> {
-                val opts = listOf(0, 15, 30, 60, 90, 120)
-                val labels = opts.map { if (it == 0) "Off" else "$it minutes" } + listOfNotNull(now?.let { "End of \"${it.title}\" (${t(it.stopMs)})" })
-                SidePanel("Sleep timer", labels, if (sleepAt == null) 0 else -1) { i ->
-                    sleepAt = when {
-                        i == 0 -> null
-                        i < opts.size -> System.currentTimeMillis() + opts[i] * 60_000L
-                        else -> now?.stopMs
+                ControlBar(items, active = panel == LivePanel.OPTIONS, Modifier.align(Alignment.BottomStart))
+                when (panel) {
+                    LivePanel.AUDIO -> TrackPanel("Audio", player, C.TRACK_TYPE_AUDIO, allowOff = false, bottom = true) { panel = LivePanel.OPTIONS }
+                    LivePanel.SUBS -> TrackPanel("Subtitles / captions", player, C.TRACK_TYPE_TEXT, allowOff = true, bottom = true) { panel = LivePanel.OPTIONS }
+                    LivePanel.SLEEP -> {
+                        val opts = listOf(0, 15, 30, 60, 90, 120)
+                        val labels = opts.map { if (it == 0) "Off" else "$it minutes" } + listOfNotNull(now?.let { "End of \"${it.title}\" (${t(it.stopMs)})" })
+                        SidePanel("Sleep timer", labels, if (sleepAt == null) 0 else -1, bottom = true) { i ->
+                            sleepAt = when {
+                                i == 0 -> null
+                                i < opts.size -> System.currentTimeMillis() + opts[i] * 60_000L
+                                else -> now?.stopMs
+                            }
+                            note = sleepAt?.let { "Pauses at ${t(it)}" } ?: "Sleep timer off"
+                            panel = LivePanel.OPTIONS
+                        }
                     }
-                    note = sleepAt?.let { "Pauses at ${t(it)}" } ?: "Sleep timer off"
-                    panel = null
+                    else -> {}
                 }
             }
+            LivePanel.STATS -> StatsPanel(remember(engine) { stats() }, Modifier.align(Alignment.TopStart))
             null -> {}
         }
     }
 }
 
+/** The control bar along the bottom (hold OK / Menu): one row of buttons, Left / Right to move, Back closes. */
+@Composable
+private fun ControlBar(items: List<Pair<String, () -> Unit>>, active: Boolean, modifier: Modifier) {
+    val first = remember { FocusRequester() }
+    var focusedAt by remember { mutableIntStateOf(if (items.size > 1 && items[0].first.startsWith("⏪")) 1 else 0) }
+    LaunchedEffect(active) { if (active) { delay(30); runCatching { first.requestFocus() } } }
+    androidx.compose.foundation.lazy.LazyRow(modifier.fillMaxWidth().padding(start = 40.dp, end = 40.dp, bottom = 34.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        itemsIndexed(items) { i, (label, act) ->
+            Focusable(act, (if (i == focusedAt.coerceAtMost(items.lastIndex)) Modifier.focusRequester(first) else Modifier), RoundedCornerShape(22.dp),
+                onFocus = { focusedAt = i }) { f ->
+                Text(label, color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                    modifier = Modifier.background(if (f) Color.White else Color(0x33FFFFFF)).padding(horizontal = 18.dp, vertical = 10.dp))
+            }
+        }
+    }
+}
+
+/** Live rewind facts for the banner. */
+private class Shift(val on: Boolean, val ring: Boolean, val keptMs: Long, val behindMs: Long, val seeking: Boolean)
+
 /** Bottom banner: number, logo, name, what's on with its progress, what's next, and the line's picture. */
 @Composable
-private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: EpgProgram?, nowMs: Long, rec: Boolean, sleepAt: Long?, player: Player, modifier: Modifier) {
+private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: EpgProgram?, nowMs: Long, rec: Boolean, sleepAt: Long?, player: Player,
+                   shift: Shift, lift: androidx.compose.ui.unit.Dp, modifier: Modifier) {
     val next = nowNext.firstOrNull { it != now && it.startMs >= (now?.stopMs ?: 0) }
-    Box(modifier.fillMaxWidth().height(230.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF0000000)))))
-    Row(modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 40.dp), verticalAlignment = Alignment.Bottom) {
+    Box(modifier.fillMaxWidth().height(230.dp + lift).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF0000000)))))
+    Row(modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 40.dp + lift), verticalAlignment = Alignment.Bottom) {
         Box(Modifier.size(132.dp, 74.dp).background(Color(0x22FFFFFF), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             Img(c?.logo, 120.dp, 66.dp, Modifier.size(120.dp, 66.dp), ContentScale.Fit)
         }
@@ -299,33 +416,61 @@ private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: E
                     Text(it.title, color = Color(0xFFDDDDDD), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Text("OK channels · Right guide · Left last channel · hold OK options", color = Color(0x99FFFFFF), fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+            // Live rewind: where you are between the oldest kept minute and live.
+            if (shift.ring || shift.seeking) {
+                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (shift.behindMs <= 0) "●  LIVE" else "⏪  ${span(shift.behindMs)} behind live", color = if (shift.behindMs <= 0) Color(0xFFFF6B6B) else Gold,
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(190.dp))
+                    Box(Modifier.weight(1f).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(50))) {
+                        val kept = shift.keptMs.coerceAtLeast(1)
+                        Box(Modifier.fillMaxHeight().fillMaxWidth((1f - shift.behindMs.toFloat() / kept).coerceIn(0f, 1f)).background(Color(0xFFFF6B6B), RoundedCornerShape(50)))
+                    }
+                    Text("  ${span(shift.keptMs)} kept", color = Color(0xFFB0B0B0), fontSize = 12.sp)
+                }
+            } else if (shift.on && shift.keptMs > 0) Text("●  LIVE · rewind up to ${span(shift.keptMs)}", color = Color(0xFFB0B0B0), fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            fun k(b: LiveKeys.Button) = LiveKeys.get(b).label.lowercase()
+            Text("OK ${k(LiveKeys.Button.OK)} · ◀ ${k(LiveKeys.Button.LEFT)} · ▶ ${k(LiveKeys.Button.RIGHT)} · hold OK ${k(LiveKeys.Button.LONG_OK)}",
+                color = Color(0x99FFFFFF), fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
 
 /**
- * Channel list over the picture (left side): the list Up / Down steps through, the playing channel focused, each row
- * with what's on. Left opens the groups; picking a group lists its channels; OK plays, hold OK = favourite.
+ * Channel list over the picture (left side, TiviMate): the list Up / Down steps through, the playing channel focused,
+ * each row with what's on. Left opens the groups; Right shows that channel's programmes next to the list (aired ones
+ * play from catch-up, later ones record); OK plays, hold OK = favourite. Back steps back one level.
  */
 @Composable
-private fun ChannelList(current: String, minute: Long, onPick: (Channel, List<Channel>) -> Unit, onClose: () -> Unit) {
+private fun ChannelList(current: String, minute: Long, startGroups: Boolean, guideOf: Channel?, onPick: (Channel, List<Channel>) -> Unit,
+                        onArchive: (Channel, String, String) -> Unit, onNote: (String) -> Unit, onClose: () -> Unit) {
     var group by remember { mutableStateOf<String?>(null) }   // null = the list playing now
-    var picking by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(startGroups) }
+    var progFor by remember { mutableStateOf(guideOf) }
     val version by Iptv.version.collectAsState()
-    val channels by produceState(Iptv.zapList, group, version) {
+    val grev by com.lekathedon.visionlite.iptv.Groups.rev.collectAsState()
+    val channels by produceState(Iptv.zapList, group, version, grev) {
         val g = group
         if (g != null) value = withContext(Dispatchers.IO) { Iptv.channels(g.ifEmpty { null }) }
     }
-    val groups by produceState(emptyList<Pair<String, Int>>(), picking) { if (picking) value = withContext(Dispatchers.IO) { Iptv.groups() } }
+    val groups by produceState(emptyList<Pair<String, Int>>(), picking, grev) { if (picking) value = withContext(Dispatchers.IO) { Iptv.groups() } }
     val list = rememberLazyListState()
     val focus = remember { FocusRequester() }
-    val start = channels.indexOfFirst { it.url == current }.coerceAtLeast(0)
-    LaunchedEffect(channels, picking) {
-        if (picking || channels.isEmpty()) return@LaunchedEffect
-        list.scrollToItem((start - 3).coerceAtLeast(0)); delay(40); runCatching { focus.requestFocus() }
+    var focusAt by remember { mutableIntStateOf(-1) }
+    val start = if (focusAt >= 0) focusAt.coerceAtMost((channels.size - 1).coerceAtLeast(0)) else channels.indexOfFirst { it.url == current }.coerceAtLeast(0)
+    LaunchedEffect(channels, picking, progFor) {
+        if (picking || channels.isEmpty() || progFor != null) return@LaunchedEffect
+        if (list.firstVisibleItemIndex > start || start > list.firstVisibleItemIndex + 8) list.scrollToItem((start - 3).coerceAtLeast(0))
+        delay(40); runCatching { focus.requestFocus() }
     }
-    Row(Modifier.fillMaxSize()) {
+    Row(Modifier.fillMaxSize().onPreviewKeyEvent { e ->
+        if (e.key != Key.Back || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when {
+            progFor != null && guideOf == null -> progFor = null
+            picking && !startGroups -> picking = false
+            else -> onClose()
+        }
+        true
+    }) {
         if (picking) {
             val gFocus = remember { FocusRequester() }
             LaunchedEffect(groups) { if (groups.isNotEmpty()) { delay(40); runCatching { gFocus.requestFocus() } } }
@@ -333,7 +478,7 @@ private fun ChannelList(current: String, minute: Long, onPick: (Channel, List<Ch
             LazyColumn(Modifier.width(300.dp).fillMaxHeight().background(Glass), contentPadding = PaddingValues(vertical = 32.dp, horizontal = 12.dp)) {
                 itemsIndexed(all, key = { _, it -> it.first }) { i, (g, n) ->
                     val name = when (g) { "★" -> "★ Favourites"; Iptv.RECENT -> "⟲ Recent"; "" -> "All channels"; else -> g }
-                    Focusable({ group = g; picking = false }, (if (i == 0) Modifier.focusRequester(gFocus) else Modifier).padding(bottom = 4.dp).fillMaxWidth()) { f ->
+                    Focusable({ group = g; picking = false; focusAt = 0 }, (if (i == 0) Modifier.focusRequester(gFocus) else Modifier).padding(bottom = 4.dp).fillMaxWidth()) { f ->
                         Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color.Transparent).padding(10.dp)) {
                             Text(name, color = if (f) Color.Black else Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             Text("$n", color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp)
@@ -345,7 +490,7 @@ private fun ChannelList(current: String, minute: Long, onPick: (Channel, List<Ch
         Column(Modifier.width(520.dp).fillMaxHeight().background(Glass).padding(top = 28.dp, start = 16.dp, end = 16.dp)) {
             Text(when (group) { null -> "Channels"; "★" -> "★ Favourites"; Iptv.RECENT -> "⟲ Recent"; "" -> "All channels"; else -> group!! },
                 color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("${channels.size} channels · Left: groups · hold OK: favourite", color = Color(0xFFAAAAAA), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+            Text("${channels.size} channels · Left: groups · Right: programmes · hold OK: favourite", color = Color(0xFFAAAAAA), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
             if (channels.isEmpty()) Text(if (group == "★") "No favourites yet: hold OK on a channel." else "No channels here.", color = Color(0xFFAAAAAA), fontSize = 14.sp)
             LazyColumn(state = list, contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 itemsIndexed(channels, key = { _, c -> c.key }) { i, c ->
@@ -358,14 +503,16 @@ private fun ChannelList(current: String, minute: Long, onPick: (Channel, List<Ch
                         when {
                             e.type != KeyEventType.KeyDown -> false
                             e.key == Key.DirectionLeft -> { picking = true; true }
+                            e.key == Key.DirectionRight -> { focusAt = i; progFor = c; true }
                             ok && e.nativeKeyEvent.repeatCount == 1 -> { HoldGuard.held(); Iptv.toggleFavourite(c); favTick++; true }
                             ok && e.nativeKeyEvent.repeatCount > 1 -> true
                             else -> false
                         }
-                    }) { f ->
+                    }, onFocus = { focusAt = i }) { f ->
                         val playing = c.url == current
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (playing) Color(0x33D9DC8E) else Color(0x0DFFFFFF)).padding(horizontal = 10.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
+                        val shown = progFor?.key == c.key
+                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (shown) Color(0x55FFFFFF) else if (playing) Color(0x33D9DC8E) else Color(0x0DFFFFFF))
+                            .padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("${c.n}", color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 13.sp, modifier = Modifier.width(46.dp))
                             Box(Modifier.size(54.dp, 30.dp), contentAlignment = Alignment.Center) { Img(c.logo, 54.dp, 30.dp, Modifier.size(54.dp, 30.dp), ContentScale.Fit) }
                             Column(Modifier.padding(start = 10.dp).weight(1f)) {
@@ -384,51 +531,60 @@ private fun ChannelList(current: String, minute: Long, onPick: (Channel, List<Ch
                 }
             }
         }
+        progFor?.let { c ->
+            Programmes(c, minute, onLive = { if (c.url == current) onClose() else onPick(c, channels) },
+                onArchive = { url, title -> onArchive(c, url, title) }, onNote = onNote,
+                onBack = { if (guideOf != null) onClose() else progFor = null })
+        }
     }
 }
 
 /**
- * This channel's guide (right side): aired shows play from catch-up, the running one says so (OK = back to live,
- * or start over from the options), later ones set or clear a recording.
+ * One channel's programmes, next to the channel list: aired shows play from catch-up, the running one plays the
+ * channel, later ones set or clear a recording. Left (or Back) returns to the channels.
  */
 @Composable
-private fun GuidePanel(c: Channel, minute: Long, onLive: () -> Unit, onArchive: (String, String) -> Unit, onNote: (String) -> Unit) {
+private fun Programmes(c: Channel, minute: Long, onLive: () -> Unit, onArchive: (String, String) -> Unit, onNote: (String) -> Unit, onBack: () -> Unit) {
     val all by produceState(emptyList<EpgProgram>(), c, minute / 10) { value = withContext(Dispatchers.IO) { runCatching { Iptv.schedule(c) }.getOrDefault(emptyList()) } }
     val nowMs = System.currentTimeMillis()
     val nowIndex = all.indexOfFirst { it.stopMs > nowMs }.coerceAtLeast(0)
     val list = rememberLazyListState()
     val focus = remember { FocusRequester() }
-    LaunchedEffect(all.size) { if (all.isNotEmpty()) { list.scrollToItem((nowIndex - 2).coerceAtLeast(0)); delay(40); runCatching { focus.requestFocus() } } }
+    LaunchedEffect(c, all.size) { if (all.isNotEmpty()) { list.scrollToItem((nowIndex - 2).coerceAtLeast(0)); delay(40); runCatching { focus.requestFocus() } } }
     val recs by Recorder.list.collectAsState()
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.align(Alignment.CenterEnd).width(520.dp).fillMaxHeight().background(Glass).padding(top = 28.dp, start = 18.dp, end = 18.dp)) {
-            Text(c.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(c.catchup?.let { "Catch-up ${it.days} days: OK on an aired show plays it" } ?: "OK on a later show records it",
-                color = Color(0xFFAAAAAA), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
-            if (all.isEmpty()) { Text("No guide for this channel", color = Color(0xFFAAAAAA), fontSize = 14.sp); return@Column }
-            LazyColumn(state = list, contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                itemsIndexed(all) { i, pr ->
-                    val live = pr.isLive(nowMs)
-                    val past = pr.stopMs <= nowMs
-                    val archive = if (past) Iptv.catchupUrl(c, pr, nowMs) else null
-                    val set = !past && !live && recs.any { it.url == c.url && it.title == pr.title && it.start == pr.startMs - 60_000L && it.state == "scheduled" }
-                    Focusable({
-                        when {
-                            live -> onLive()
-                            archive != null -> onArchive(archive, pr.title)
-                            past -> onNote("Not in this channel's catch-up")
-                            set -> { Recorder.unschedule(c, pr); onNote("Recording cancelled") }
-                            else -> { Recorder.schedule(c, pr); onNote("Will record \"${pr.title}\" at ${t(pr.startMs)}") }
-                        }
-                    }, (if (i == nowIndex) Modifier.focusRequester(focus) else Modifier).fillMaxWidth()) { f ->
-                        Column(Modifier.fillMaxWidth().background(if (f) Color.White else if (live) Color(0x22D9DC8E) else Color.Transparent).padding(8.dp)) {
-                            val tag = when { live -> "NOW"; archive != null -> "▶ CATCH-UP"; past -> "AIRED"; set -> "● REC SET"; else -> "" }
-                            Text("${t(pr.startMs)}–${t(pr.stopMs)}  $tag", color = if (f) Color.DarkGray else if (live || archive != null) Gold else Color(0xFFAAAAAA),
-                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text(pr.title, color = if (f) Color.Black else if (past && archive == null) Color(0xFF999999) else Color.White, fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            if (f || live) pr.description?.let { Text(it, color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-                        }
+    Column(Modifier.width(500.dp).fillMaxHeight().background(Color(0xF2141519)).padding(top = 28.dp, start = 18.dp, end = 18.dp)
+        .onPreviewKeyEvent { e -> if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { onBack(); true } else false }) {
+        Text(c.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(c.catchup?.let { "Catch-up ${it.days} days: OK on an aired show plays it" } ?: "OK on a later show records it",
+            color = Color(0xFFAAAAAA), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+        if (all.isEmpty()) {
+            Focusable(onBack, Modifier.focusRequester(focus)) { f -> Text("No guide for this channel", color = if (f) Color.Black else Color(0xFFAAAAAA), fontSize = 14.sp,
+                modifier = Modifier.background(if (f) Color.White else Color.Transparent).padding(8.dp)) }
+            LaunchedEffect(Unit) { delay(40); runCatching { focus.requestFocus() } }
+            return@Column
+        }
+        LazyColumn(state = list, contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            itemsIndexed(all) { i, pr ->
+                val live = pr.isLive(nowMs)
+                val past = pr.stopMs <= nowMs
+                val archive = if (past) Iptv.catchupUrl(c, pr, nowMs) else null
+                val set = !past && !live && recs.any { it.url == c.url && it.title == pr.title && it.start == pr.startMs - 60_000L && it.state == "scheduled" }
+                Focusable({
+                    when {
+                        live -> onLive()
+                        archive != null -> onArchive(archive, pr.title)
+                        past -> onNote("Not in this channel's catch-up")
+                        set -> { Recorder.unschedule(c, pr); onNote("Recording cancelled") }
+                        else -> { Recorder.schedule(c, pr); onNote("Will record \"${pr.title}\" at ${t(pr.startMs)}") }
+                    }
+                }, (if (i == nowIndex) Modifier.focusRequester(focus) else Modifier).fillMaxWidth()) { f ->
+                    Column(Modifier.fillMaxWidth().background(if (f) Color.White else if (live) Color(0x22D9DC8E) else Color.Transparent).padding(8.dp)) {
+                        val tag = when { live -> "NOW"; archive != null -> "▶ CATCH-UP"; past -> "AIRED"; set -> "● REC SET"; else -> "" }
+                        Text("${t(pr.startMs)}–${t(pr.stopMs)}  $tag", color = if (f) Color.DarkGray else if (live || archive != null) Gold else Color(0xFFAAAAAA),
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(pr.title, color = if (f) Color.Black else if (past && archive == null) Color(0xFF999999) else Color.White, fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (f || live) pr.description?.let { Text(it, color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }

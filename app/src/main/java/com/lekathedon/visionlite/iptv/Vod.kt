@@ -290,22 +290,14 @@ object Vod {
     fun groupsCached(kind: String): List<Pair<String, Int>> = groupCache[kind]?.second.orEmpty()
 
     /** The categories you moved first, in your order; then the provider's order. Adult ones out when Hide adult is on. */
-    fun arranged(kind: String, list: List<Pair<String, Int>>): List<Pair<String, Int>> {
-        val prefs = App.instance.prefs
-        val mine = prefs.vodOrder.value.split('\n').mapNotNull { l -> l.split('\t', limit = 2).takeIf { it.size == 2 && it[0] == kind }?.get(1) }
-        val at = mine.withIndex().associate { it.value to it.index }
-        val adult = prefs.hideAdult.value
-        return list.filter { !adult || ADULT.none { a -> it.first.contains(a, true) } }
-            .withIndex().sortedBy { (i, g) -> at[g.first] ?: (at.size + i) }.map { it.value }
+    fun arranged(kind: String, list: List<Pair<String, Int>>, withHidden: Boolean = false): List<Pair<String, Int>> {
+        val adult = App.instance.prefs.hideAdult.value
+        return Groups.arrange(kind, list.filter { !adult || ADULT.none { a -> it.first.contains(a, true) } }, { it.first }, withHidden)
     }
     private val ADULT = listOf("+18", "18+", "adult", "xxx", "للكبار")
 
     /** Saves [kind]'s categories in this order (the Arrange list). */
-    fun saveOrder(kind: String, groups: List<String>) {
-        val p = App.instance.prefs.vodOrder
-        val others = p.value.split('\n').filter { it.isNotEmpty() && !it.startsWith("$kind\t") }
-        p.value = (others + groups.map { "$kind\t$it" }).joinToString("\n")
-    }
+    fun saveOrder(kind: String, groups: List<String>) = Groups.saveOrder(kind, groups)
     private val groupCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, List<Pair<String, Int>>>>()
 
     fun items(kind: String, group: String?, offset: Int = 0, limit: Int = 3000): List<VodItem> {
@@ -388,7 +380,12 @@ fun VodScreen(nav: Nav) {
     var series by remember { mutableStateOf<VodItem?>(null) }
     var arranging by remember { mutableStateOf(false) }
     if (series != null) { androidx.activity.compose.BackHandler { series = null }; Episodes(nav, series!!); return }
-    if (arranging) { androidx.activity.compose.BackHandler { arranging = false }; Arrange(kind, groups.map { it.first }) { arranging = false }; return }
+    if (arranging) {
+        androidx.activity.compose.BackHandler { arranging = false }
+        val all = remember(kind) { Vod.arranged(kind, Vod.groupsCached(kind).ifEmpty { groups }, withHidden = true).map { it.first } }
+        GroupArrange("Arrange ${if (kind == "movie") "film" else "series"} categories", kind, all, onChanged = { Vod.rearrange(kind) }) { arranging = false }
+        return
+    }
     val store = remember(rev, kind) { HashMap<String, VodRow>() }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
         Row {
@@ -396,7 +393,7 @@ fun VodScreen(nav: Nav) {
             Text(status.ifEmpty { if (Iptv.playlists().isEmpty()) "Add a playlist in Live TV first." else "${groups.sumOf { it.second }} titles · ${groups.size} categories" },
                 color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(start = 14.dp, top = 8.dp))
         }
-        Chips(listOf("movie" to "Films", "series" to "Series", "arrange" to "Arrange categories"), kind, Modifier.padding(top = 12.dp)) {
+        Chips(listOf("movie" to "Films", "series" to "Series", "arrange" to "Arrange / hide categories"), kind, Modifier.padding(top = 12.dp)) {
             if (it == "arrange") arranging = true else kind = it
         }
         // Not built yet (first open, or the very first download): one message, then the whole page at once.
@@ -463,49 +460,6 @@ private fun androidx.compose.foundation.layout.BoxScope.VodBadge(m: com.lekathed
     }
     if (rating != null) Text("★ ${"%.1f".format(if (rating > 10) rating / 10 else rating)}", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Gold, RoundedCornerShape(topEnd = 8.dp, bottomStart = 8.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
-}
-
-/** Arrange categories: OK picks one up, Up/Down moves it, OK puts it down; saved at once. Back closes. */
-@Composable
-private fun Arrange(kind: String, start: List<String>, close: () -> Unit) {
-    val list = remember(kind) { androidx.compose.runtime.mutableStateListOf<String>().also { it.addAll(start) } }
-    var held by remember { mutableStateOf<String?>(null) }
-    val reqs = remember { HashMap<String, androidx.compose.ui.focus.FocusRequester>() }
-    val state = androidx.compose.foundation.lazy.rememberLazyListState()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    fun move(by: Int): Boolean {
-        val g = held ?: return false
-        val i = list.indexOf(g); val j = i + by
-        if (i < 0 || j !in list.indices) return true
-        list.removeAt(i); list.add(j, g)
-        Vod.saveOrder(kind, list.toList()); Vod.rearrange(kind)
-        scope.launch { state.animateScrollToItem((j - 3).coerceAtLeast(0)); runCatching { reqs[g]?.requestFocus() } }
-        return true
-    }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
-        Text("Arrange ${if (kind == "movie") "film" else "series"} categories", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("OK picks a category up, Up / Down moves it, OK puts it down. Back when done.", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-        Row(Modifier.padding(top = 10.dp)) {
-            com.lekathedon.visionlite.ui.Button("Provider's order", {
-                held = null; Vod.saveOrder(kind, emptyList()); Vod.rearrange(kind); close()
-            })
-        }
-        LazyColumn(Modifier.fillMaxSize().padding(top = 10.dp), state = state, verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
-            items(list, key = { it }) { g ->
-                val req = reqs.getOrPut(g) { androidx.compose.ui.focus.FocusRequester() }
-                val mine = held == g
-                Focusable({ held = if (mine) null else g }, Modifier.fillMaxWidth().focusRequester(req)
-                    .onPreviewKeyEvent { e ->
-                        if (!mine || e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) false
-                        else when (e.key) { androidx.compose.ui.input.key.Key.DirectionUp -> move(-1); androidx.compose.ui.input.key.Key.DirectionDown -> move(1); else -> false }
-                    }) { f ->
-                    Text((if (mine) "↕  " else "") + g, color = if (f) Color.Black else Palette.Text, fontSize = 16.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth().background(if (mine) Gold else if (f) Color.White else Color(0x12FFFFFF)).padding(horizontal = 14.dp, vertical = 10.dp))
-                }
-            }
-        }
-    }
 }
 
 @Composable
