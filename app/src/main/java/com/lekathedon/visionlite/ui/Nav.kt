@@ -60,10 +60,27 @@ sealed interface Screen {
 @Stable
 class Nav {
     private val stack = mutableStateListOf<Screen>(Screen.Home)
+    /** Per stack entry: its saved-state key and its [FocusMemory] (Back lands on the part you left from). */
+    private val keys = mutableListOf(0L)
+    private val mems = mutableListOf(FocusMemory())
+    private var nextKey = 1L
+    /** Saved state of screens taken off the stack, for the host to drop. */
+    val dropped = ArrayList<String>()
     val current: Screen get() = stack.last()
     val canPop: Boolean get() = stack.size > 1
-    fun push(s: Screen) { stack.add(s) }
-    fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-    fun popToHome() { while (stack.size > 1) stack.removeAt(stack.lastIndex) }
-    fun replace(s: Screen) { stack[stack.lastIndex] = s }
+    /** The top screen's saved-state key and focus memory. */
+    val key: String get() = "s" + keys.last()
+    val memory: FocusMemory get() = mems.last()
+    fun push(s: Screen) { keys.add(nextKey++); mems.add(FocusMemory()); stack.add(s) }
+    fun pop() {
+        if (stack.size <= 1) return
+        dropped += "s" + keys.removeAt(keys.lastIndex); mems.removeAt(mems.lastIndex)
+        mems.last().comeBack()
+        stack.removeAt(stack.lastIndex)
+    }
+    fun popToHome() { while (stack.size > 1) pop() }
+    fun replace(s: Screen) {
+        dropped += "s" + keys.last(); keys[keys.lastIndex] = nextKey++; mems[mems.lastIndex] = FocusMemory()
+        stack[stack.lastIndex] = s
+    }
 }

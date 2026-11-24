@@ -213,7 +213,7 @@ object RecsLogic {
         val interests: Map<String, Double> = emptyMap()
     )
 
-    private fun Facts.words() = keywords.filter { it !in SKIP_KEYWORDS }
+    private fun Facts.words() = keywords.filter { it !in SKIP_KEYWORDS && !Body.word(it) }
     private fun rarity(k: String, freq: Map<String, Int>) = ln(1 + KEYWORD_SCALE / (1 + (freq[k] ?: 0)))
 
     fun ageLevel(cert: String?): Int? = when (cert) {

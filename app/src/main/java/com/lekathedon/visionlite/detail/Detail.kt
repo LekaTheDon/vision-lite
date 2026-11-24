@@ -103,9 +103,12 @@ private sealed interface Sheet {
 @Composable
 fun Detail(nav: Nav, s: Screen.Detail) {
     val prefs = App.instance.prefs
-    var meta by remember(s.id) { mutableStateOf<Meta?>(null) }
-    var imdb by remember(s.id) { mutableStateOf<Imdb.Title?>(null) }
-    var eps by remember(s.id) { mutableStateOf<List<Ep>>(emptyList()) }
+    val imdbId0 = s.id.substringBefore(':').takeIf { Imdb.isId(it) }
+    // Back on a page (from a person, a company, the player…): drawn whole from memory at once, so the scroll and the
+    // part last focused come back exactly (user 2026-11-24).
+    var meta by remember(s.id) { mutableStateOf(App.instance.client.cachedMeta(s.type, s.id)) }
+    var imdb by remember(s.id) { mutableStateOf(imdbId0?.let { Imdb.cachedTitle(it) }) }
+    var eps by remember(s.id) { mutableStateOf(if (imdbId0 != null && s.type == "series") Imdb.cachedEpisodes(imdbId0)?.let { merge(meta, it, imdbId0) } ?: emptyList() else emptyList()) }
     var traktRating by remember(s.id) { mutableStateOf<Double?>(null) }
     var progress by remember(s.id) { mutableStateOf<com.lekathedon.visionlite.trakt.Trakt.Progress?>(null) }
     var loaded by remember(s.id) { mutableStateOf(false) }
@@ -154,7 +157,15 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         val scope = rememberCoroutineScope()
         val play = remember { FocusRequester() }
         var heroFocused by remember { mutableStateOf(false) }
-        LaunchedEffect(s.id, m != null || t != null) { withFrameNanos { }; runCatching { play.requestFocus() } }
+        val mem = com.lekathedon.visionlite.ui.LocalFocusMemory.current
+        LaunchedEffect(s.id, m != null || t != null) {
+            withFrameNanos { }
+            // Coming back: the part you left from takes focus; Play only if it never shows up.
+            if (mem != null && mem.restoring) { while (mem.restoring) delay(100); if (mem.reqs.isNotEmpty() && mem.pending < 0) return@LaunchedEffect }
+            runCatching { play.requestFocus() }
+        }
+        /** Focus back on the part that opened a menu / sheet / full-screen trailer. */
+        fun refocus(id: Long?) = scope.launch { withFrameNanos { }; withFrameNanos { }; if (id == null || mem?.focus(id) != true) runCatching { play.requestFocus() } }
 
         // Trailer (Vision's IMDb source) on the billboard after the Home trailer delay, while focus rests in the hero.
         val trailersOn by prefs.trailers.flow.collectAsState()
@@ -162,15 +173,20 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         val delayS by prefs.trailerDelay.flow.collectAsState()
         var trailer by remember(s.id) { mutableStateOf<com.lekathedon.visionlite.trailer.Trailer?>(null) }
         var trailerNow by remember(s.id) { mutableStateOf(false) }
+        // The trailer plays by itself once per visit (user 2026-11-24): stopped, ended or scrolled away, it stays off
+        // until the Trailer button, even after a person's page or another title and Back. Saved with the page.
+        var autoDone by androidx.compose.runtime.saveable.rememberSaveable(s.id) { mutableStateOf(false) }
         /** Trailer › Play full screen: over the whole page with sound; Back returns to the page. */
         var fullTrailer by remember(s.id) { mutableStateOf(false) }
         LaunchedEffect(heroFocused, trailerNow, trailersOn, imdbId) {
             if (!heroFocused && !trailerNow) { trailer = null; return@LaunchedEffect }
-            if (!trailersOn && !trailerNow) return@LaunchedEffect
+            if (!trailerNow && (!trailersOn || autoDone)) return@LaunchedEffect
+            if (trailerNow && trailer != null) return@LaunchedEffect   // already playing: focus moving doesn't restart it
             if (!trailerNow) delay(((delayS.toDoubleOrNull() ?: 5.0) * 1000).toLong())
             // Vision's order: IMDb, then TMDB, then YouTube.
             trailer = com.lekathedon.visionlite.trailer.TrailerChain.find(com.lekathedon.visionlite.addons.MetaPreview(imdbId ?: s.id, s.type, s.name),
                 com.lekathedon.visionlite.device.Tier.trailerHeight(2160))
+            if (trailer != null) autoDone = true
         }
 
         if (style == Style.TONAL) {
@@ -244,11 +260,19 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     // Play, then every action as an icon (user 2026-11-24: nothing taken away, a third smaller, size in
                     // Settings › Home and look › Button size); the focused icon's name shows in the caption under the row.
                     var hint by remember { mutableStateOf<String?>(null) }
-                    fun Modifier.hint(label: String) = this.onFocusChanged { if (it.isFocused) hint = label }
+                    // Any button in the row focused (from below, or moving along it): the whole billboard shows. Waits two
+                    // frames so the list's own bring-into-view (just the button's line) doesn't cancel it (user 2026-11-24:
+                    // stuck on "More like this" with the logo hidden until Left/Right).
+                    var heroMoves by remember { mutableStateOf(0) }
+                    LaunchedEffect(heroMoves) {
+                        if (heroMoves == 0) return@LaunchedEffect
+                        withFrameNanos { }; withFrameNanos { }
+                        if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) list.animateScrollToItem(0)
+                    }
+                    fun Modifier.hint(label: String) = this.onFocusChanged { if (it.isFocused) { hint = label; heroMoves++ } }
                     Row(Modifier.padding(top = if (style == Style.TONAL) 22.dp else 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
                         heroFocused = it.hasFocus
                         if (!it.hasFocus) hint = null
-                        if (it.hasFocus && (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0)) scope.launch { list.animateScrollToItem(0) }
                     }, horizontalArrangement = Arrangement.spacedBy(8.dp * Kit.soft), verticalAlignment = Alignment.CenterVertically) {
                         val I = com.lekathedon.visionlite.ui.Icons
                         val playLabel = when {
@@ -264,7 +288,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                                     ?.takeIf { it.airedMs == null || it.airedMs <= System.currentTimeMillis() }
                                 e?.let { nav.push(Screen.Streams("series", it.videoId, "$name S${it.season}E${it.episode}", s.id)) }
                             }
-                        }, Modifier.focusRequester(play).onFocusChanged { if (it.isFocused) hint = null }, primary = true)
+                        }, Modifier.focusRequester(play).onFocusChanged { if (it.isFocused) { hint = null; heroMoves++ } }, primary = true)
                         // Trailer: a choice, so it can also play full screen instead of behind the page.
                         if (imdbId != null) KitIcon(if (trailer != null) "Trailer playing" else "Trailer", I.Theaters, {
                             sheet = Sheet.Menu("Trailer", listOf(
@@ -448,17 +472,26 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         if (fullTrailer) {
             val grab = remember { FocusRequester() }
             LaunchedEffect(Unit) { withFrameNanos { }; runCatching { grab.requestFocus() } }
-            BackHandler { fullTrailer = false; runCatching { play.requestFocus() } }
+            val from = remember { mem?.last }
+            BackHandler { fullTrailer = false; refocus(from) }
             Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(grab).focusable(), contentAlignment = Alignment.Center) {
                 val tr = trailer
                 if (tr == null) Text("Finding the trailer…", color = Palette.TextDim, fontSize = 16.sp)
                 else com.lekathedon.visionlite.trailer.TrailerVideo(tr.url, false, Modifier.fillMaxSize(), tr.audio) {
-                    fullTrailer = false; trailer = null; trailerNow = false; runCatching { play.requestFocus() }
+                    fullTrailer = false; trailer = null; trailerNow = false; refocus(from)
                 }
             }
         }
 
-        sheet?.let { sh -> SheetView(sh, onClose = { sheet = null }) { r -> sheet = null; nav.push(Screen.Detail(r.type, r.imdb, r.title)) } }
+        // A sheet closed (Back, or a title opened from it): focus goes back to the button that opened it, and Back from
+        // that title lands there too (user 2026-11-24: not on Play).
+        sheet?.let { sh ->
+            val from = remember(sh) { mem?.last }
+            SheetView(sh, onClose = { sheet = null; if (from != null) mem?.last = from; if (!fullTrailer) refocus(from) }) { r ->
+                sheet = null; if (from != null) mem?.last = from
+                nav.push(Screen.Detail(r.type, r.imdb, r.title))
+            }
+        }
     }
 }
 
@@ -539,16 +572,21 @@ private fun Ratings(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
 /** A production company: its logo on a light tile (most logos are dark ink), the name under it; OK opens its works. */
 @Composable
 private fun CompanyLogo(c: com.lekathedon.visionlite.browse.Companies.Co, open: () -> Unit) {
-    Column(Modifier.width(132.dp)) {
-        Focusable(open, Modifier, RoundedCornerShape(Kit.rowR)) { _ ->
-            Box(Modifier.size(132.dp, 66.dp).clip(RoundedCornerShape(Kit.rowR)).background(Color(0xFFECECEC)).padding(horizontal = 14.dp, vertical = 10.dp),
+    // The tiles are light, so the look's ring (white in Marquee) vanished on them (user 2026-11-24: "not sure which one
+    // I'm on"): the tile sits inside the ring with a dark gap, unfocused tiles are dimmed and the focused one's name lights up.
+    var on by remember { mutableStateOf(false) }
+    Column(Modifier.width(140.dp)) {
+        Focusable(open, Modifier.onFocusChanged { on = it.hasFocus }, RoundedCornerShape(Kit.rowR + 4.dp)) { f ->
+            Box(Modifier.padding(4.dp).size(132.dp, 66.dp).graphicsLayer { alpha = if (f) 1f else 0.55f }
+                .clip(RoundedCornerShape(Kit.rowR)).background(Color(0xFFECECEC)).padding(horizontal = 14.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center) {
                 if (c.logo != null) coil3.compose.AsyncImage(c.logo, c.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 else Text(c.name, color = Color(0xFF1A1A1A), fontFamily = Kit.display, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
-        Text(c.name, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 2.dp))
+        Text(c.name, color = if (on) Palette.Text else Palette.TextDim, fontSize = 12.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 6.dp))
     }
 }
 
@@ -901,9 +939,14 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                 is Sheet.Links -> {
                     Text(sh.title, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        // Heading and its posters are one item, so going back up always shows the heading ("Spin-offs").
                         sh.groups.forEachIndexed { gi, (heading, refs) ->
-                            item { Text(heading, color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)) }
-                            item { PosterRow(refs, if (gi == 0) first else null, onOpen) }
+                            item(key = "g$gi") {
+                                Column {
+                                    Text(heading, color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+                                    PosterRow(refs, if (gi == 0) first else null, onOpen)
+                                }
+                            }
                         }
                     }
                 }
@@ -911,7 +954,7 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                     com.lekathedon.visionlite.ui.Eyebrow(sh.title, Modifier.padding(bottom = 14.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         sh.items.forEachIndexed { i, (label, icon, act) ->
-                            KitButton(label, icon, { onClose(); act() }, if (i == 0) Modifier.focusRequester(first) else Modifier, primary = i == 0)
+                            KitButton(label, icon, { act(); onClose() }, if (i == 0) Modifier.focusRequester(first) else Modifier, primary = i == 0)
                         }
                     }
                 }

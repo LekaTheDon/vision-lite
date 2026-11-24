@@ -54,7 +54,7 @@ fun Library(nav: Nav) {
     }
     val savedMetas = remember(saved) { saved.map { sv -> com.lekathedon.visionlite.addons.MetaPreview(sv.id, sv.type, sv.name,
         sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null, if (sv.id.startsWith("tt")) backdropOf(sv.id) else null) } }
-    var focused by remember { mutableStateOf(false) }
+    var focused by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(items) { if (!focused && (saved.isNotEmpty() || list.isNotEmpty())) { androidx.compose.runtime.withFrameNanos { }; if (runCatching { first.requestFocus() }.isSuccess) focused = true } }
     val open: (com.lekathedon.visionlite.addons.MetaPreview) -> Unit = { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
     val movies = list.filter { it.type == "movie" }

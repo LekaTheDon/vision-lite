@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -136,8 +137,8 @@ private fun ClockChannelLine(m: ChannelMatch, playing: Boolean, f: Boolean) {
 /** The small window with the game and channel under it (Vision's Sports / Live now video window). */
 @Composable
 private fun ClockWindow(ev: SportsEvent, playing: ChannelMatch?, modifier: Modifier = Modifier) {
-    Column(modifier.width(480.dp)) {
-        Box(Modifier.fillMaxWidth().height(270.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black)
+    Column(modifier.widthIn(max = 480.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Color.Black)
             .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
             MiniPlayer(playing?.channel?.url, playing?.channel?.headers ?: emptyMap(), Modifier.fillMaxSize())
             if (playing == null) Text("Pick a channel to try it here", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -195,11 +196,17 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
     if (tab == PanelTab.LIVE) SportsViewer()
     LaunchedEffect(tab) { if (tab != PanelTab.LIVE) { game = null; playing = null } }
     LaunchedEffect(Unit) { delay(60); runCatching { tabFocus.requestFocus() } }
+    // Opening a game swaps the list under the focused row: for a moment focus lands on the first tab ("Saved"), which
+    // used to switch tab and close the game at once (user 2026-11-24: the window showed for a blink, then dropped).
+    // While the list changes, tabs gaining focus don't switch; focus goes to the new list (or back to the Live tab).
+    var holdTabs by remember { mutableStateOf(0L) }
     LaunchedEffect(game) {
         if (game == null && returnTo == null) return@LaunchedEffect
         delay(60)
-        runCatching { (returnTo?.let { rowFocus[it] } ?: first).requestFocus() }
+        val ok = runCatching { (returnTo?.let { rowFocus[it] } ?: first).requestFocus() }.isSuccess
+        if (!ok) runCatching { tabFocus.requestFocus() }
         returnTo = null
+        delay(200); holdTabs = 0L
     }
 
     // The list tabs, each read when opened.
@@ -294,7 +301,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
     val back: () -> Unit = {
         val g = game
         when {
-            g != null -> { game = null; playing = null; returnTo = g.id }
+            g != null -> { holdTabs = System.currentTimeMillis(); game = null; playing = null; returnTo = g.id }
             musicShown != null -> { com.lekathedon.visionlite.music.MusicPlayer.stop(); musicShown = null }
             ytShown != null -> ytShown = null
             else -> onDismiss()
@@ -302,9 +309,12 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
     }
     Dialog(onDismissRequest = back, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
-            game?.let { ClockWindow(it, playing, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
-            ytShown?.let { YtWindow(it, Modifier.align(Alignment.CenterStart).padding(start = 40.dp)) }
-            if (musicShown != null) MusicWindow(Modifier.align(Alignment.CenterStart).padding(start = 40.dp))
+            // The small window lives in the space left of the panel (412 dp), centred there, never under it (user 2026-11-24).
+            Box(Modifier.fillMaxHeight().fillMaxWidth().padding(start = 24.dp, end = 436.dp), contentAlignment = Alignment.Center) {
+                game?.let { ClockWindow(it, playing) }
+                ytShown?.let { YtWindow(it) }
+                if (musicShown != null) MusicWindow()
+            }
             // The panel wears the look and skin (the clock on Home keeps its own shape).
             val style = com.lekathedon.visionlite.ui.Kit.style
             Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(400.dp).fillMaxHeight().clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
@@ -317,7 +327,10 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                     contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(tabs, key = { it.name }) { t ->
                         Focusable({ if (t == PanelTab.YOUTUBE || t == PanelTab.MUSIC) ytRound++ }, if (t == tab) Modifier.focusRequester(tabFocus) else Modifier,
-                            RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) 4.dp else 50.dp), onFocus = { if (tab != t) tab = t }) { f ->
+                            RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) 4.dp else 50.dp), onFocus = {
+                                if (holdTabs > 0 && System.currentTimeMillis() - holdTabs < 1500) { if (t != tab) runCatching { tabFocus.requestFocus() } }
+                                else if (tab != t) tab = t
+                            }) { f ->
                             val sel = t == tab
                             if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
                                 Text(t.chip.uppercase(), color = if (sel) Palette.Text else Palette.TextDim, fontFamily = com.lekathedon.visionlite.ui.Kit.label, fontSize = 13.sp, letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold)
@@ -350,13 +363,26 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                             }
                         }
                     } else if (g == null) {
+                        // Refresh (old Vision's chip): the scores and games again now.
+                        item(key = "refresh") {
+                            Focusable({ Sports.refreshNow() }, if (live.isEmpty()) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(50)) { f ->
+                                Row(Modifier.background(if (f) com.lekathedon.visionlite.ui.Kit.accent else com.lekathedon.visionlite.ui.Kit.card2).padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Sync, null, Modifier.size(14.dp),
+                                        tint = if (f) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text)
+                                    Text("Refresh", color = if (f) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(start = 6.dp))
+                                    if (status.isNotEmpty()) Text(status, color = Muted, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+                                }
+                            }
+                        }
                         if (live.isEmpty()) item {
                             Text(when { status.isNotEmpty() -> status; events.isEmpty() -> "Getting the scores…"; else -> "Nothing live right now." },
                                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp))
                         }
                         items(live, key = { it.id }) { ev ->
                             val fr = rowFocus.getOrPut(ev.id) { FocusRequester() }
-                            Focusable({ game = ev; playing = null }, Modifier.focusRequester(fr).then(if (ev == live.first()) Modifier.focusRequester(first) else Modifier)) { f ->
+                            Focusable({ holdTabs = System.currentTimeMillis(); game = ev; playing = null }, Modifier.focusRequester(fr).then(if (ev == live.first()) Modifier.focusRequester(first) else Modifier)) { f ->
                                 Column {
                                     ClockGameLine(ev, now, 0, f, compact = true)
                                     LogoChips(matches[ev.id].orEmpty())
@@ -384,12 +410,12 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
 
 /** The clock's YouTube window (Vision's YouTubePreviewWindow): the video plays with sound, 16:9, title under it. */
 @Composable
-private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modifier) {
+private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modifier = Modifier) {
     val s by androidx.compose.runtime.produceState<com.lekathedon.visionlite.youtube.YtStreams?>(null, v.videoId) {
         value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.youtube.Yt.streams(v.videoId!!, 1080) } }.getOrNull()
     }
-    Column(modifier.width(560.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f))) {
-        Box(Modifier.fillMaxWidth().height(315.dp).background(Color.Black)) {
+    Column(modifier.widthIn(max = 560.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f))) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
             Img(v.image, 560.dp, 315.dp, Modifier.fillMaxSize())
             val url = s?.video ?: s?.hls
             if (url != null) com.lekathedon.visionlite.trailer.TrailerVideo(url, false, Modifier.fillMaxSize(), s?.audio?.takeIf { s?.video != null }) {}
@@ -401,10 +427,10 @@ private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modi
 
 /** The clock's Music window (Vision's MusicPreviewWindow): the song's art, title and artist, playing state. Back stops it. */
 @Composable
-private fun MusicWindow(modifier: Modifier) {
+private fun MusicWindow(modifier: Modifier = Modifier) {
     val now by com.lekathedon.visionlite.music.MusicPlayer.now.collectAsState()
     val n = now
-    Column(modifier.width(420.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f)).padding(16.dp)) {
+    Column(modifier.widthIn(max = 420.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f)).padding(16.dp)) {
         Box(Modifier.fillMaxWidth().height(236.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
             n?.art?.let { Img(it, 388.dp, 236.dp, Modifier.fillMaxSize()) }
         }

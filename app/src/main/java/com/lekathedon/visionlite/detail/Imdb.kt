@@ -77,6 +77,10 @@ object Imdb {
 
     private const val NODE = "id titleText { text } titleType { id } releaseYear { year } ratingsSummary { aggregateRating voteCount } primaryImage { url }"
 
+    /** Already in memory (no request): a page drawn again comes back whole at once. */
+    fun cachedTitle(id: String): Title? = titles[id]?.v
+    fun cachedEpisodes(id: String): List<Episode>? = episodes[id]?.v
+
     suspend fun title(id: String): Title? {
         if (!isId(id)) return null
         titles[id]?.takeIf { now() - it.at < CACHE_MS }?.let { return it.v }

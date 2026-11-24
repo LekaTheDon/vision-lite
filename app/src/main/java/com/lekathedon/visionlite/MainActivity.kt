@@ -113,8 +113,15 @@ class MainActivity : ComponentActivity() {
                     // Past Home (not the player) every screen wears the look: its font and parts (ui/Kit.kt).
                     val inside = nav.current != Screen.Home && nav.current !is Screen.Player && nav.current !is Screen.YtPlay
                     com.lekathedon.visionlite.ui.Inside(inside) {
-                    // Home keeps its scroll/focus position under the screens opened from it.
-                    when (val s = nav.current) {
+                    // Home keeps its scroll/focus position under the screens opened from it. Every other screen
+                    // keeps its own (scroll positions, the part last focused) while screens opened from it are on top.
+                    val cur = nav.current
+                    val keepsFocus = cur != Screen.Home && cur !is Screen.Player && cur !is Screen.YtPlay && cur != Screen.LiveTv
+                    androidx.compose.runtime.SideEffect { nav.dropped.forEach { saved.removeState(it) }; nav.dropped.clear() }
+                    androidx.compose.runtime.key(nav.key) {
+                    KeepState(saved, if (cur == Screen.Home) null else nav.key) {
+                    CompositionLocalProvider(com.lekathedon.visionlite.ui.LocalFocusMemory provides (if (keepsFocus) nav.memory else null)) {
+                    when (val s = cur) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
                         Screen.Home -> if (gate != null) com.lekathedon.visionlite.profiles.ProfileGate(atStart = true, pinOnly = gate == "pin") { gate = null }
                             // First start, before anything else: the Nuvio QR (like Nuvio). Signing in brings your whole
@@ -175,6 +182,9 @@ class MainActivity : ComponentActivity() {
                         is Screen.Report -> com.lekathedon.visionlite.report.ReportScreen(nav, s.kind)
                     }
                     }
+                    }
+                    }
+                    }
                   }
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).
                   com.lekathedon.visionlite.sports.SportsHost(nav)
@@ -196,4 +206,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+/** A screen past Home keeps its saved state (scroll, remembered focus) under its own key while others are on top. */
+@androidx.compose.runtime.Composable
+private fun KeepState(holder: androidx.compose.runtime.saveable.SaveableStateHolder, key: String?, content: @androidx.compose.runtime.Composable () -> Unit) {
+    if (key == null) content() else holder.SaveableStateProvider(key, content)
 }

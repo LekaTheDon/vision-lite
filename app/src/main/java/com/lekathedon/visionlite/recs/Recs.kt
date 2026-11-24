@@ -327,7 +327,7 @@ object Recs {
                 }
             }
             val sGenres = sf.genres.toSet(); val sInt = sf.interests.filter { Interests.name(it) != null && !Interests.isBroad(it) }.toSet()
-            val sKw = sf.keywords.map { it.lowercase() }.toSet()
+            val sKw = sf.keywords.map { it.lowercase() }.filterNot(Body::word).toSet()
             // What the seed mainly is (a crime drama, a spy thriller…): every pick must mainly be that too (user 2026-11-24).
             val sMain = Interests.mainKinds(sf.interests)
             val picks = score.keys.mapNotNull { id ->
@@ -480,7 +480,8 @@ object Recs {
             poster = t.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.isNotBlank() }?.let(::sized),
             genres = t.optJSONObject("titleGenres")?.optJSONArray("genres").objects().mapNotNull { it.optJSONObject("genre")?.optString("text") },
             keywords = if (!full) emptyList() else t.optJSONObject("keywords")?.optJSONArray("edges").objects()
-                .mapNotNull { it.optJSONObject("node")?.optJSONObject("keyword")?.optJSONObject("text")?.optString("text")?.lowercase() },
+                .mapNotNull { it.optJSONObject("node")?.optJSONObject("keyword")?.optJSONObject("text")?.optString("text")?.lowercase() }
+                .filterNot(Body::word),
             crew = if (!full) emptyList() else (people("creators") + people("directors") + people("writers")).filter { it.id.isNotBlank() }.distinctBy { it.id },
             language = t.optJSONObject("spokenLanguages")?.optJSONArray("spokenLanguages").objects().firstOrNull()?.optString("id"),
             countries = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries").objects().map { it.optString("id") },

@@ -4,6 +4,7 @@
 
 package com.lekathedon.visionlite.home
 
+import com.lekathedon.visionlite.ui.remembersFocus
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -484,8 +485,9 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val trailersOn by prefs.trailers.flow.collectAsStateWithLifecycle()
     val delayText by prefs.trailerDelay.flow.collectAsStateWithLifecycle()
     val sound by prefs.trailerSound.flow.collectAsStateWithLifecycle()
-    val trailerLook = remember(trailersOn, delayText, sound) {
-        TrailerLook(trailersOn, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound)
+    // The clock's panel open: every trailer and clip on Home stops fully (user 2026-11-24), so its small window plays alone.
+    val trailerLook = remember(trailersOn, delayText, sound, clockPanel) {
+        TrailerLook(trailersOn && !clockPanel, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound, paused = clockPanel)
     }
     var heroTrailer by remember { mutableStateOf<Pair<String, com.lekathedon.visionlite.trailer.Trailer>?>(null) }
     LaunchedEffect(heroFocused, heroEntry?.m?.id, trailerLook) {
@@ -639,7 +641,7 @@ private fun HomeLoading(page: Color) {
 }
 
 /** Trailer settings for the page, read once by Home. */
-private data class TrailerLook(val on: Boolean, val delayMs: Long, val muted: Boolean)
+private data class TrailerLook(val on: Boolean, val delayMs: Long, val muted: Boolean, val paused: Boolean = false)
 private val LocalTrailer = androidx.compose.runtime.staticCompositionLocalOf { TrailerLook(false, 5_000L, false) }
 
 /** Waits out the trailer delay (the lookup starts a second early, so the trailer is ready on time); null for none. */
@@ -1103,6 +1105,7 @@ private fun EchoCard(
             })
             .size(if (focused && openWidth != null) openWidth else width, height).clip(shape).background(CardBackground)
             .then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier)
+            .remembersFocus { focused }
             .clickable(interactionSource = source, indication = null, onClick = onClick)
     ) { content(focused) }
 }
@@ -1621,9 +1624,9 @@ private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onC
             Text(m.name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
         }
         var clip by remember(sid) { mutableStateOf<ServiceClips.Clip?>(null) }
-        LaunchedEffect(focused, sid) {
+        LaunchedEffect(focused, sid, look.paused) {
             clip = null
-            if (!focused || !com.lekathedon.visionlite.device.Tier.videoTiles || !ServiceClips.has(sid)) return@LaunchedEffect
+            if (!focused || look.paused || !com.lekathedon.visionlite.device.Tier.videoTiles || !ServiceClips.has(sid)) return@LaunchedEffect
             delay(ServiceClips.START_AFTER_MS)
             clip = ServiceClips.clipFor(sid)
         }

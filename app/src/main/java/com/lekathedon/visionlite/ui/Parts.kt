@@ -84,6 +84,7 @@ fun Focusable(
             .clip(shape)
             .border(if (!focused) 0.dp else if (inside) Kit.ringWidth else 3.dp,
                 if (!focused) Color.Transparent else if (inside) Kit.ringColor else Palette.Focus, shape)
+            .remembersFocus { focused }
             .clickable(interactionSource = source, indication = null, onClick = onClick)
     ) { content(focused) }
 }
