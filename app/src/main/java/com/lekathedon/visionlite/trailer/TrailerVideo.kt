@@ -57,10 +57,12 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: Stri
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) onEnded() }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) { onEnded() }
         })
-        if (audioUrl == null) player.setMediaItem(MediaItem.fromUri(url))
+        // YouTube links are fetched in 10 MB pieces (ChunkedYt): one long request gets throttled and froze trailers.
+        val f = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+            ChunkedYt.Factory(androidx.media3.datasource.DefaultDataSource.Factory(context)))
+        if (audioUrl == null) player.setMediaSource(f.createMediaSource(MediaItem.fromUri(url)))
         else {
             // YouTube gives picture and sound as two files (a service's intro clip): played together.
-            val f = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
             player.setMediaSource(androidx.media3.exoplayer.source.MergingMediaSource(
                 f.createMediaSource(MediaItem.fromUri(url)), f.createMediaSource(MediaItem.fromUri(audioUrl))))
         }

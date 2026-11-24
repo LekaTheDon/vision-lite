@@ -123,6 +123,8 @@ class Prefs(context: Context) {
     val resume = Flag("resume", true)
     /** Seconds to step back when playing again after a pause ("0" = off). */
     val rewindOnResume = Text("rewind_on_resume", "0")
+    /** Player controls size, percent of the original (user 2026-11-24: too big). Films, shows and Live TV. */
+    val controlsSize = Text("controls_size", "80")
     // Audio & subtitles ("" = no preference; ISO 639 codes)
     val audioLang = Text("audio_lang", "original")
     val audioLang2 = Text("audio_lang2", "")

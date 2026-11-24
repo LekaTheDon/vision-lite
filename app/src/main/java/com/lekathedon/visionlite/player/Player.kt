@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -263,7 +264,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
             // Live: the bytes the player downloads are also kept for rewind (no second connection).
             if (s.type == "live") Timeshift.leave()
-            val data = androidx.media3.datasource.DefaultDataSource.Factory(context, if (s.type == "live") Timeshift.tee(http) else http)
+            val data = androidx.media3.datasource.DefaultDataSource.Factory(context, if (s.type == "live") Timeshift.tee(http) else com.lekathedon.visionlite.trailer.ChunkedYt.Factory(http))
             // This TV › Dolby Vision: Vision's converter (DV7/DV5 -> 8.1 via libdovi, HDR10 base layer, HDR10+ strip) reads MKV
             // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
             // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
@@ -567,6 +568,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }) else view?.resizeMode = mode
         }
         // Live TV has its own controls (LiveControls.kt): channel list, guide, numbers, options; not the film deck.
+        val controlsScale = (prefs.controlsSize.flow.collectAsState().value.toFloatOrNull() ?: 80f).coerceIn(50f, 100f) / 100f
+        val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides
+            androidx.compose.ui.unit.Density(baseDensity.density * controlsScale, baseDensity.fontScale)) {
         if (s.type == "live") LiveControls(player, s,
             tune = { c, list ->
                 if (list != null) com.lekathedon.visionlite.iptv.Iptv.zapList = list
@@ -607,6 +612,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     nav.replace(Screen.Player(c.url, c.name, c.headers, type = "live"))
                 }
             })
+        }
         (switchNote ?: failNote)?.let {
             androidx.compose.material3.Text(it, color = Color.White, fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
                 modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 40.dp)

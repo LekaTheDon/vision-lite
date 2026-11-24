@@ -136,6 +136,7 @@ private fun label(options: List<Pair<String, String>>, v: String) = options.firs
 private val AfrOpts = listOf("off" to "Off", "always" to "On")
 private val EngineOpts = listOf("auto" to "Auto", "exo" to "ExoPlayer", "mpv" to "MPV")
 private val SkipOpts = listOf("button" to "Show a button", "auto" to "Skip by itself", "off" to "Off")
+private val ControlsSizeOpts = listOf("60" to "Smallest (60%)", "70" to "Small (70%)", "80" to "Medium (80%)", "90" to "Large (90%)", "100" to "Largest (100%)")
 private val RewindOpts = listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s")
 private val SubsWhenOpts = listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off")
 private val SubSizeOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")
@@ -276,6 +277,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Quiet playback", "Closes other apps 4 s into a title so the box gives it everything. With root they are force-stopped", p.quietPlayback, m) }
         row { m -> Toggle("Rate after watching", "Asks for a Trakt rating when you finish a film or a show's episode; it steers your recommendations", p.rateAfter, m) }
         head("Picture, sound and engine")
+        row { m -> Choice("Controls size", "How big the player's buttons, bars and panels are (films, shows and Live TV)", p.controlsSize, ControlsSizeOpts, m) }
         row { m -> Toggle("True black bars", "Bars around the film are the TV's own black, not the app's grey-ish black in HDR/DV (Vision)", p.blackBars, m) }
         row { m -> Link("This TV", "Dolby Vision, frame rate, passthrough, engine and buffer are set for this TV", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }
     }

@@ -18,7 +18,7 @@ object DisplayMatch {
     private const val TAG = "DisplayMatch"
     private const val NTSC_FILM = 24000f / 1001f
     private val CLEAN_MULTIPLES = listOf(3f, 4f, 5f, 6f)
-    private var originalModeId: Int? = null
+    private var original: M? = null
 
     private data class M(val id: Int, val w: Int, val h: Int, val hz: Float)
 
@@ -99,52 +99,33 @@ object DisplayMatch {
         Log.i(TAG, "video ${width}x$height ${fps}fps: ${active.w}x${active.h}@${active.hz} -> ${pick.w}x${pick.h}@${pick.hz}")
         val gen = ++generation
         status.value = "Video %s fps → asking for %d×%d @ %s Hz".format(fmt(snap(fps)), pick.w, pick.h, fmt(pick.hz))
-        if (pick.id != active.id && originalModeId == null) originalModeId = active.id
+        if (pick.id != active.id && original == null) original = active
         val set = { if (gen == generation && pick.id != active.id) window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id } }
-        set()
-        // Android's request alone isn't enough on every box (AM9 + TCL: Android says 50 Hz, HDMI stays at 60). So the HDMI
-        // output is measured and, when it didn't change, the real mode is written straight to the box (root).
-        if (java.io.File("$TX/disp_mode").exists()) Thread { verify(pick, gen) }.start()
+        // QMS off before the switch (root, Amlogic): while the box uses the TV's QMS it files 50 / 59.94 / 60 Hz as one
+        // "seamless" group and the TV never really changes (AM9 + TCL, every app). Off, they are separate modes again and
+        // the switch is a real one. NOTE: only the long flag works; "-v true" was silently ignored (0.36.0–0.36.3).
+        if (rate && java.io.File(MESON_CLIENT).exists()) Thread {
+            com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT --disable-qms true >/dev/null 2>&1; true", 4)
+            // Android reloads its mode list after QMS changes: find the picked mode again by size + rate.
+            activity.runOnUiThread {
+                if (gen != generation) return@runOnUiThread
+                val fresh = window.decorView.display?.supportedModes?.firstOrNull { it.physicalWidth == pick.w && it.physicalHeight == pick.h && matches(it.refreshRate, pick.hz) }
+                val id = fresh?.modeId ?: pick.id
+                if (id != window.decorView.display?.mode?.modeId) window.attributes = window.attributes.also { it.preferredDisplayModeId = id }
+            }
+            verify(pick, gen)
+        }.start() else { set(); if (java.io.File("$TX/disp_mode").exists()) Thread { verify(pick, gen) }.start() }
     }
 
-    /** Measured, not assumed: what the HDMI output really sends; when it isn't the picked mode, force it (root). */
+    /** Measured, not assumed: what the HDMI output really sends, shown in the player's stats. */
     private fun verify(pick: M, gen: Int) {
-        fun stale() = gen != generation
-        Thread.sleep(1200); if (stale()) return
+        Thread.sleep(2500); if (gen != generation) return
         val real = hdmi() ?: run { status.value = "TV at %s Hz (Android's word; can't read the HDMI output here)".format(fmt(pick.hz)); return }
-        if (matches(real.second, pick.hz) && real.first.contains("${min(pick.w, pick.h)}p")) {
-            status.value = "✓ TV gets %s Hz (measured on HDMI)".format(fmt(real.second)); Log.i(TAG, "verified ${real.first}"); return }
-        if (hdmiBack == null) hdmiBack = sysMode()
-        val (name, frac) = modeName(pick.w, pick.h, pick.hz)
-        Log.i(TAG, "HDMI sends ${real.first} but ${pick.w}x${pick.h}@${pick.hz} was asked: writing $name frac=$frac")
-        status.value = "HDMI was still %s Hz: switching to %s…".format(fmt(real.second), name)
-        force(name, frac)
-        Thread.sleep(1500); if (stale()) return
-        val now = hdmi()
-        val ok = now != null && matches(now.second, pick.hz)
-        Log.i(TAG, "after forced switch: ${now?.first} ok=$ok")
-        status.value = if (ok) "✓ TV gets %s Hz (measured on HDMI)".format(fmt(now!!.second))
-            else "✗ TV still gets %s Hz: the box refused %s".format(now?.let { fmt(it.second) } ?: "?", name)
+        val ok = matches(real.second, pick.hz)
+        Log.i(TAG, "HDMI sends ${real.first} (asked ${pick.w}x${pick.h}@${pick.hz}) ok=$ok")
+        status.value = if (ok) "✓ TV gets %s Hz (measured on HDMI)".format(fmt(real.second))
+            else "✗ TV still gets %s Hz (asked %s)".format(fmt(real.second), fmt(pick.hz))
     }
-
-    /** Amlogic mode name for a TV mode ("2160p50hz", frac 0; 59.94 = "…p60hz" + frac 1). */
-    private fun modeName(w: Int, h: Int, hz: Float): Pair<String, Int> {
-        val n = hz.roundToInt()
-        val frac = abs(hz - n) > 0.01f
-        val r = if (frac) (hz * 1001f / 1000f).roundToInt() else n
-        return (if (max(w, h) == 4096) "smpte${r}hz" else "${min(w, h)}p${r}hz") to (if (frac) 1 else 0)
-    }
-
-    /** The kernel ignores mode writes unless display/debug is on ("vout: enable display/debug to set voutmode"). */
-    private fun force(name: String, frac: Int) {
-        com.lekathedon.visionlite.link.Root.run("echo $frac > $TX/frac_rate_policy; echo 1 > $SYS_DIR/debug; " +
-            "echo $name > $SYS_DIR/mode; echo 0 > $SYS_DIR/debug; true", 5)
-    }
-
-    /** The box's current output mode + frac policy ("2160p60hz" to 0). */
-    private fun sysMode(): Pair<String, Int>? = runCatching {
-        java.io.File("$SYS_DIR/mode").readText().trim() to java.io.File("$TX/frac_rate_policy").readText().trim().toInt() }.getOrNull()
-        ?.takeIf { it.first.isNotEmpty() }
 
     /** The HDMI output's real mode name and rate ("3840x2160p60hz", 60.0), 59.94 etc. from the fractional policy. */
     private fun hdmi(): Pair<String, Float>? {
@@ -165,18 +146,17 @@ object DisplayMatch {
     val status = kotlinx.coroutines.flow.MutableStateFlow("")
     @Volatile private var generation = 0
     private const val TX = "/sys/class/amhdmitx/amhdmitx0"
-    /** The HDMI mode before a forced switch, put back after the film. */
-    @Volatile private var hdmiBack: Pair<String, Int>? = null
-    private const val SYS_DIR = "/sys/class/display"
+    private const val MESON_CLIENT = "/vendor/bin/meson_display_client"
 
     /** Back to the mode the TV had before the film. */
     fun restore(context: Context) {
         generation++
         status.value = ""
-        hdmiBack?.let { (m, frac) -> hdmiBack = null; Thread { Thread.sleep(300); force(m, frac) }.start() }
         val window = activityOf(context)?.window ?: return
-        val id = originalModeId ?: return
-        originalModeId = null
+        val o = original ?: return
+        original = null
+        // Found again by size + rate: mode ids change when the box reloads its modes (QMS off).
+        val id = window.decorView.display?.supportedModes?.firstOrNull { it.physicalWidth == o.w && it.physicalHeight == o.h && matches(it.refreshRate, o.hz) }?.modeId ?: 0
         window.attributes = window.attributes.also { it.preferredDisplayModeId = id }
     }
 }
