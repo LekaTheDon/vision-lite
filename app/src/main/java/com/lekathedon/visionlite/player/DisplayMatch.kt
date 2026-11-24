@@ -7,6 +7,7 @@ import android.util.Log
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Match frame rate / resolution: Vision's proven mode picker (FrameRateUtils.selectDisplayMode), ported as is.
@@ -92,29 +93,44 @@ object DisplayMatch {
         val pick = select(if (rate) modes else modes.filter { matches(it.hz, active.hz) }.ifEmpty { modes },
             active, if (rate) snap(fps) else 0f, width, height, resolution) ?: return
         Log.i(TAG, "video ${width}x$height ${fps}fps: ${active.w}x${active.h}@${active.hz} -> ${pick.w}x${pick.h}@${pick.hz}")
-        if (pick.id == active.id) return
-        if (originalModeId == null) originalModeId = active.id
-        val set = { window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id } }
+        val set = {
+            if (pick.id != active.id) {
+                if (originalModeId == null) originalModeId = active.id
+                window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id }
+            }
+        }
         // A TV with QMS: Amlogic switches 50 / 59.94 / 60 "seamlessly" (HWC: seamless:1 enableVrr:1), the HDMI timing stays
-        // 60 Hz and the TV keeps showing 60 (seen 2026-11-19 on the AM9 + TCL). With root, QMS goes off first (once per
-        // run), so every switch is a real HDMI mode change. Without root nothing changes.
+        // 60 Hz and the TV keeps showing 60 (seen 2026-11-19 on the AM9 + TCL). With root, QMS goes off before every switch
+        // (HWC turns it back on after a TV hotplug), so the switch is a real HDMI mode change. The box's own frame-rate
+        // matching can get there first (2026-11-24: Android already "at 50", HDMI still 60): then the HDMI mode is set to
+        // the picked rate directly. Without root nothing changes.
         val grouped = android.os.Build.VERSION.SDK_INT >= 31 && (cur.alternativeRefreshRates.isNotEmpty() ||
             display.supportedModes.firstOrNull { it.modeId == pick.id }?.alternativeRefreshRates?.isNotEmpty() == true)
-        if (grouped && !qmsTried && java.io.File(MESON_CLIENT).exists()) {
-            qmsTried = true
+        if (grouped && java.io.File(MESON_CLIENT).exists()) {
+            val want = "${min(pick.w, pick.h)}p${pick.hz.roundToInt()}hz"
+            val sameMode = pick.id == active.id && max(pick.w, pick.h) != 4096
             Thread {
-                val out = com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -v true", 4)
-                Log.i(TAG, "QMS off: ${if (out != null) "done" else "no root"}")
+                val out = com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -v true >/dev/null 2>&1; cat $SYS_MODE", 4)
+                val hdmi = out?.trim()?.lines()?.lastOrNull()?.trim()
+                Log.i(TAG, "QMS off: ${if (out != null) "done" else "no root"}, HDMI $hdmi")
+                if (sameMode && hdmi != null && hdmi.endsWith("hz") && hdmi != want) {
+                    val r = com.lekathedon.visionlite.link.Root.run("echo $want > $SYS_MODE; cat $SYS_MODE", 4)
+                    Log.i(TAG, "HDMI was $hdmi while Android said ${active.hz}: set $want -> ${r?.trim()}")
+                    if (r != null && hdmiBack == null) hdmiBack = hdmi
+                }
                 activity.runOnUiThread { set() }
             }.start()
         } else set()
     }
 
     private const val MESON_CLIENT = "/vendor/bin/meson_display_client"
-    @Volatile private var qmsTried = false
+    /** The HDMI mode written behind Android's back, put back after the film. */
+    @Volatile private var hdmiBack: String? = null
+    private const val SYS_MODE = "/sys/class/display/mode"
 
     /** Back to the mode the TV had before the film. */
     fun restore(context: Context) {
+        hdmiBack?.let { m -> hdmiBack = null; Thread { com.lekathedon.visionlite.link.Root.run("echo $m > $SYS_MODE", 4) }.start() }
         val window = activityOf(context)?.window ?: return
         val id = originalModeId ?: return
         originalModeId = null
