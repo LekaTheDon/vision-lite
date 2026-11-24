@@ -170,7 +170,7 @@ private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             }
         }
         cwHold?.let { r -> CwMenu(r, nav, onDrop = { vm.dropContinue(r) }) { cwHold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
-        if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
+        if (askExit) ExitAsk(onLeave = { leaveApp(activity) }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     } }
 }
 
@@ -245,6 +245,18 @@ internal fun Clock() {
         while (true) { delay(60_000 - System.currentTimeMillis() % 60_000); now = fmt.format(java.util.Date()) }
     }
     Text(now, color = Palette.Text, fontSize = 16.sp, modifier = Modifier.padding(end = 6.dp))
+}
+
+/**
+ * Leaving from Home. Speed and network › Close fully (Arc's "Full exit on close"): the app's process ends too, so its
+ * memory goes back to the box at once; not while a recording runs or music plays (they'd stop).
+ */
+internal fun leaveApp(activity: android.app.Activity?) {
+    activity ?: return
+    val busy = com.lekathedon.visionlite.iptv.Recorder.active.value.isNotEmpty() || com.lekathedon.visionlite.music.MusicPlayer.now.value?.playing == true
+    if (!com.lekathedon.visionlite.App.instance.prefs.fullExit.value || busy) { activity.finish(); return }
+    activity.finishAndRemoveTask()
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)
 }
 
 @Composable

@@ -83,6 +83,7 @@ dependencies {
     // libass for ExoPlayer (styled ASS/SSA subtitles), the release made for media3 1.8.0.
     implementation("io.github.peerless2012:ass-media:0.5.1")
     implementation(libs.okhttp)
+    implementation(libs.okhttp.doh)
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)
     implementation(libs.coil.gif)

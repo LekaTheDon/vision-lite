@@ -104,6 +104,7 @@ private val PageStyle by lazy { mapOf(
     "Recommendations" to (Icons.Star to Color(0xFFEAB308)),
     "Live TV and more" to (Icons.LiveTv to Color(0xFFF97316)),
     "This TV" to (Icons.Tv to Color(0xFF6366F1)),
+    "Speed and network" to (Icons.Speed to Color(0xFF84CC16)),
     "Profiles" to (Icons.People to Color(0xFF14B8A6)),
     "About" to (Icons.Info to Color(0xFF64748B)),
 ) }
@@ -314,8 +315,6 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Clock", "Time in the top bar", p.clock, m) }
         row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
             listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"), m) }
-        row { m -> Toggle("Fast horizontal navigation", "Held Left / Right moves quicker along the rows", p.fastHorizontal, m) }
-        row { m -> Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm, m) }
     }
     pages += page("Spoilers and trailers", "What stays hidden, when trailers play", {
         val blur = p.blurUnwatched.flow.collectAsState().value
@@ -424,6 +423,68 @@ fun Settings(nav: Nav, start: String? = null) {
         }
     }) {
         row { m -> ThisTvPane(m, nav) }
+    }
+    pages += page("Speed and network", "Smoother scrolling, DNS, speed tests, cache, how the app closes", {
+        val d = p.dns.flow.collectAsState().value
+        "DNS: ${com.lekathedon.visionlite.data.SwitchDns.SERVICES.firstOrNull { it.key == d }?.name ?: "System"}"
+    }) {
+        head("Scrolling")
+        row { m -> Toggle("Fast horizontal navigation", "Held Left / Right moves quicker along the rows", p.fastHorizontal, m) }
+        row { m ->
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val names = remember { com.lekathedon.visionlite.data.QuietA11y.labels(ctx) }
+            val on by p.quietA11y.flow.collectAsState()
+            val sub = when {
+                names.isEmpty() -> "No accessibility service is on: nothing to do here"
+                com.lekathedon.visionlite.data.QuietA11y.quiet(ctx) -> "On for ${names.joinToString(", ")}: the app's screen isn't described to it, so scrolling is smoother"
+                on -> "Not used: ${names.joinToString(", ")} (a screen reader or a service that reads the screen keeps the app described)"
+                else -> "Off: ${names.joinToString(", ")} gets every screen described"
+            }
+            Toggle("Smoother with key remappers", sub, p.quietA11y, m)
+        }
+        head("DNS")
+        row { m -> Choice("Who looks up addresses", "For add-ons, images, debrid and the player. Pick a service if your provider blocks or changes addresses; if it can't be reached, the box's own is used",
+            p.dns, com.lekathedon.visionlite.data.SwitchDns.SERVICES.map { it.key to it.name }, m) }
+        row { m ->
+            var res by remember { mutableStateOf<String?>(null) }
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            Link("Test DNS", res ?: "Looks up TMDB and Cinemeta with the chosen DNS", m, value = if (res == "…") "…" else "Run") {
+                res = "…"; scope.launch { res = com.lekathedon.visionlite.data.SwitchDns.test() }
+            }
+        }
+        head("Network tests")
+        row { m ->
+            var res by remember { mutableStateOf<String?>(null) }
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            Link("Speed test", res ?: "Latency and about 10 s of download from Cloudflare (up to 100 MB)", m, value = if (res == "Testing…") "…" else "Run") {
+                if (res != "Testing…") { res = "Testing…"; scope.launch { res = com.lekathedon.visionlite.data.NetTests.speed() } }
+            }
+        }
+        row { m ->
+            var res by remember { mutableStateOf<String?>(null) }
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            Link("Test the last played link", res ?: "Reads the link you played last for 10 s and says if this connection keeps up with it", m,
+                value = if (res == "Testing…") "…" else "Run") {
+                if (res != "Testing…") { res = "Testing…"; scope.launch { res = com.lekathedon.visionlite.data.NetTests.lastLink() } }
+            }
+        }
+        head("Cache")
+        row { m ->
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            var size by remember { mutableStateOf<Long?>(null) }
+            androidx.compose.runtime.LaunchedEffect(Unit) { size = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                coil3.SingletonImageLoader.get(ctx).diskCache?.size } }
+            Link("Clear image cache", "Posters and backdrops load fresh (they come back as you browse)", m,
+                value = size?.let { "%.0f MB".format(it / 1e6) } ?: "…") {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val l = coil3.SingletonImageLoader.get(ctx); l.memoryCache?.clear(); l.diskCache?.clear(); size = l.diskCache?.size
+                }
+            }
+        }
+        head("Leaving the app")
+        row { m -> Toggle("Ask before leaving", "Back on Home asks first", p.exitConfirm, m) }
+        row { m -> Toggle("Close fully", "Leaving ends the app too, so its memory goes back to the box at once (next start is a cold start). Not while recording or playing music", p.fullExit, m) }
     }
     pages += page("Profiles", "Who uses this box: each profile keeps its own accounts, library, picks and settings", {
         com.lekathedon.visionlite.data.Profiles.version.collectAsState().value

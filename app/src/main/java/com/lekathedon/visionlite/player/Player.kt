@@ -153,6 +153,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     // Memory and what's starting, for problem reports (the link itself is blanked there).
     androidx.compose.runtime.LaunchedEffect(s.url) {
         android.util.Log.i("VLPlayer", "start type=${s.type} id=${s.id} title=${s.title} host=${runCatching { java.net.URI(s.url).host }.getOrNull()}")
+        if (s.type != "live") kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.data.LastLink.record(s.url, s.headers, s.title) }
         com.lekathedon.visionlite.report.Mem.snapshot(context, "player-start")
     }
     val prefs = App.instance.prefs
@@ -353,6 +354,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == MediaPlayer.STATE_READY && current == Engine.MPV) firstFrame = true
+                if (state == MediaPlayer.STATE_READY && s.type != "live" && player.duration > 0) player.duration.let { d -> scope.launch(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.data.LastLink.duration(d) } }
                 // Buffering that isn't a seek, after the picture came, lasting over 2 s: 3 of them mark the link.
                 val nowMs = System.currentTimeMillis()
                 if (state == MediaPlayer.STATE_BUFFERING && firstFrame && nowMs - lastSeek > 3_000) stallFrom = nowMs

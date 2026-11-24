@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -37,7 +38,9 @@ class MainActivity : ComponentActivity() {
         com.lekathedon.visionlite.ui.Screensaver.dismiss(event) || com.lekathedon.visionlite.ui.HoldGuard.consume(event) ||
             com.lekathedon.visionlite.ui.DpadPace.consume(event) || super.dispatchKeyEvent(event)
 
-    override fun onResume() { super.onResume(); com.lekathedon.visionlite.link.LinkState.front = true }
+    override fun onResume() { super.onResume(); com.lekathedon.visionlite.link.LinkState.front = true; front++ }
+    /** Bumps each time the app comes to the front (accessibility services may have changed meanwhile). */
+    private var front by androidx.compose.runtime.mutableIntStateOf(0)
     override fun onPause() { com.lekathedon.visionlite.link.LinkState.front = false; super.onPause() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,7 +90,13 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalLook provides look) {
                 val blackBars by app.prefs.blackBars.flow.collectAsState()
                 val clearBehind = blackBars && nav.current is Screen.Player
-                Box(Modifier.fillMaxSize().then(if (clearBehind) Modifier else Modifier.background(look.page))) {
+                // Speed and network › Smoother with key remappers: only Button Mapper / Projectivy listen, so the screen
+                // isn't described to them (checked again when the app comes back to the front or the setting changes).
+                val quietOn by app.prefs.quietA11y.flow.collectAsState()
+                var quiet by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                androidx.compose.runtime.LaunchedEffect(quietOn, front) { quiet = com.lekathedon.visionlite.data.QuietA11y.quiet(this@MainActivity) }
+                Box(Modifier.fillMaxSize().then(if (clearBehind) Modifier else Modifier.background(look.page))
+                    .then(if (quiet) Modifier.clearAndSetSemantics { } else Modifier)) {
                   // A hub's pages (Discover, Library, Live TV…) carry the pill on top, that page marked (Vision).
                   val hub = com.lekathedon.visionlite.home.hubPageOf(nav.current)
                   // The pill on a hub's page shows that hub, however the page was reached.

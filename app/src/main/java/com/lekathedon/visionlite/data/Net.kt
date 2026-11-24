@@ -16,6 +16,8 @@ object Net {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        // Settings › Speed and network › DNS (the box's own unless a DNS-over-HTTPS service is picked).
+        .dns(SwitchDns)
         .build()
 
     suspend fun get(url: String, timeoutSec: Long = 0): String = withContext(Dispatchers.IO) {

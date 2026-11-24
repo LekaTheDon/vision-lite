@@ -210,4 +210,8 @@ class Prefs(context: Context) {
     val torboxKey = Text("torbox_key", "")
     // App
     val exitConfirm = Flag("exit_confirm", true)
+    /** Speed and network (data/NetSpeed.kt): DNS service, quiet accessibility for key remappers, full exit. */
+    val dns = Text("dns", "system")
+    val quietA11y = Flag("quiet_a11y", true)
+    val fullExit = Flag("full_exit", false)
 }

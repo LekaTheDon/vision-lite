@@ -423,7 +423,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     // Back on Home: first to the top (the pill), then out of the app (asking first when "Leave Nuvio Vision?" is on).
     androidx.activity.compose.BackHandler(enabled = !askExit) {
         if (!pillFocused) scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { pillHome.requestFocus() } }
-        else if (exitConfirm) askExit = true else activity?.finish()
+        else if (exitConfirm) askExit = true else leaveApp(activity)
     }
     Box(Modifier.fillMaxSize().background(look.page)) {
         // Below the billboard nothing of the backdrop can be seen (user 2026-11-22): it and the wash are gone from the
@@ -532,7 +532,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         } }
         cwHold?.let { r -> CwMenu(r, nav, onDrop = { vm.dropContinue(r) }) { cwHold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
         if (!ready) HomeLoading(look.page)
-        if (askExit) ExitAsk(onLeave = { activity?.finish() }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
+        if (askExit) ExitAsk(onLeave = { leaveApp(activity) }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
 
