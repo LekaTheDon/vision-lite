@@ -83,7 +83,7 @@ object Vod {
     suspend fun ensureLoaded(force: Boolean = false) = lock.withLock {
         withContext(Dispatchers.IO) {
             for (pl in Iptv.playlists().filter { it.xtream }) {
-                if (!force && System.currentTimeMillis() - loadedAt(pl.id) < 24 * 3600_000L) continue
+                if (!force && System.currentTimeMillis() - loadedAt(pl.id) < 20 * 3600_000L) continue
                 try {
                     _status.value = "Loading ${pl.name}'s films and series…"
                     val base = Iptv.xtreamBase(pl)
@@ -184,8 +184,16 @@ object Vod {
         }.getOrDefault(emptyList())
     }
 
-    fun groups(kind: String): List<Pair<String, Int>> = db.readableDatabase.rawQuery(
-        "SELECT grp, COUNT(*) FROM items WHERE kind=? GROUP BY grp ORDER BY MIN(rowid)", arrayOf(kind)).use { c -> buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) } }
+    fun groups(kind: String): List<Pair<String, Int>> {
+        val v = _version.value
+        groupCache[kind]?.takeIf { it.first == v }?.let { return it.second }
+        return db.readableDatabase.rawQuery("SELECT grp, COUNT(*) FROM items WHERE kind=? GROUP BY grp ORDER BY MIN(rowid)", arrayOf(kind)).use { c ->
+            buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) }
+        }.also { groupCache[kind] = v to it }
+    }
+    /** The page opens with its categories at once (no empty frame) once they were read this run. */
+    fun groupsCached(kind: String): List<Pair<String, Int>> = groupCache[kind]?.second.orEmpty()
+    private val groupCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, List<Pair<String, Int>>>>()
 
     fun items(kind: String, group: String?, offset: Int = 0, limit: Int = 3000): List<VodItem> {
         val (w, a) = if (group == null) "kind=?" to arrayOf(kind) else "kind=? AND grp=?" to arrayOf(kind, group)
@@ -241,7 +249,7 @@ object Vod {
                 d.execSQL("CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT)")
             }
             override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {}
-        }
+        }.also { it.setWriteAheadLoggingEnabled(true) }   // TMDB matches written while rows read (no lock waits)
     }
 }
 
@@ -253,9 +261,9 @@ object Vod {
 fun VodScreen(nav: Nav) {
     val version by Vod.version.collectAsState()
     val status by Vod.status.collectAsState()
-    LaunchedEffect(Unit) { Vod.ensureLoaded() }
+    LaunchedEffect(Unit) { com.lekathedon.visionlite.iptv.IptvSync.kick() }
     var kind by rememberSaveable { mutableStateOf("movie") }
-    val groups by produceState(emptyList<Pair<String, Int>>(), version, kind) { value = withContext(Dispatchers.IO) { Vod.groups(kind) } }
+    val groups by produceState(Vod.groupsCached(kind), version, kind) { value = withContext(Dispatchers.IO) { Vod.groups(kind) } }
     var series by remember { mutableStateOf<VodItem?>(null) }
     if (series != null) { androidx.activity.compose.BackHandler { series = null }; Episodes(nav, series!!); return }
     val store = remember(version, kind) { HashMap<String, VodRow>() }

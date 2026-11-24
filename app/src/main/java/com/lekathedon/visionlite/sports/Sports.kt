@@ -107,7 +107,7 @@ object Sports {
     private suspend fun run() {
         if (data.isEmpty()) loadCache()
         // Live TV's channels and guide (only now that sports is open; loads at most daily).
-        scope.launch { runCatching { Iptv.ensureLoaded() } }
+        com.lekathedon.visionlite.iptv.IptvSync.kick()
         var matchedAt = 0L; var matchedGuide: String? = null; var matchedEvents = 0
         while (currentCoroutineContextActive()) {
             val now = System.currentTimeMillis()

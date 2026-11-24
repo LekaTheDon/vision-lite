@@ -56,6 +56,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- Live TV always ready: the 05:00 update of channels, guide and VOD (only with a playlist). -->
+        <receiver android:name=".iptv.IptvAlarm" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
+        <service android:name=".iptv.IptvUpdateService" android:exported="false" android:foregroundServiceType="dataSync" />
         <receiver android:name=".iptv.RecAlarm" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>

@@ -253,7 +253,7 @@ internal fun Clock() {
  */
 internal fun leaveApp(activity: android.app.Activity?) {
     activity ?: return
-    val busy = com.lekathedon.visionlite.iptv.Recorder.active.value.isNotEmpty() || com.lekathedon.visionlite.music.MusicPlayer.now.value?.playing == true
+    val busy = com.lekathedon.visionlite.iptv.Recorder.active.value.isNotEmpty() || com.lekathedon.visionlite.iptv.IptvSync.running.value || com.lekathedon.visionlite.music.MusicPlayer.now.value?.playing == true
     if (!com.lekathedon.visionlite.App.instance.prefs.fullExit.value || busy) { activity.finish(); return }
     activity.finishAndRemoveTask()
     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)

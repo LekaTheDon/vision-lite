@@ -51,7 +51,7 @@ data class Channel(val pl: String, val n: Int, val name: String, val group: Stri
  */
 object Iptv {
     private const val TAG = "Iptv"
-    private const val STALE_MS = 24L * 3600_000
+    private const val STALE_MS = 20L * 3600_000
     private val p get() = App.instance.prefs
     private val lock = Mutex()
     private val http by lazy { Net.http.newBuilder().readTimeout(60, TimeUnit.SECONDS).callTimeout(10, TimeUnit.MINUTES).build() }
@@ -289,13 +289,22 @@ object Iptv {
     // ---- reading ----
 
     /** Groups across all playlists, in playlist order, with channel counts. */
-    fun groups(): List<Pair<String, Int>> = db.readableDatabase.rawQuery(
-        "SELECT grp, COUNT(*) FROM ch GROUP BY grp ORDER BY MIN(rowid)", null).use { c ->
-        buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) }
+    fun groups(): List<Pair<String, Int>> {
+        val v = _version.value
+        groupCache?.takeIf { it.first == v }?.let { return it.second }
+        return db.readableDatabase.rawQuery("SELECT grp, COUNT(*) FROM ch GROUP BY grp ORDER BY MIN(rowid)", null).use { c ->
+            buildList { while (c.moveToNext()) add(c.getString(0) to c.getInt(1)) }
+        }.also { groupCache = v to it }
     }
+    fun groupsCached(): List<Pair<String, Int>> = groupCache?.second.orEmpty()
+    @Volatile private var groupCache: Pair<Int, List<Pair<String, Int>>>? = null
 
     /** [group] null = all; "★" = favourites. */
-    fun channels(group: String?): List<Channel> {
+    /** The last list read per group (memory only): Live TV opens on it at once, then reads it fresh. */
+    private val listCache = java.util.concurrent.ConcurrentHashMap<String, List<Channel>>()
+    fun channelsCached(group: String?): List<Channel> = listCache[group ?: ""].orEmpty()
+    fun channels(group: String?): List<Channel> = channelsRead(group).also { if (it.size <= 5000) listCache[group ?: ""] = it }
+    private fun channelsRead(group: String?): List<Channel> {
         val favs = if (group == "★") favourites() else null
         val (where, args) = when {
             group == null || favs != null || group == RECENT -> "" to null

@@ -71,15 +71,16 @@ fun LiveTv(nav: Nav) {
     val scope = rememberCoroutineScope()
     var managing by rememberSaveable { mutableStateOf(false) }
     val playlists = remember(version) { Iptv.playlists() }
-    LaunchedEffect(Unit) { if (playlists.isNotEmpty()) Iptv.ensureLoaded() }
+    // Shown from iptv.db at once; an update due runs in the background (IptvSync), never tied to this page.
+    LaunchedEffect(Unit) { if (playlists.isNotEmpty()) { IptvSync.kick(); IptvSync.arm() } }
     if (managing || playlists.isEmpty()) {
         androidx.activity.compose.BackHandler(enabled = managing) { managing = false }
-        Playlists(onDone = { managing = false; scope.launch { Iptv.ensureLoaded() } })
+        Playlists(onDone = { managing = false; IptvSync.kick(); IptvSync.arm() })
         return
     }
     var group by rememberSaveable { mutableStateOf<String?>(if (Iptv.favourites().isNotEmpty()) "★" else null) }
-    val groups by produceState(emptyList<Pair<String, Int>>(), version) { value = withContext(Dispatchers.IO) { Iptv.groups() } }
-    val channels by produceState(emptyList<Channel>(), version, group) { value = withContext(Dispatchers.IO) { Iptv.channels(group) } }
+    val groups by produceState(Iptv.groupsCached(), version) { value = withContext(Dispatchers.IO) { Iptv.groups() } }
+    val channels by produceState(Iptv.channelsCached(group), version, group) { value = withContext(Dispatchers.IO) { Iptv.channels(group) } }
     var focused by remember { mutableStateOf<Channel?>(null) }
     var minute by remember { mutableStateOf(System.currentTimeMillis() / 60_000) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); minute = System.currentTimeMillis() / 60_000 } }
@@ -90,7 +91,7 @@ fun LiveTv(nav: Nav) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Live TV", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(status.ifEmpty { "${channels.size} channels" }, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp).weight(1f))
-            Button("Refresh", { scope.launch { Iptv.refreshAll() } }, Modifier.padding(end = 8.dp))
+            Button("Refresh", { IptvSync.kick(force = true) }, Modifier.padding(end = 8.dp))
             Button("Playlists", { managing = true })
         }
         Row(Modifier.fillMaxSize().padding(top = 14.dp)) {

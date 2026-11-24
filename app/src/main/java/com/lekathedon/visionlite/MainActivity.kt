@@ -78,6 +78,8 @@ class MainActivity : ComponentActivity() {
             // Let the app decide: a new TV, soundbar or internet (Wi-Fi / cable / DNS servers) since the last check gets its recommended settings by itself.
             val ctx = androidx.compose.ui.platform.LocalContext.current
             androidx.compose.runtime.LaunchedEffect(Unit) {
+                // IPTV: only the 05:00 alarm is set at start (no download; there must be a playlist).
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.iptv.IptvSync.arm(ctx) } }
                 val n = runCatching { com.lekathedon.visionlite.device.DeviceCheck.autoUpdate(ctx) }.getOrDefault(0)
                 if (n > 0) android.widget.Toast.makeText(ctx, "New TV, soundbar or internet: $n settings updated (Settings › This TV)", android.widget.Toast.LENGTH_LONG).show()
             }
