@@ -339,11 +339,17 @@ object AutoPick {
      * Best link: no CAM, then your preferred dub (when set), 4K first; on a FEL box DV7 FEL next (user 2026-11-20: Frankenstein autoplayed DV8 over FEL),
      * then the bigger file always; SeaDex best, quality and Vision TB break ties.
      */
-    fun rank(pool: List<Link>): List<Link> {
+    fun rank(pool: List<Link>, minutes: Int = 0): List<Link> {
         val fel = felBox
         val dub = runCatching { com.lekathedon.visionlite.App.instance.prefs.dubLang.value }.getOrDefault("")
-        return pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }.sortedWith(
+        val parsed = pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }
+        // This box / TV / internet (user 2026-11-24): what can't play here is out (unless nothing else is left),
+        // what would struggle goes after everything that plays well.
+        val fits = parsed.associate { (l, q) -> l to DeviceFit.fit(textFor(l), q, l.bytes, minutes, l.height) }
+        val usable = parsed.filter { fits[it.first] != DeviceFit.NO }.ifEmpty { parsed }
+        return usable.sortedWith(
         compareBy<Pair<Link, ReleaseQuality>> { it.second.lowQuality }
+            .thenByDescending { fits[it.first] ?: DeviceFit.GOOD }
             // Preferred dub (user 2026-11-24): a link dubbed in that language beats 4K original audio.
             .thenByDescending { dub.isNotEmpty() && (it.first.dub ?: DubLang.of(textFor(it.first))) == dub }
             .thenByDescending { it.second.resolution == 2160 || it.first.height == 2160 }
@@ -361,13 +367,38 @@ object AutoPick {
         val q = ReleaseQuality.parse(text)
         val name = (l.fileName ?: l.stream.title ?: l.stream.name ?: "").lineSequence().firstOrNull().orEmpty().take(90)
         val dv = listOf("no DV", "DV", "DV7", "DV7 FEL")[dvTier(text, q)]
-        return "${l.source} | $name | ${if (q.resolution == 2160 || l.height == 2160) "4K" else "${l.height}p"} $dv | ${"%.1f".format(l.bytes / 1e9)} GB"
+        return "${l.source} | $name | ${if (q.resolution == 2160 || l.height == 2160) "4K" else "${l.height}p"} $dv | ${"%.1f".format(l.bytes / 1e9)} GB | ${DeviceFit.label(DeviceFit.fit(text, q, l.bytes, 0, l.height))}"
+    }
+
+    private fun minutesFor(videoId: String, t: EpisodeCheck.Target?): Int = runCatching {
+        val show = t?.showKey
+        if (show != null) LinkMemory.minutesOf("series", show)
+        else if (Regex("^tt\\d+$").matches(videoId.trim())) LinkMemory.minutesOf("movie", videoId.trim())
+        else 0
+    }.getOrDefault(0)
+
+    /**
+     * Good enough to stop waiting for slower sources: plays well here, at the best size this TV shows, from a
+     * trusted name. Autoplay then gives the rest a short grace instead of the slowest add-on's full 20 s.
+     */
+    fun settleMs(top: Link): Long {
+        val q = ReleaseQuality.parse(textFor(top))
+        val fit = DeviceFit.fit(textFor(top), q, top.bytes, 0, top.height)
+        val c = DeviceFit.can()
+        val bestHeight = if (c == null || c.tvH == 0 || c.tvH >= 2000) 2160 else 1080
+        val h = maxOf(q.resolution ?: 0, top.height)
+        return when {
+            fit == DeviceFit.GOOD && h >= bestHeight && !q.lowQuality -> 2_000
+            fit == DeviceFit.GOOD -> 4_000
+            else -> 7_000
+        }
     }
 
     /** The order autoplay tries links in (the manual list keeps every row). */
     fun order(links: List<Link>, videoId: String): List<Link> {
         // Link memory: a link that failed or kept buffering this week is skipped; your pick for the show goes first.
-        val ranked = rank(pool(links, EpisodeCheck.targetOf(videoId), videoId)).filter { LinkMemory.bad(it) == null }
+        val t = EpisodeCheck.targetOf(videoId)
+        val ranked = rank(pool(links, t, videoId), minutesFor(videoId, t)).filter { LinkMemory.bad(it) == null }
         val mine = ranked.filter { LinkMemory.pickMatch(videoId, it) > 0 }.sortedByDescending { LinkMemory.pickMatch(videoId, it) }
         return mine.take(1) + ranked.filter { it !in mine.take(1) }
     }

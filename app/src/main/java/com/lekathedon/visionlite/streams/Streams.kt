@@ -133,6 +133,29 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         val vodOn = app.prefs.vodInTb.value && (s.type == "movie" || s.type == "series") && s.id.startsWith("tt") && VodLinks.available()
         val asked = app.addons.addons.value.count { it.serves("stream", s.type, s.id) } + (if (tbOn) 1 else 0) + (if (servers) 1 else 0) + (if (vodOn) 1 else 0)
         pending = asked
+        // Autoplay doesn't wait for the slowest source (an add-on may take its full 20 s): once a link that plays well
+        // here is in, the rest get a short grace (AutoPick.settleMs), then it plays. Sources still answering keep
+        // filling the list in case autoplay finds nothing safe.
+        val started = android.os.SystemClock.elapsedRealtime()
+        val decider = if (auto) launch {
+            var seen = -1; var top: Link? = null; var topAt = 0L
+            while (pending > 0) {
+                kotlinx.coroutines.delay(300)
+                if (links.size != seen) {
+                    seen = links.size
+                    val snap = links.toList()
+                    val now = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { AutoPick.order(snap, s.id).firstOrNull() }
+                    if (now?.stream != top?.stream) { top = now; topAt = android.os.SystemClock.elapsedRealtime() }
+                }
+                val t = top ?: continue
+                val waited = android.os.SystemClock.elapsedRealtime() - topAt
+                if (waited >= AutoPick.settleMs(t)) {
+                    android.util.Log.i("AutoPick", "settled after ${android.os.SystemClock.elapsedRealtime() - started} ms, $pending source(s) still out")
+                    break
+                }
+            }
+            if (!autoplay(nav, s, arrange(links.toList(), app.prefs)) { getting = it }) auto = false
+        } else null
         kotlinx.coroutines.coroutineScope {
             // Add-on subtitles for the player, asked alongside the links (nothing before Play was pressed).
             launch { runCatching { com.lekathedon.visionlite.addons.Subs.load(s.type, s.id) } }
@@ -165,7 +188,9 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             // The episode list, so autoplay can tell this episode's file from one that only shares its numbers.
             app.client.streams(s.type, s.id) { r ->
                 links.addAll(r.streams.map { Link(r.addon.manifest.name, it) })
-                harvest?.trySend(r.streams.filter { it.url == null && it.infoHash != null }.mapNotNull { st ->
+                // Only torrents this box / TV / internet can play are worth a TorBox check (DeviceFit).
+                harvest?.trySend(r.streams.filter { it.url == null && it.infoHash != null && DeviceFit.fit(listOfNotNull(it.name, it.title, it.description, it.behaviorHints?.filename).joinToString(" "),
+                    bytes = it.behaviorHints?.videoSize ?: 0) != DeviceFit.NO }.mapNotNull { st ->
                     com.lekathedon.visionlite.tb.AddonHarvest.candidate(st.infoHash, st.url, st.title, st.description,
                         st.behaviorHints?.filename, st.behaviorHints?.videoSize, st.fileIdx)
                 })
@@ -175,7 +200,8 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             }
             harvest?.close()
         }
-        if (auto && !autoplay(nav, s, arrange(links, app.prefs)) { getting = it }) auto = false
+        android.util.Log.i("AutoPick", "all sources in after ${android.os.SystemClock.elapsedRealtime() - started} ms")
+        decider?.join()
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.
     val order = remember(s.id) { listOf(MediaServers.PLEX, MediaServers.JELLYFIN, com.lekathedon.visionlite.tb.VisionTb.NAME) + app.addons.addons.value.map { it.manifest.name } }

@@ -166,6 +166,12 @@ object DiscoveryPipeline {
                 rejected += Rejection(c.hash, c.name, c.source, "low_quality")
                 continue
             }
+            // Can't play on this box / TV / internet (streams/DeviceFit): not worth a TorBox check (user 2026-11-24).
+            if (com.lekathedon.visionlite.streams.DeviceFit.fit(c.name + " " + c.fileName.orEmpty()) ==
+                com.lekathedon.visionlite.streams.DeviceFit.NO) {
+                rejected += Rejection(c.hash, c.name, c.source, "device")
+                continue
+            }
             val m = matchOne(c, if (anime) animeTarget else target)
             if (!m.accepted) {
                 rejected += Rejection(c.hash, c.name, c.source, m.reason)
