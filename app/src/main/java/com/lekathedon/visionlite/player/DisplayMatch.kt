@@ -93,44 +93,74 @@ object DisplayMatch {
         val pick = select(if (rate) modes else modes.filter { matches(it.hz, active.hz) }.ifEmpty { modes },
             active, if (rate) snap(fps) else 0f, width, height, resolution) ?: return
         Log.i(TAG, "video ${width}x$height ${fps}fps: ${active.w}x${active.h}@${active.hz} -> ${pick.w}x${pick.h}@${pick.hz}")
-        val set = {
-            if (pick.id != active.id) {
-                if (originalModeId == null) originalModeId = active.id
-                window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id }
-            }
+        val gen = ++generation
+        status.value = "Video %s fps → asking for %d×%d @ %s Hz".format(fmt(snap(fps)), pick.w, pick.h, fmt(pick.hz))
+        // The normal way first: ask Android (it may do it "seamlessly" with QMS, which is fine when the TV really gets it).
+        if (pick.id != active.id) {
+            if (originalModeId == null) originalModeId = active.id
+            window.attributes = window.attributes.also { it.preferredDisplayModeId = pick.id }
         }
-        // A TV with QMS: Amlogic switches 50 / 59.94 / 60 "seamlessly" (HWC: seamless:1 enableVrr:1), the HDMI timing stays
-        // 60 Hz and the TV keeps showing 60 (seen 2026-11-19 on the AM9 + TCL). With root, QMS goes off before every switch
-        // (HWC turns it back on after a TV hotplug), so the switch is a real HDMI mode change. The box's own frame-rate
-        // matching can get there first (2026-11-24: Android already "at 50", HDMI still 60): then the HDMI mode is set to
-        // the picked rate directly. Without root nothing changes.
-        val grouped = android.os.Build.VERSION.SDK_INT >= 31 && (cur.alternativeRefreshRates.isNotEmpty() ||
-            display.supportedModes.firstOrNull { it.modeId == pick.id }?.alternativeRefreshRates?.isNotEmpty() == true)
-        if (grouped && java.io.File(MESON_CLIENT).exists()) {
-            val want = "${min(pick.w, pick.h)}p${pick.hz.roundToInt()}hz"
-            val sameMode = pick.id == active.id && max(pick.w, pick.h) != 4096
-            Thread {
-                val out = com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -v true >/dev/null 2>&1; cat $SYS_MODE", 4)
-                val hdmi = out?.trim()?.lines()?.lastOrNull()?.trim()
-                Log.i(TAG, "QMS off: ${if (out != null) "done" else "no root"}, HDMI $hdmi")
-                if (sameMode && hdmi != null && hdmi.endsWith("hz") && hdmi != want) {
-                    val r = com.lekathedon.visionlite.link.Root.run("echo $want > $SYS_MODE; cat $SYS_MODE", 4)
-                    Log.i(TAG, "HDMI was $hdmi while Android said ${active.hz}: set $want -> ${r?.trim()}")
-                    if (r != null && hdmiBack == null) hdmiBack = hdmi
-                }
-                activity.runOnUiThread { set() }
-            }.start()
-        } else set()
+        if (rate) Thread { verify(activity, pick, gen) }.start()
     }
 
+    /**
+     * Measured, not assumed: 2.5 s after the request, read what the HDMI output really sends (Amlogic, root). Android's
+     * own mode can say 50 Hz while QMS keeps the TV at 60 (AM9 + TCL, 2026-11-24: "seamless", rate hint 6000, VRR none).
+     * Then QMS goes off and the switch is redone as a real HDMI mode change, checked again. Without root or on other
+     * chips, Android's mode is all there is to read.
+     */
+    private fun verify(activity: Activity, pick: M, gen: Int) {
+        fun stale() = gen != generation
+        Thread.sleep(2500); if (stale()) return
+        val real = hdmi() ?: run { status.value = "TV at %s Hz (Android's word; can't read the HDMI output here)".format(fmt(pick.hz)); return }
+        if (matches(real.second, pick.hz)) { status.value = "✓ TV gets %s Hz (measured on HDMI)".format(fmt(real.second)); Log.i(TAG, "verified ${real.first}"); return }
+        Log.i(TAG, "HDMI sends ${real.first} but ${pick.hz} was asked: QMS off, real switch")
+        status.value = "HDMI was still %s Hz: switching for real…".format(fmt(real.second))
+        com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -v true >/dev/null 2>&1; true", 4)
+        if (hdmiBack == null && originalModeId == null) hdmiBack = real.first
+        val spec = "${pick.w}x${pick.h}@${pick.hz.roundToInt()}"
+        // Through the box's own display service (HWC stays in step), the raw HDMI mode only if that didn't take.
+        com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -c $spec >/dev/null 2>&1; true", 6)
+        Thread.sleep(2000); if (stale()) return
+        var now = hdmi()
+        if (now != null && !matches(now.second, pick.hz)) {
+            com.lekathedon.visionlite.link.Root.run("echo ${min(pick.w, pick.h)}p${pick.hz.roundToInt()}hz > $SYS_MODE", 4)
+            Thread.sleep(2000); if (stale()) return
+            now = hdmi()
+        }
+        val ok = now != null && matches(now.second, pick.hz)
+        Log.i(TAG, "after real switch: ${now?.first} ok=$ok")
+        status.value = if (ok) "✓ TV gets %s Hz (measured on HDMI, QMS bypassed)".format(fmt(now!!.second))
+            else "✗ TV still gets %s Hz: the box refused %s".format(now?.let { fmt(it.second) } ?: "?", spec)
+    }
+
+    /** The HDMI output's real mode name and rate ("3840x2160p60hz", 60.0), 59.94 etc. from the fractional policy. */
+    private fun hdmi(): Pair<String, Float>? {
+        val out = com.lekathedon.visionlite.link.Root.run("grep '^name:' $TX/disp_mode; cat $TX/frac_rate_policy", 3) ?: return null
+        val lines = out.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val name = lines.firstOrNull { it.startsWith("name:") }?.substringAfter(':')?.trim() ?: return null
+        val n = Regex("""p(\d+)hz""").find(name)?.groupValues?.get(1)?.toFloatOrNull() ?: return null
+        val frac = lines.lastOrNull() == "1" && n.toInt() in setOf(24, 30, 48, 60, 120)
+        return name to if (frac) n * 1000f / 1001f else n
+    }
+
+    private fun fmt(hz: Float) = "%.3f".format(hz).trimEnd('0').trimEnd('.')
+
+    /** What the last switch did, measured (shown in the player's stats). */
+    val status = kotlinx.coroutines.flow.MutableStateFlow("")
+    @Volatile private var generation = 0
     private const val MESON_CLIENT = "/vendor/bin/meson_display_client"
-    /** The HDMI mode written behind Android's back, put back after the film. */
+    private const val TX = "/sys/class/amhdmitx/amhdmitx0"
+    /** The HDMI mode before a switch made behind Android's books, put back after the film. */
     @Volatile private var hdmiBack: String? = null
     private const val SYS_MODE = "/sys/class/display/mode"
 
     /** Back to the mode the TV had before the film. */
     fun restore(context: Context) {
-        hdmiBack?.let { m -> hdmiBack = null; Thread { com.lekathedon.visionlite.link.Root.run("echo $m > $SYS_MODE", 4) }.start() }
+        generation++
+        hdmiBack?.let { m -> hdmiBack = null
+            val spec = Regex("""(\d+)x(\d+)p(\d+)hz""").find(m)?.destructured?.let { (w, h, r) -> "${w}x$h@$r" }
+            if (spec != null) Thread { com.lekathedon.visionlite.link.Root.run("$MESON_CLIENT -c $spec >/dev/null 2>&1; true", 6) }.start() }
         val window = activityOf(context)?.window ?: return
         val id = originalModeId ?: return
         originalModeId = null

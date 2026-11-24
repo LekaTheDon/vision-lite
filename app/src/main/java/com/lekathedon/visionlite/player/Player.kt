@@ -282,17 +282,21 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                         override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, initMs: Long, durMs: Long) { Hud.decoder = name }
                     })
                     trackSelectionParameters = trackPrefs(trackSelectionParameters, s.id)
-                    // A file with no frame rate in its header: measured from the first frames' timestamps.
+                    // Measured, not guessed: the frame rate from the first frames' timestamps, every file. The header's rate
+                    // (if any) switches early; when the frames say otherwise (live channels, mislabelled files) they win.
                     if (afr) {
                         val stamps = ArrayList<Long>(48)
                         val main = Handler(android.os.Looper.getMainLooper())
                         setVideoFrameMetadataListener { t, _, f, _ ->
-                            if (f.frameRate > 0 || stamps.size >= 48) return@setVideoFrameMetadataListener
+                            if (stamps.size >= 48) return@setVideoFrameMetadataListener
                             stamps.add(t)
                             if (stamps.size == 48) {
                                 val sorted = stamps.sorted().drop(8)
                                 val fps = 1_000_000f * (sorted.size - 1) / (sorted.last() - sorted.first()).coerceAtLeast(1)
-                                if (fps in 10f..121f) main.post { DisplayMatch.apply(context, fps, f.width, f.height, true, resMatch) }
+                                val header = f.frameRate
+                                val differs = header <= 0 || kotlin.math.abs(DisplayMatch.snap(fps) - DisplayMatch.snap(header)) / fps > 0.02f
+                                android.util.Log.i("DisplayMatch", "measured %.3f fps (header %.3f)".format(fps, header))
+                                if (fps in 10f..121f && differs) main.post { DisplayMatch.apply(context, fps, f.width, f.height, true, resMatch) }
                             }
                         }
                     }
