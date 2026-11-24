@@ -112,8 +112,10 @@ object Iptv {
                 _status.value = if (first) "Downloading ${pl.name} (first time only)…" else "Updating ${pl.name}…"
                 val (channels, guides) = if (pl.xtream) xtream(pl) else m3u(pl)
                 val sig = channels.joinToString("\n") { "${it.n}|${it.name}|${it.group}|${it.url}|${it.logo}|${it.tvg}|${it.catchup}" }.hashCode().toString() + ":" + channels.size
-                val changed = force || first || metaGet("chsig:${pl.id}") != sig
-                if (changed) { writeChannels(pl.id, channels); meta("chsig:${pl.id}", sig); _version.value++ }
+                val old = metaGet("chsig:${pl.id}")
+                // No fingerprint yet (first update after 0.34.1): write the list, but don't count it as a change.
+                val changed = force || first || (old != null && old != sig)
+                if (changed || old == null) { writeChannels(pl.id, channels); meta("chsig:${pl.id}", sig); _version.value++ }
                 val guide = pl.epg.ifBlank { guides.firstOrNull().orEmpty() }
                 if (guide.isNotBlank()) {
                     if (first) _status.value = "Downloading the guide for ${pl.name} (first time only)…"
@@ -220,7 +222,12 @@ object Iptv {
                 (etag == null && lm == null && size != null && size == metaGet("$tag:size"))))
         if (same) {
             resp.close()
-            db.writableDatabase.delete("prog", "pl=? AND stop<?", arrayOf(pl, keepFrom.toString()))
+            val w = db.writableDatabase
+            w.beginTransaction()
+            try {
+                w.execSQL("DELETE FROM p2 WHERE stop<? AND g IN (SELECT id FROM gch WHERE pl=?)", arrayOf<Any>(keepFrom, pl))
+                dropUnusedText(w); w.setTransactionSuccessful()
+            } finally { w.endTransaction() }
             Log.i(TAG, "guide unchanged on the server: kept, old shows trimmed")
             return
         }
@@ -246,15 +253,28 @@ object Iptv {
         val named = HashMap<String, String>()   // guide id → our channel rows without a tvg id
         w.beginTransaction()
         try {
-            w.delete("prog", "pl=?", arrayOf(pl))
-            val st = w.compileStatement("INSERT INTO prog(pl,tvg,start,stop,title,descr,cat) VALUES(?,?,?,?,?,?,?)")
+            w.execSQL("DELETE FROM p2 WHERE g IN (SELECT id FROM gch WHERE pl=?)", arrayOf(pl))
+            w.delete("gch", "pl=?", arrayOf(pl))
+            dropUnusedText(w)
+            // Each title / description / category is stored once (a news bulletin airs 20 times a day); shows point to it.
+            val texts = HashMap<Long, Long>()
+            w.rawQuery("SELECT id, s FROM txt", null).use { c -> while (c.moveToNext()) texts[hash64(c.getString(1))] = c.getLong(0) }
+            val addTxt = w.compileStatement("INSERT INTO txt(s) VALUES(?)")
+            fun text(s: String?): Long? = s?.takeIf { it.isNotBlank() }?.let { t ->
+                val h = hash64(t); texts[h] ?: run { addTxt.clearBindings(); addTxt.bindString(1, t); addTxt.executeInsert().also { texts[h] = it } }
+            }
+            val addCh = w.compileStatement("INSERT INTO gch(pl,tvg) VALUES(?,?)")
+            val st = w.compileStatement("INSERT OR IGNORE INTO p2(g,start,stop,t,d,c) VALUES(?,?,?,?,?,?)")
             var count = 0
             input.use { input ->
                 XmltvParser.parse(input, keepFrom, dayStart(2), keepUnlisted = { it in ids },
                     onPrograms = { id, progs ->
+                        addCh.clearBindings(); addCh.bindString(1, pl); addCh.bindString(2, id)
+                        val g = addCh.executeInsert()
                         progs.forEach { pr ->
-                            st.clearBindings(); st.bindString(1, pl); st.bindString(2, id); st.bindLong(3, pr.startMs); st.bindLong(4, pr.stopMs)
-                            st.bindString(5, pr.title); pr.description?.let { st.bindString(6, it) }; pr.category?.let { st.bindString(7, it) }; st.executeInsert(); count++
+                            st.clearBindings(); st.bindLong(1, g); st.bindLong(2, pr.startMs); st.bindLong(3, pr.stopMs)
+                            st.bindLong(4, text(pr.title) ?: text("…")!!); text(pr.description)?.let { st.bindLong(5, it) }; text(pr.category)?.let { st.bindLong(6, it) }
+                            st.executeInsert(); count++
                         }
                     }) { channels ->
                     channels.values.forEach { ch -> if (ch.id !in ids) ch.displayNames.firstOrNull { norm(it) in byName }?.let { named[ch.id] = norm(it) } }
@@ -271,6 +291,20 @@ object Iptv {
             Log.i(TAG, "guide: $count shows, $copies channel copies took a sibling's guide")
         } finally { w.endTransaction() }
     }
+
+    /** Texts no show points to any more. */
+    private fun dropUnusedText(w: SQLiteDatabase) = w.execSQL(
+        "DELETE FROM txt WHERE id NOT IN (SELECT t FROM p2 UNION SELECT d FROM p2 WHERE d IS NOT NULL UNION SELECT c FROM p2 WHERE c IS NOT NULL)")
+
+    /** 64-bit FNV-1a: guide texts deduplicated without holding the strings in memory. */
+    private fun hash64(s: String): Long {
+        var h = -0x340d631b7bdddcdbL
+        for (ch in s) { h = (h xor ch.code.toLong()) * 0x100000001b3L }
+        return h xor s.length.toLong()
+    }
+
+    /** Opens iptv.db off the main thread at app start, so the one-time move to the slim guide (0.34.1) never blocks a page. */
+    fun warmDb() { db.readableDatabase; if (metaGet("vacuum") == "1") { db.writableDatabase.execSQL("VACUUM"); meta("vacuum", "0") } }
 
     private fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "")
 
@@ -477,20 +511,48 @@ object Iptv {
     }
 
     private val db by lazy {
-        object : SQLiteOpenHelper(App.instance, com.lekathedon.visionlite.data.Profiles.db("iptv.db"), null, 2) {
+        object : SQLiteOpenHelper(App.instance, com.lekathedon.visionlite.data.Profiles.db("iptv.db"), null, 3) {
+            /**
+             * Slim guide (0.34.1; 241k shows were 73 MB): guide channel ids as numbers (gch), each text once (txt), shows
+             * (p2) clustered by channel and start. The view "prog" gives the old columns, so every reader stays as it was.
+             */
+            fun slimGuide(d: SQLiteDatabase) {
+                d.execSQL("CREATE TABLE gch(id INTEGER PRIMARY KEY, pl TEXT, tvg TEXT, UNIQUE(pl, tvg))")
+                d.execSQL("CREATE TABLE txt(id INTEGER PRIMARY KEY, s TEXT)")
+                d.execSQL("CREATE TABLE p2(g INTEGER, start INTEGER, stop INTEGER, t INTEGER, d INTEGER, c INTEGER, PRIMARY KEY(g, start)) WITHOUT ROWID")
+                d.execSQL("CREATE INDEX p2_start ON p2(start)")
+                d.execSQL("CREATE VIEW prog AS SELECT g.pl AS pl, g.tvg AS tvg, p.start AS start, p.stop AS stop, t.s AS title, " +
+                    "x.s AS descr, k.s AS cat FROM p2 p JOIN gch g ON g.id = p.g JOIN txt t ON t.id = p.t LEFT JOIN txt x ON x.id = p.d LEFT JOIN txt k ON k.id = p.c")
+            }
+
             override fun onCreate(d: SQLiteDatabase) {
                 d.execSQL("CREATE TABLE ch(pl TEXT, n INTEGER, ord INTEGER, name TEXT, grp TEXT, logo TEXT, tvg TEXT, url TEXT, hdr TEXT, " +
                     "cu_type TEXT, cu_src TEXT, cu_days INTEGER, cu_corr REAL, PRIMARY KEY(pl,n))")
                 d.execSQL("CREATE INDEX ch_grp ON ch(grp)")
                 d.execSQL("CREATE INDEX ch_tvg ON ch(pl, tvg)")
-                d.execSQL("CREATE TABLE prog(pl TEXT, tvg TEXT, start INTEGER, stop INTEGER, title TEXT, descr TEXT, cat TEXT)")
-                d.execSQL("CREATE INDEX prog_ch ON prog(pl, tvg, stop)")
-                d.execSQL("CREATE INDEX prog_start ON prog(start)")
+                slimGuide(d)
                 d.execSQL("CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT)")
             }
-            // 0.12 → 0.13: catch-up and guide categories; the playlists reload on the next open.
             override fun onUpgrade(d: SQLiteDatabase, o: Int, n: Int) {
-                listOf("ch", "prog", "meta").forEach { d.execSQL("DROP TABLE IF EXISTS $it") }
+                if (o == 2) {
+                    // 0.34.1: the guide already on the box moves into the slim layout (nothing downloads again).
+                    d.execSQL("ALTER TABLE prog RENAME TO prog_old")
+                    d.execSQL("DROP INDEX IF EXISTS prog_ch"); d.execSQL("DROP INDEX IF EXISTS prog_start")
+                    slimGuide(d)
+                    d.execSQL("INSERT INTO gch(pl, tvg) SELECT DISTINCT pl, tvg FROM prog_old WHERE tvg IS NOT NULL")
+                    d.execSQL("INSERT INTO txt(s) SELECT s FROM (SELECT title AS s FROM prog_old UNION SELECT descr FROM prog_old " +
+                        "UNION SELECT cat FROM prog_old) WHERE s IS NOT NULL AND s <> ''")
+                    d.execSQL("CREATE INDEX tmp_txt ON txt(s)")
+                    d.execSQL("INSERT OR IGNORE INTO p2(g, start, stop, t, d, c) SELECT g.id, o.start, o.stop, " +
+                        "(SELECT id FROM txt WHERE s = o.title), (SELECT id FROM txt WHERE s = o.descr), (SELECT id FROM txt WHERE s = o.cat) " +
+                        "FROM prog_old o JOIN gch g ON g.pl = o.pl AND g.tvg = o.tvg WHERE o.title IS NOT NULL AND o.title <> ''")
+                    d.execSQL("DROP INDEX tmp_txt"); d.execSQL("DROP TABLE prog_old")
+                    d.execSQL("INSERT OR REPLACE INTO meta(k, v) VALUES('vacuum', '1')")
+                    return
+                }
+                // 0.12 → 0.13: catch-up and guide categories; the playlists reload on the next open.
+                listOf("ch", "prog", "meta", "p2", "txt", "gch").forEach { runCatching { d.execSQL("DROP TABLE IF EXISTS $it") } }
+                runCatching { d.execSQL("DROP VIEW IF EXISTS prog") }
                 onCreate(d)
             }
         }.also { it.setWriteAheadLoggingEnabled(true) }
