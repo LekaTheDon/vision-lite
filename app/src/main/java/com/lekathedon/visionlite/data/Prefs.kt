@@ -181,6 +181,8 @@ class Prefs(context: Context) {
     val recFeedback = Text("rec_feedback", "[]")
     /** Hide adult titles: explicit films (9 Songs, softcore, porn) anywhere in the app. Off = no lookups at all. */
     val hideAdult = Flag("hide_adult", false)
+    /** Leave out (Settings › Recommendations): genres / languages / countries that never show (recs/LeaveOut.kt). */
+    val leaveOut = Text("leave_out", "")
     /** Live TV: playlists (JSON; Xtream passwords stay on this TV) and favourite channels. */
     val iptvPlaylists = Text("iptv_playlists", "[]")
     val iptvFavs = Text("iptv_favs", "")

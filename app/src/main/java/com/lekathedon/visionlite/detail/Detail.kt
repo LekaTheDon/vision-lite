@@ -364,6 +364,15 @@ private fun Facts(m: Meta?, t: Imdb.Title?, series: Boolean) {
             Spacer(Modifier.width(10.dp))
         }
         Text(listOfNotNull(years, seasons, runtime, genres).joinToString("  ·  "), color = Palette.TextDim, fontSize = 14.sp)
+        // Leave out: reached from Search, so it says why it shows nowhere else.
+        val id = t?.id ?: m?.id
+        val loRev by com.lekathedon.visionlite.recs.LeaveOut.revision.collectAsState()
+        val why = remember(id, t, loRev) { id?.let { com.lekathedon.visionlite.recs.LeaveOut.why(it, t?.genres ?: m?.genres.orEmpty()) } }
+        if (why != null) {
+            Spacer(Modifier.width(12.dp))
+            Text("⊘ Left out · $why (your settings)", color = Color(0xFFFCA5A5), fontSize = 12.sp,
+                modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Color(0x33EF4444)).padding(horizontal = 6.dp, vertical = 1.dp))
+        }
     }
 }
 

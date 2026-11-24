@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows()
                         Screen.Interests -> com.lekathedon.visionlite.settings.InterestsPage()
+                        Screen.LeaveOut -> com.lekathedon.visionlite.settings.LeaveOutPage()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()
                         Screen.PhoneLink -> com.lekathedon.visionlite.link.PhoneLinkScreen()
                         Screen.Integrations -> com.lekathedon.visionlite.integrations.IntegrationsScreen(nav)

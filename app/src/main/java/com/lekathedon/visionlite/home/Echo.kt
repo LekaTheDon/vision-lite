@@ -292,7 +292,10 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     LaunchedEffect(watchedMode) { runCatching { Watched.refresh() } }
     val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
     val traktOn = App.instance.trakt.connected.collectAsStateWithLifecycle().value != null
+    // Leave out: a row about something left out ("Korean Thrillers", "Because you like Horror") isn't shown at all.
+    val leaveOut by prefs.leaveOut.flow.collectAsStateWithLifecycle()
     val visible = rows.filter { r ->
+        if (leaveOut.isNotEmpty() && com.lekathedon.visionlite.recs.LeaveOut.rowHidden(r.title, r.key)) return@filter false
         // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
         val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
         r.key !in hidden && (shows || !r.done || r.key == LoadingHold.key ||
@@ -1136,12 +1139,27 @@ fun PageRow(
     key: String, title: String, metasIn: List<MetaPreview>, loading: Boolean = false,
     sub: (MetaPreview) -> String? = { null }, firstFocus: FocusRequester? = null,
     onHoldIn: ((MetaPreview) -> Unit)? = null, onEnd: (() -> Unit)? = null, expand: Boolean = true,
+    /** Search: left-out titles stay, marked "Left out · Korean" (everywhere else they're gone). */
+    markLeftOut: Boolean = false,
     onClick: (MetaPreview) -> Unit
 ) {
     // Hide adult titles (when on): checked once each, gone as soon as known.
     val adultRev by com.lekathedon.visionlite.recs.Adult.revision.collectAsStateWithLifecycle()
     val adultOn by App.instance.prefs.hideAdult.flow.collectAsStateWithLifecycle()
-    val metas = remember(metasIn, adultRev, adultOn) { com.lekathedon.visionlite.recs.Adult.visible(metasIn) }
+    // Leave out (Settings › Recommendations): gone from every page; Search marks them instead.
+    val loRev by com.lekathedon.visionlite.recs.LeaveOut.revision.collectAsStateWithLifecycle()
+    val loText by App.instance.prefs.leaveOut.flow.collectAsStateWithLifecycle()
+    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut) {
+        com.lekathedon.visionlite.recs.Adult.visible(metasIn).let { l ->
+            // Search keeps them, but asks what each is, so the mark appears once known.
+            if (markLeftOut) l.also { it.forEach { m -> com.lekathedon.visionlite.recs.LeaveOut.hides(m) } } else com.lekathedon.visionlite.recs.LeaveOut.visible(l)
+        }
+    }
+    val subIn = sub
+    @Suppress("NAME_SHADOWING")
+    val sub: (MetaPreview) -> String? = if (!markLeftOut || loText.isEmpty()) subIn else { m ->
+        com.lekathedon.visionlite.recs.LeaveOut.why(m)?.let { w -> "⊘ Left out · $w" + (subIn(m)?.let { " · $it" } ?: "") } ?: subIn(m)
+    }
     // Every title: hold OK = Love it / Like / Not for me (the page's own hold, when it has one, comes first).
     val onHold: ((MetaPreview) -> Unit)? = onHoldIn ?: { m: MetaPreview -> TasteMenu.show(m) }
     if (metas.isEmpty() && !loading) return

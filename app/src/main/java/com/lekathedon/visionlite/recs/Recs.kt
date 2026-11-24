@@ -87,7 +87,7 @@ object Recs {
         val nope = nope()
         val min = minImdb()
         val all = imdbLift(withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) }
-            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) })
+            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && !LeaveOut.out(it.imdb, it.genres) && (it.rating == null || it.rating >= min) })
         val slice = RecsLogic.rotate(all, count, now)
         // What was the IMDb Picks row (0.28: no row of its own): the engine's IMDb-best take every fifth place.
         val inSlice = slice.mapTo(HashSet()) { it.imdb }
@@ -129,14 +129,14 @@ object Recs {
         val nope = nope()
         val shown = forYou(30, now, hub).map { it.imdb }.toSet()
         val min = maxOf(minImdb(), 7.5f)
-        return withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) && it.imdb !in nope && !Adult.hidesId(it.imdb) && it.imdb !in shown && (it.rating ?: 0f) >= min }
+        return withAi(pool(hub).value?.picks.orEmpty(), hub).filter { Hubs.keepsId(hub, it.imdb) && it.imdb !in nope && !Adult.hidesId(it.imdb) && !LeaveOut.out(it.imdb, it.genres) && it.imdb !in shown && (it.rating ?: 0f) >= min }
             .sortedWith(compareByDescending<Pick> { it.rating ?: 0f }.thenByDescending { it.sources }).take(count)
     }
 
     /** "Because you watched X" rows, strongest first. */
     fun because(hub: Hub = Hubs.now()): List<Because> {
         val nope = nope()
-        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = imdbLift(b.picks.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && Hubs.keepsId(hub, it.imdb) })) }
+        return pool(hub).value?.because.orEmpty().map { b -> b.copy(picks = imdbLift(b.picks.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && !LeaveOut.out(it.imdb, it.genres) && Hubs.keepsId(hub, it.imdb) })) }
     }
 
     /** The "because you watched" rows Home shows now: [n] of them, a different set every 12 hours. */
@@ -209,7 +209,7 @@ object Recs {
         val hub = Hubs.hubOf(id)
         val tally = RecsLogic.tally((listOf(Triple(Source.IMDB, seed, imdb)) + trakt).map { (s, sd, l) -> Triple(s, sd, l.filter { Hubs.keepsId(hub, it.id) }) }, ex, minImdb())
         val nope = nope()
-        tally.values.sortedByDescending { it.score }.map { simplePick(it) }.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) }.take(BECAUSE_ITEMS)
+        tally.values.sortedByDescending { it.score }.map { simplePick(it) }.filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && !LeaveOut.out(it.imdb, it.genres) }.take(BECAUSE_ITEMS)
     }
 
     // ---- building ----
@@ -333,7 +333,7 @@ object Recs {
             val picks = score.keys.mapNotNull { id ->
                 if (id == seed.id || id in ex || id in top) return@mapNotNull null
                 val f = facts[id] ?: return@mapNotNull null
-                if (!Hubs.keepsId(hub, id) || Adult.hidesId(id)) return@mapNotNull null
+                if (!Hubs.keepsId(hub, id) || Adult.hidesId(id) || LeaveOut.out(id)) return@mapNotNull null
                 if (min > 0f && (f.rating ?: 0f) < min) return@mapNotNull null
                 val v = votes[id] ?: 0
                 val shared = f.genres.count { it in sGenres }
@@ -469,6 +469,7 @@ object Recs {
         fun people(key: String) = t.optJSONObject(key)?.optJSONArray("edges").objects().mapNotNull { e ->
             e.optJSONObject("node")?.optJSONObject("name")?.let { n -> Person(n.optString("id"), n.optJSONObject("nameText")?.optString("text").orEmpty()) }
         }
+        if (LeaveOut.on()) LeaveOut.fromImdb(id, t)
         return Facts(
             id = id,
             name = t.optJSONObject("titleText")?.optString("text").orEmpty().ifBlank { return null },

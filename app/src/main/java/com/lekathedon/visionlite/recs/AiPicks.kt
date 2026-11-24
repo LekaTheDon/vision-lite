@@ -131,7 +131,7 @@ object AiPicks {
         val min = Recs.minImdb().takeIf { it > 0 } ?: 7f
         resolved.mapNotNull { (id, c) ->
             val f = facts[id] ?: return@mapNotNull null
-            if (id in seen || !Hubs.keepsId(hub, id) || (f.rating ?: 0f) < min || Adult.hidesId(id)) return@mapNotNull null
+            if (id in seen || !Hubs.keepsId(hub, id) || (f.rating ?: 0f) < min || Adult.hidesId(id) || LeaveOut.out(id, f.genres)) return@mapNotNull null
             Pick(id, if (f.tv) "series" else "movie", f.name, f.year, f.rating, f.poster, f.genres, null,
                 listOfNotNull(c.s.reason, "Suggested by ${c.by.joinToString(" + ")}.").joinToString(" "), false, c.by.size)
         }.take(ROW)
@@ -199,6 +199,7 @@ object AiPicks {
         appendLine("Suggest $ASK titles they have not seen and would enjoy most next, best first. Mix movies and series when their taste covers both.")
         appendLine("Only real, released titles that IMDb rates ${"%.1f".format(min)} or higher. Do not list anything named above.")
         appendLine("Prefer close matches in tone, themes and audience over popularity; include some lesser-known titles.")
+        append(LeaveOut.aiLines())
         if (Adult.on()) appendLine("Never suggest explicit or erotic films (unsimulated sex, softcore, porn); R-rated is fine.")
         append("Reply with only JSON: {\"picks\": [{\"title\": string, \"year\": number, \"type\": \"movie\" or \"series\", \"imdb_id\": string (tt…, empty if unsure), \"reason\": string (one short sentence naming what they watched)}]}")
     }

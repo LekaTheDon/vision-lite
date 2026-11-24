@@ -370,6 +370,14 @@ fun Settings(nav: Nav, start: String? = null) {
             val n = com.lekathedon.visionlite.recs.Recs.changed.collectAsState().value.let { com.lekathedon.visionlite.recs.Recs.feedback() }
             Link("Your Love / Like / Not for me / Watched", "${n.count { it.love }} loved · ${n.count { it.like && !it.love && !it.watched }} liked · ${n.count { !it.like }} not for me · ${n.count { it.watched }} watched · hold OK on any title to change", m, value = "") {}
         }
+        head("Leave out")
+        row { m ->
+            val lo by p.leaveOut.flow.collectAsState()
+            val l = remember(lo) { com.lekathedon.visionlite.recs.LeaveOut.lists() }
+            val n = l.genres.size + l.langs.size + l.regions.size
+            Link("Leave out genres, languages and countries", "Never shown anywhere: no row, tile, page or pick. Only Search finds them, marked Left out", m,
+                value = if (n == 0) "Nothing" else "$n left out") { nav.push(Screen.LeaveOut) }
+        }
         head("Hide adult titles")
         row { m -> Toggle("Hide adult titles", "Explicit films (9 Songs, softcore, porn) leave every row, page, search and pick; R-rated stays. Each title is checked once", p.hideAdult, m) }
         head("AI (free tiers): helps every recommendation, no row of its own")

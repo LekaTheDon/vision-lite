@@ -103,7 +103,9 @@ private fun HomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val cw by vm.continueWatching.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshContinue(force = com.lekathedon.visionlite.player.PlayerReturn.consume()) }
     val hidden = remember(hiddenText) { hiddenText.split('\n').filter { it.isNotEmpty() }.toSet() }
-    val visible = rows.filter { it.key !in hidden && (it.items.isNotEmpty() || !it.done) }
+    val leaveOut by prefs.leaveOut.flow.collectAsStateWithLifecycle()
+    val visible = rows.filter { it.key !in hidden && (it.items.isNotEmpty() || !it.done) &&
+        !(leaveOut.isNotEmpty() && com.lekathedon.visionlite.recs.LeaveOut.rowHidden(it.title, it.key)) }
     val firstFocus = remember { FocusRequester() }
     val firstReady = cw.isNotEmpty() || visible.firstOrNull()?.items?.isNotEmpty() == true
     LaunchedEffect(firstReady) { if (firstReady && focused == null) runCatching { firstFocus.requestFocus() } }

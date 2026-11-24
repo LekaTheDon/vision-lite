@@ -80,7 +80,8 @@ object Rotation {
         try {
             val hidden = Hubs.rowsHidden(hub).value.split('\n').filter { it.isNotEmpty() }.toSet()
             val showing = states.getValue(hub).value.map { it.id }.toSet()
-            val pool = ideas(hub).filter { key(it.id) !in hidden }
+            // Leave out: an idea about something left out ("Korean Thrillers", a Horror theme) is never picked.
+            val pool = ideas(hub).filter { key(it.id) !in hidden && !com.lekathedon.visionlite.recs.LeaveOut.rowHidden(it.title, key(it.id)) }
             val fresh = pool.filter { it.id !in showing }.shuffled()
             val pick = (fresh + pool.filter { it.id in showing }.shuffled()).take(ROWS + 5)
             val watched = runCatching { if (hub == Hub.FILMS) App.instance.trakt.watchedIds() else null }.getOrNull().orEmpty()
@@ -89,7 +90,7 @@ object Rotation {
                 if (!on() || out.size >= ROWS) break
                 val items = runCatching { if (hub == Hub.ANIME) anime(idea) else films(idea) }
                     .onFailure { Log.w(TAG, "${idea.id}: ${it.message}") }.getOrNull().orEmpty()
-                    .filter { it.id !in watched && Hubs.keeps(hub, it) }
+                    .filter { it.id !in watched && Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.LeaveOut.out(it.id, it.genres) }
                 if (items.size >= 8) out += SetRow(idea.id, idea.title, items.shuffled().take(ITEMS))
                 // AniList allows ~30 requests a minute right now; IMDb is relaxed.
                 delay(if (hub == Hub.ANIME) 2_500 else 600)
@@ -158,7 +159,7 @@ object Rotation {
         val tk = App.instance.prefs.sp.getString("si_anilist_token", "").orEmpty()
         if (tk.isNotBlank()) args += "onList: false"
         val q = "{ p: Page(perPage: 50) { media(${args.joinToString(", ")}) { id format title { english userPreferred } coverImage { extraLarge large } " +
-            "bannerImage description seasonYear averageScore genres } } }"
+            "bannerImage description seasonYear averageScore genres${com.lekathedon.visionlite.recs.LeaveOut.aniFields()} } } }"
         val req = okhttp3.Request.Builder().url("https://graphql.anilist.co").header("Accept", "application/json")
             .apply { if (tk.isNotBlank()) header("Authorization", "Bearer $tk") }
             .post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))

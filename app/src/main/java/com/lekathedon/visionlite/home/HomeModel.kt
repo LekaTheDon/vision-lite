@@ -48,7 +48,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private val state = MutableStateFlow<List<Row>>(emptyList())
     /** Each row's items as their source gave them; the row shows only this hub's ([keep]). */
     private val raw = HashMap<String, List<MetaPreview>>()
-    private fun keep(list: List<MetaPreview>) = list.filter { Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.Adult.hides(it) }
+    private fun keep(list: List<MetaPreview>) = list.filter { Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) }
+    /** Leave out: a left-out title, or a tile about something left out (a Horror genre tile, a "Korean" mood). */
+    private fun leftOut(m: MetaPreview) = com.lekathedon.visionlite.recs.LeaveOut.on() && (if (m.type == "movie" || m.type == "series") com.lekathedon.visionlite.recs.LeaveOut.hides(m) else com.lekathedon.visionlite.recs.LeaveOut.rowHidden(m.name, m.id))
     private val rowOrder get() = Hubs.rowOrder(hub)
     private val engineKeys = listOf(VisionRows.PICKS) + VisionRows.BECAUSE + VisionRows.MOODS
     /** Mood rows' TMDB top-up, once per mood per app run (2 TMDB requests; nothing without a key). */
@@ -77,9 +79,10 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         cwJob?.cancel()
         cwJob = viewModelScope.launch {
             runCatching { app.trakt.continueWatching() }.getOrNull()?.let { cwRaw = it }
-            cwState.value = cwRaw.filter { Hubs.keepsId(hub, it.imdb) }
+            cwState.value = cwRaw.filter { cwKeeps(it) }
         }
     }
+    private fun cwKeeps(r: com.lekathedon.visionlite.trakt.Resume) = Hubs.keepsId(hub, r.imdb) && !com.lekathedon.visionlite.recs.LeaveOut.hidesId(r.imdb)
 
     init {
         viewModelScope.launch {
@@ -98,8 +101,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch { combine(Recs.pool(hub), Recs.changed, AiPicks.picks(hub)) { _, _, _ -> }.collect { engineKeys.forEach { fill(it) } } }
         // Hide adult titles: a title found out to be adult leaves every row at once.
         viewModelScope.launch {
-            combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow) { a, b -> a to b }.collect {
+            combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow, com.lekathedon.visionlite.recs.LeaveOut.revision, app.prefs.leaveOut.flow) { a, b, _, _ -> a to b }.collect {
                 state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it)) } ?: r }
+                cwState.value = cwRaw.filter { cwKeeps(it) }
             }
         }
         // Hide adult titles switched: the tiles' pictures are chosen again under the new rule (no-op when unchanged).
@@ -122,7 +126,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             AnimeIds.changed.collect { n ->
                 if (n == 0) return@collect
                 state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it)) } ?: r }
-                cwState.value = cwRaw.filter { Hubs.keepsId(hub, it.imdb) }
+                cwState.value = cwRaw.filter { cwKeeps(it) }
             }
         }
         // The weekly anime list refresh: a minute after Home first shows, never at start.
@@ -322,7 +326,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private fun set(key: String, items: List<MetaPreview>, title: String? = null) {
         raw[key] = items
         // VOD rows were already split by hub (their TMDB ids aren't known to the anime lists).
-        val kept = if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) } else keep(items)
+        val kept = if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) } else keep(items)
         state.value = state.value.map { r -> if (r.key == key) r.copy(items = kept, done = true, title = title ?: r.title) else r }
     }
 

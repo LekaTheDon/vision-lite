@@ -90,7 +90,8 @@ object Tmdb {
     /** GET /3/[path] with your key (an API key or a read token); null on any failure or without a key. */
     fun get(path0: String): JSONObject? {
         val k = key() ?: return null
-        val path = mergeKeywords(path0)
+        // Leave out: TMDB's discover pages leave the left-out genres out themselves (the rest is filtered on the box).
+        val path = mergeKeywords(path0).let { if (it.startsWith("discover/") && "without_genres" !in it) it + com.lekathedon.visionlite.recs.LeaveOut.tmdb() else it }
         val token = k.length > 50
         val url = "https://api.themoviedb.org/3/$path" + if (token) "" else (if ('?' in path) "&" else "?") + "api_key=$k"
         return runCatching {
@@ -128,6 +129,7 @@ object Tmdb {
         val isTv = tv ?: (r.optString("media_type") == "tv")
         val id = r.optInt("id").takeIf { it > 0 } ?: return@mapNotNull null
         if (r.optBoolean("adult")) com.lekathedon.visionlite.recs.Adult.mark("tmdb:${if (isTv) "tv" else "movie"}:$id", true)
+        if (com.lekathedon.visionlite.recs.LeaveOut.on()) com.lekathedon.visionlite.recs.LeaveOut.fromTmdb("tmdb:${if (isTv) "tv" else "movie"}:$id", r)
         MetaPreview("tmdb:${if (isTv) "tv" else "movie"}:$id", if (isTv) "series" else "movie", r.optString(if (isTv) "name" else "title").ifBlank { return@mapNotNull null },
             img(r.optString("poster_path"), "w342"), img(r.optString("backdrop_path"), "w1280"),
             description = r.optString("overview").ifBlank { null },
@@ -343,17 +345,41 @@ object Charts {
 
     private fun unXml(s: String) = s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim()
 
-    internal fun post(url: String, body: JSONObject): JSONObject? = Net.http.newCall(Request.Builder().url(url)
-        .post(body.toString().toRequestBody("application/json".toMediaType())).header("Accept", "application/json")
-        .apply { if (url == IMDB_URL) header("x-imdb-client-name", "imdb-web-next-localized") }.build()).execute().use { r ->
-        val t = r.body?.string().orEmpty()
-        if (!r.isSuccessful || !t.trimStart().startsWith("{")) throw java.io.IOException("HTTP ${r.code}")
-        JSONObject(t).optJSONObject("data")
+    internal fun post(url: String, body0: JSONObject): JSONObject? {
+        // Leave out: every IMDb row query also asks each title's language and country (only while something is left
+        // out), and every title in the answer is noted, so rows can be judged without a check of their own.
+        val lo = url == IMDB_URL && com.lekathedon.visionlite.recs.LeaveOut.lists().needFacts
+        val body = if (!lo) body0 else JSONObject(body0.toString()).apply {
+            put("query", optString("query").replace(GENRES_FIELD, GENRES_FIELD + com.lekathedon.visionlite.recs.LeaveOut.imdbFields()))
+        }
+        return Net.http.newCall(Request.Builder().url(url)
+            .post(body.toString().toRequestBody("application/json".toMediaType())).header("Accept", "application/json")
+            .apply { if (url == IMDB_URL) header("x-imdb-client-name", "imdb-web-next-localized") }.build()).execute().use { r ->
+            val t = r.body?.string().orEmpty()
+            if (!r.isSuccessful || !t.trimStart().startsWith("{")) throw java.io.IOException("HTTP ${r.code}")
+            JSONObject(t).optJSONObject("data")?.also { if (lo) noteTitles(it, 0) }
+        }
+    }
+
+    private const val GENRES_FIELD = "titleGenres { genres { genre { text } } }"
+
+    /** Every IMDb title object in an answer (any depth) tells Leave out what it is. */
+    private fun noteTitles(v: Any?, depth: Int) {
+        if (depth > 12) return
+        when (v) {
+            is JSONObject -> {
+                val id = v.optString("id")
+                if (id.startsWith("tt") && (v.has("spokenLanguages") || v.has("countriesOfOrigin"))) com.lekathedon.visionlite.recs.LeaveOut.fromImdb(id, v)
+                v.keys().forEach { k -> val c = v.opt(k); if (c is JSONObject || c is JSONArray) noteTitles(c, depth + 1) }
+            }
+            is JSONArray -> for (i in 0 until v.length()) noteTitles(v.opt(i), depth + 1)
+        }
     }
 
     internal fun imdb(chart: JSONObject?, type: String): List<MetaPreview> = chart?.optJSONArray("edges").objects().mapNotNull { e ->
         val n = e.optJSONObject("node") ?: return@mapNotNull null
         val id = n.optString("id").takeIf { it.startsWith("tt") } ?: return@mapNotNull null
+        if (com.lekathedon.visionlite.recs.LeaveOut.on()) com.lekathedon.visionlite.recs.LeaveOut.fromImdb(id, n)
         MetaPreview(id, type, n.optJSONObject("titleText")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null,
             n.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.startsWith("http") }?.let { if ("._V1_" in it) it.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else it }
                 ?: "https://images.metahub.space/poster/medium/$id/img",
@@ -365,6 +391,7 @@ object Charts {
 
     internal fun ani(d: JSONObject, alias: String): List<MetaPreview> = d.optJSONObject(alias)?.optJSONArray("media").objects().mapNotNull { m ->
         val id = m.optLong("id").takeIf { it > 0 } ?: return@mapNotNull null
+        if (com.lekathedon.visionlite.recs.LeaveOut.on()) com.lekathedon.visionlite.recs.LeaveOut.fromAni("anilist:$id", m)
         val t = m.optJSONObject("title")
         val name = t?.optString("english")?.takeIf { it.isNotBlank() && it != "null" } ?: t?.optString("userPreferred")?.ifBlank { null } ?: return@mapNotNull null
         MetaPreview("anilist:$id", if (m.optString("format") == "MOVIE") "movie" else "series", name,

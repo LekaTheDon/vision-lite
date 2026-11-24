@@ -111,7 +111,7 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
             val hints = com.lekathedon.visionlite.browse.hubOnly(hints)
             Text("Suggestions", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-            com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
+            com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }, markLeftOut = true) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
         }
         if (results.isEmpty() && recent.isNotEmpty() && hints.isEmpty()) item {
             Text("Recent", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
@@ -125,7 +125,7 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             // Only the hub you're in: Anime finds anime, Films & TV everything else.
             val metas = com.lekathedon.visionlite.browse.hubOnly(all)
             if (metas.isEmpty()) return@itemsIndexed
-            com.lekathedon.visionlite.home.PageRow("search:$i:$title", title, metas.distinctBy { it.type + it.id }) { m ->
+            com.lekathedon.visionlite.home.PageRow("search:$i:$title", title, metas.distinctBy { it.type + it.id }, markLeftOut = true) { m ->
                 if (m.id.startsWith("tt") || m.id.startsWith("kitsu:")) nav.push(Screen.Detail(m.type, m.id, m.name))
                 else scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
             }

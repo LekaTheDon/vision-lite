@@ -264,7 +264,7 @@ private fun DiscoverOf(nav: Nav, hub: Hub) {
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Drop("Type", listOf("movie" to "Movies", "series" to "Shows"), type, Modifier.focusRequester(first)) { type = it }
             Drop("Catalog", cats.map { it.key to it.name }, cat?.key ?: "") { catKey = it }
-            if (cat != null && cat.genres.isNotEmpty()) Drop("Genre", listOf("" to "All genres") + cat.genres.map { it to it }, g ?: "") { genre = it.ifEmpty { null } }
+            if (cat != null && cat.genres.isNotEmpty()) Drop("Genre", listOf("" to "All genres") + cat.genres.filterNot { com.lekathedon.visionlite.recs.LeaveOut.rowHidden(it) }.map { it to it }, g ?: "") { genre = it.ifEmpty { null } }
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 6.dp, bottom = 60.dp)) {
             items(rows.size, key = { "$listKey|$it" }) { i ->

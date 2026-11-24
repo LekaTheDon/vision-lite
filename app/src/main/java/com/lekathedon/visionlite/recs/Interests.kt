@@ -279,7 +279,7 @@ object Interests {
             "genreConstraint: { allGenreIds: [\"$f\"${if (anime) ", \"Animation\"" else ""}], excludeGenreIds: [${excluded(f, anime).joinToString(",") { "\"$it\"" }}] } " +
                 "originCountryConstraint: { anyCountries: [${REGIONS.getValue(r).countries.joinToString(",") { "\"$it\"" }}] }"
         } else "interestConstraint: { allInterestIds: [\"$id\"] }"
-        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } titleGenres { genres { genre { text } } } interests(first: 20) { edges { node { id } } } }"
+        val node = "title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } countriesOfOrigin { countries { id } } titleGenres { genres { genre { text } } }${LeaveOut.imdbFields()} interests(first: 20) { edges { node { id } } } }"
         val q = "{ advancedTitleSearch(first: 250, constraints: { $constraint " +
             "titleTypeConstraint: { anyTitleTypeIds: [\"movie\", \"tvSeries\", \"tvMiniSeries\"] } " +
             "userRatingsConstraint: { aggregateRatingRange: { min: ${maxOf(min, 6.0f)} }, ratingsCountRange: { min: 2000 } } }, " +
@@ -298,6 +298,7 @@ object Interests {
             val img = t.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.isNotBlank() }
                 ?.let { u -> if ("._V1_" in u) u.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else u }
             val cs = t.optJSONObject("countriesOfOrigin")?.optJSONArray("countries")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("id") } }.orEmpty()
+            if (LeaveOut.on()) LeaveOut.fromImdb(tid, t)
             // Regional rows: made there first, not just co-produced there.
             if (region != null && !madeIn(region, cs, kind != "movie")) return@mapNotNull null
             // Subgenre rows: IMDb tags loosely (The Dark Knight is a "Psychological Drama"), so the title must also be

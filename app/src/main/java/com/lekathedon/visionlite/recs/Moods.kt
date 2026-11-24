@@ -133,7 +133,7 @@ object Moods {
         val min = Recs.minImdb()
         // Everything the engine has: Vision Picks / Scout's finds, every "because you watched", and the AIs' picks.
         val all = (pool?.picks.orEmpty() + ai + pool?.because.orEmpty().flatMap { it.picks }).distinctBy { it.imdb }
-            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && (it.rating == null || it.rating >= min) && com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.imdb) }
+            .filter { it.imdb !in nope && !Adult.hidesId(it.imdb) && !LeaveOut.out(it.imdb, it.genres) && (it.rating == null || it.rating >= min) && com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.imdb) }
         val kw = Recs.keywordsOf(all.map { it.imdb })
         return Recs.imdbLift(all.filter { mood.fits(it.genres, kw[it.imdb].orEmpty(), it.rating, it.type == "series") })
     }
@@ -141,7 +141,7 @@ object Moods {
     /** More for [mood] from TMDB with Scout's filters (needs a TMDB key); nothing the engine already shows or you've seen. */
     suspend fun discover(mood: Mood, shown: Set<String>, hub: com.lekathedon.visionlite.anime.Hub = com.lekathedon.visionlite.anime.Hubs.now()): List<MetaPreview> {
         if (Tmdb.key() == null) return emptyList()
-        synchronized(topUp) { topUp[mood to hub] }?.let { c -> val n = Recs.nope(); return c.filter { it.id !in n && !Adult.hides(it) } }
+        synchronized(topUp) { topUp[mood to hub] }?.let { c -> val n = Recs.nope(); return c.filter { it.id !in n && !Adult.hides(it) && !LeaveOut.out(it.id, it.genres) } }
         // TMDB's "anime" keyword (210024) steers the ask; the anime list still decides what shows.
         val kw = if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "&with_keywords=210024" else "&without_keywords=210024"
         val seen = Recs.seenTmdb()
