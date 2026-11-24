@@ -20,22 +20,29 @@ import org.json.JSONObject
  * screen, like every row.
  */
 object ImportedLists {
-    data class L(val key: String, val source: String, val id: String, val name: String)
+    /** [hub]: the Home it was added on (page rows, anime builds); null = both hubs (lists from the phone). */
+    data class L(val key: String, val source: String, val id: String, val name: String, val hub: String? = null)
 
     fun supports(o: JSONObject): Boolean = when (o.optString("source")) {
-        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL", "IMDB_LIST", "BUILD" -> true
+        "TRAKT", "TRAKT_LIKED", "MDBLIST", "SIMKL", "ANILIST", "MAL", "IMDB_LIST", "BUILD", "PAGE" -> true
         "IMDB" -> o.optString("remoteId") == "picks"
         else -> false
     }
 
     fun all(): List<L> = runCatching { JSONArray(App.instance.prefs.importedLists.value) }.getOrDefault(JSONArray()).let { a ->
         (0 until a.length()).mapNotNull { a.optJSONObject(it) }.filter(::supports).map {
-            L("list:" + it.optString("source").lowercase() + "." + it.optString("remoteId"), it.optString("source"), it.optString("remoteId"),
-                it.optString("name").ifBlank { "List" })
+            L(keyOf(it), it.optString("source"), it.optString("remoteId"),
+                it.optString("name").ifBlank { "List" }, it.optString("hub").ifBlank { null })
         }
     }
 
-    suspend fun items(l: L): List<MetaPreview> = withContext(Dispatchers.IO) {
+    /** A row's key: "list:<source>.<id>", with the hub in it for a row added on one hub's Home (so each hub's is its own). */
+    private fun keyOf(o: JSONObject) = "list:" + o.optString("source").lowercase() + "." + (o.optString("hub").ifBlank { null }?.let { "$it." } ?: "") + o.optString("remoteId")
+
+    /** The rows [hub]'s Home shows: its own and the shared ones. */
+    fun forHub(hub: com.lekathedon.visionlite.anime.Hub): List<L> = all().filter { it.hub == null || it.hub == hub.key }
+
+    suspend fun items(l: L, hub: com.lekathedon.visionlite.anime.Hub = com.lekathedon.visionlite.anime.Hub.of(l.hub) ?: com.lekathedon.visionlite.anime.Hubs.now()): List<MetaPreview> = withContext(Dispatchers.IO) {
         runCatching {
             when (l.source) {
                 "TRAKT", "TRAKT_LIKED" -> App.instance.trakt.listItems(l.id).orEmpty().mapNotNull { i ->
@@ -61,6 +68,7 @@ object ImportedLists {
                 "ANILIST" -> anilist(l.id)
                 "MAL" -> mal(l.id)
                 "BUILD" -> built(l.id)
+                "PAGE" -> PageRows.items(l.id, hub)
                 else -> emptyList()
             }
         }.getOrDefault(emptyList())
@@ -125,7 +133,7 @@ object ImportedLists {
         val cur = runCatching { JSONArray(p.importedLists.value) }.getOrDefault(JSONArray())
         val kept = JSONArray()
         (0 until cur.length()).mapNotNull { cur.optJSONObject(it) }.forEach { o ->
-            if ("list:" + o.optString("source").lowercase() + "." + o.optString("remoteId") != key) kept.put(o)
+            if (keyOf(o) != key) kept.put(o)
         }
         p.importedLists.value = kept.toString()
     }

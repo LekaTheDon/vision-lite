@@ -103,6 +103,7 @@ fun CompanyPage(nav: Nav, id: String, name: String) {
     Column(Modifier.fillMaxSize().skinPage(LocalLook.current.skin).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
         Eyebrow("Production")
         DisplayText(name, 34.sp, Modifier.padding(top = 4.dp, bottom = 6.dp), maxLines = 1)
+        if (!rows.isNullOrEmpty()) AddToHome("company", id, name, modifier = Modifier.padding(bottom = 8.dp))
         val r = rows
         when {
             r == null -> Text("Loading…", color = Palette.TextDim, fontSize = 14.sp)

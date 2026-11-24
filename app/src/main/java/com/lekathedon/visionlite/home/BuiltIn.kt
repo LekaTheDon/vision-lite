@@ -623,11 +623,31 @@ object People {
     }
 
     /** Person page (Vision's look): Known for first, then a row per role they had (Actor, Director, Creator, Writer, Producer). */
-    data class Roles(val person: Person?, val knownFor: List<MetaPreview>, val rows: List<Pair<String, List<MetaPreview>>>)
+    data class Roles(val person: Person?, val knownFor: List<MetaPreview>, val rows: List<Pair<String, List<MetaPreview>>>, val about: About? = null)
 
-    suspend fun roles(id: String): Roles = withContext(Dispatchers.IO) {
+    /**
+     * The person page's short wiki (user 2026-11-24: "a small wiki about them"): IMDb's photo, what they do, born / died,
+     * height, awards and biography. Comes in the same IMDb request as the rows (~5-10 KB more).
+     */
+    data class About(val photo: String?, val jobs: List<String>, val born: String?, val died: String?, val height: String?,
+                     val prestige: String?, val awards: String?, val bio: String?)
+
+    /** Person pages read this run (Back to a page draws at once): the last 20. */
+    private val rolesCache = object : LinkedHashMap<String, Roles>(24, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Roles>?) = size > 20
+    }
+
+    suspend fun roles(id: String): Roles = synchronized(rolesCache) { rolesCache[id] } ?: rolesFetch(id).also { r ->
+        if (r.person != null) synchronized(rolesCache) { rolesCache[id] = r }
+    }
+
+    private suspend fun rolesFetch(id: String): Roles = withContext(Dispatchers.IO) {
         val node = "category { id } title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } }"
         val q = "{ name(id: \"$id\") { nameText { text } primaryImage { url } " +
+            "bio { text { plainText } } birthDate { displayableProperty { value { plainText } } } birthLocation { text } " +
+            "deathDate { displayableProperty { value { plainText } } } deathLocation { text } primaryProfessions { category { text } } " +
+            "height { displayableProperty { value { plainText } } } prestigiousAwardSummary { wins nominations award { text } } " +
+            "wins: awardNominations(first: 0, filter: {wins: WINS_ONLY}) { total } noms: awardNominations(first: 0) { total } " +
             "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\", \"producer\"]}) { edges { node { $node } } } " +
             "knownFor(first: 30) { edges { node { title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } } } } } } }"
         val d = runCatching {
@@ -658,7 +678,40 @@ object People {
         val order = listOf("Actor", "Director", "Creator", "Writer", "Producer")
         val rows = order.mapNotNull { r -> byRole[r]?.distinctBy { it.id }?.sortedByDescending { it.releaseInfo?.toIntOrNull() ?: 0 }?.takeIf { it.isNotEmpty() }?.let { r to it } }
             .sortedByDescending { it.second.size }
-        Roles(person, known.ifEmpty { rows.firstOrNull()?.second.orEmpty().sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }.take(15) }, rows)
+        Roles(person, known.ifEmpty { rows.firstOrNull()?.second.orEmpty().sortedByDescending { it.imdbRating?.toDoubleOrNull() ?: 0.0 }.take(15) }, rows, about(d))
+    }
+
+    private fun about(d: JSONObject): About {
+        fun shown(k: String) = d.optJSONObject(k)?.optJSONObject("displayableProperty")?.optJSONObject("value")?.optString("plainText")?.takeIf { it.isNotBlank() }
+        fun place(k: String) = d.optJSONObject(k)?.optString("text")?.takeIf { it.isNotBlank() }
+        val photo = d.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.startsWith("http") }
+            ?.let { if ("._V1_" in it) it.substringBefore("._V1_") + "._V1_QL75_UY330_.jpg" else it }
+        val jobs = d.optJSONArray("primaryProfessions").objects().mapNotNull { it.optJSONObject("category")?.optString("text")?.takeIf { t -> t.isNotBlank() } }
+            .let { l -> l.filter { it in setOf("Actor", "Actress") } + l.filterNot { it in setOf("Actor", "Actress") } }.take(4)
+        val born = shown("birthDate")?.let { b -> place("birthLocation")?.let { "$b in $it" } ?: b } ?: place("birthLocation")?.let { "in $it" }
+        val died = shown("deathDate")?.let { b -> place("deathLocation")?.let { "$b in $it" } ?: b }
+        // "Won 1 Oscar · 7 nominations" (IMDb's top award line), then every award: "125 wins & 471 nominations".
+        val prestige = d.optJSONObject("prestigiousAwardSummary")?.let { p ->
+            val award = p.optJSONObject("award")?.optString("text").orEmpty().ifBlank { return@let null }
+            val w = p.optInt("wins"); val n = p.optInt("nominations")
+            when {
+                w > 0 -> "Won $w $award${if (w > 1) "s" else ""}" + if (n > w) " · $n nominations" else ""
+                n > 0 -> "Nominated for $n $award${if (n > 1) "s" else ""}"
+                else -> null
+            }
+        }
+        val wins = d.optJSONObject("wins")?.optInt("total") ?: 0
+        val noms = d.optJSONObject("noms")?.optInt("total") ?: 0
+        val awards = when {
+            wins > 0 && noms > wins -> "$wins wins & $noms nominations"
+            wins > 0 -> "$wins win${if (wins > 1) "s" else ""}"
+            noms > 0 -> "$noms nomination${if (noms > 1) "s" else ""}"
+            else -> null
+        }
+        val bio = d.optJSONObject("bio")?.optJSONObject("text")?.optString("plainText")?.trim()?.takeIf { it.isNotBlank() }
+            // IMDb's text ends with its writer's credit ("- IMDb Mini Biography By: …"): left out.
+            ?.replace(Regex("\\s*-\\s*IMDb Mini Biography By:.*$", RegexOption.DOT_MATCHES_ALL), "")
+        return About(photo, jobs, born, died, shown("height"), prestige, awards, bio)
     }
 
     /** Each person's titles (where they lead, then small parts), asked once per app run (one IMDb request each). */

@@ -150,18 +150,39 @@ object MalGenres {
             .distinctBy { it.first.id }.sortedByDescending { it.second }.map { it.first }.take(30)
     }
 
-    /** All MAL names in tile order (the Anime hub's Genres tiles). */
+    /** All MAL names: genres, themes, demographics. */
     val ALL: List<String> get() = GENRES + THEMES + DEMOGRAPHICS
+    /**
+     * The Anime hub's Genres tiles: MAL's main genres only (user 2026-11-24: the row was a mix of genres and subgenres).
+     * Themes and demographics stay for "Because you like", inside each genre's page and on Build your own row.
+     */
+    val MAIN: List<String> get() = GENRES
+    /** MAL's themes and demographics (the anime subgenres). */
+    val SUBS: List<String> get() = THEMES + DEMOGRAPHICS
+    val THEME_NAMES: List<String> get() = THEMES
+    val DEMOGRAPHIC_NAMES: List<String> get() = DEMOGRAPHICS
+    fun isSub(name: String) = name in THEMES || name in DEMOGRAPHICS
+
+    /** How many pool titles each subgenre has within [genre] (for its page's rows; no request after the weekly pool). */
+    suspend fun subsWithin(genre: String, min: Int = 8): List<String> {
+        val within = pool().filter { m -> m.genres.any { it.equals(genre, true) } }
+        return SUBS.map { s -> s to within.count { m -> m.genres.any { it.equals(s, true) } } }
+            .filter { it.second >= min }.sortedByDescending { it.second }.map { it.first }
+    }
 
     /**
      * The Anime hub's Genres / Decades pages (user 2026-11-24: they took ages: AniList now allows ~24 rows a minute and a
      * decade page has 50+). Filled from the pool on the box, so a page opens at once and makes no request after the
      * weekly 6. [sort]: "popular", "top" or "latest"; [type] "movie" / "series" / null for both; [from]..[to] years.
      */
-    suspend fun browse(genre: String?, type: String?, sort: String, from: Int? = null, to: Int? = null, skip: Int = 0): List<MetaPreview> {
+    suspend fun browse(genre: String?, type: String?, sort: String, from: Int? = null, to: Int? = null, skip: Int = 0): List<MetaPreview> =
+        browseAll(listOfNotNull(genre), type, sort, from, to, skip)
+
+    /** As [browse], with every one of [genres] on the title (Action + Isekai + Shounen). */
+    suspend fun browseAll(genres: List<String>, type: String?, sort: String, from: Int? = null, to: Int? = null, skip: Int = 0): List<MetaPreview> {
         val all = pool()
         val list = all.filter { m ->
-            (genre == null || m.genres.any { it.equals(genre, true) }) && (type == null || m.type == type) &&
+            genres.all { g -> m.genres.any { it.equals(g, true) } } && (type == null || m.type == type) &&
                 (from == null || m.releaseInfo?.take(4)?.toIntOrNull()?.let { it in from..(to ?: from + 9) } == true)
         }
         val sorted = when (sort) {

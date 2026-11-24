@@ -153,7 +153,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             })
         }
         // Lists added from the phone: after Vision's rows, before the add-ons.
-        val imported = ImportedLists.all().map { l -> old[l.key] ?: Row(l.key, l.name, null, null, emptyList(), done = false) } +
+        val imported = ImportedLists.forHub(hub).map { l -> old[l.key] ?: Row(l.key, l.name, null, null, emptyList(), done = false) } +
             // Plex / Jellyfin: what was added last (only when signed in; asked when the row comes near).
             (if (com.lekathedon.visionlite.streams.MediaServers.plexOn() || com.lekathedon.visionlite.streams.MediaServers.jellyfinOn())
                 listOf(old[SERVER_ROW] ?: Row(SERVER_ROW, "New on your server", null, null, emptyList(), done = false)) else emptyList())
@@ -234,9 +234,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 }
                 return
             }
-            else -> ImportedLists.all().firstOrNull { it.key == key }?.let { l ->
+            else -> ImportedLists.forHub(hub).firstOrNull { it.key == key }?.let { l ->
                 loading[key] = viewModelScope.launch {
-                    set(key, ImportedLists.items(l))
+                    set(key, ImportedLists.items(l, hub))
                     loading.remove(key)
                 }
                 return

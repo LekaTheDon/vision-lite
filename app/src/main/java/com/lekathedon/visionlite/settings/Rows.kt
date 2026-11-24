@@ -78,7 +78,7 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, nav: com.lekathedon
                 val nVod = vodPicked.split('\n').count { it.isNotEmpty() }
                 Button(if (nVod == 0) "VOD rows: None" else "VOD rows: $nVod", { choosingVod = true })
                 Button("Add a catalog", { adding = true })
-                Button("Build your own row", { nav.push(com.lekathedon.visionlite.ui.Screen.Scout("build")) })
+                Button("Build your own row", { nav.push(com.lekathedon.visionlite.ui.Screen.Scout(if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "abuild" else "build")) })
                 val rotation by prefs.rotation.flow.collectAsState()
                 Button(if (rotation) "Rotating rows: On" else "Rotating rows: Off", {
                     prefs.rotation.value = !rotation

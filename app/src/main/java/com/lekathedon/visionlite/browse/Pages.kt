@@ -117,11 +117,14 @@ fun Chips(options: List<Pair<String, String>>, selected: String?, modifier: Modi
 }
 
 @Composable
-private fun Page(title: String, note: String? = null, content: @Composable () -> Unit) {
+private fun Page(title: String, note: String? = null, action: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            if (note != null) Text(note, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(start = 14.dp))
+            if (note != null) Text(note, color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 14.dp).then(if (action != null) Modifier.weight(1f, fill = false) else Modifier))
+            // A tile page's "Add to Home" (the whole page or one of its rows).
+            if (action != null) Box(Modifier.padding(start = 16.dp)) { action() }
         }
         content()
     }
@@ -188,7 +191,8 @@ fun MoodPage(nav: Nav, key: String) {
     val own = remember(changed, pool, adult) { com.lekathedon.visionlite.recs.Adult.visible(com.lekathedon.visionlite.recs.Moods.engineMetas(mood, hub)) }
     val store = rememberRails(key, changed)
     val tmdb = com.lekathedon.visionlite.home.Tmdb.key() != null
-    Page(mood.label, mood.why + if (!tmdb) "  ·  Add your TMDB key (Settings › Integrations) for more." else "") {
+    Page(mood.label, mood.why + if (!tmdb) "  ·  Add your TMDB key (Settings › Integrations) for more." else "",
+        action = { if (tmdb) AddToHome("mood", key, mood.label) }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 60.dp)) {
             if (own.isNotEmpty()) item(key = "own") {
                 Rail("Picked for you", own, nav, subOf = { m -> listOfNotNull(m.releaseInfo, m.imdbRating?.let { "★ $it" }).joinToString(" · ").ifEmpty { null } }, key = "own")
@@ -213,7 +217,8 @@ fun GenrePage(nav: Nav, slug: String) {
     var kind by rememberSaveable { mutableStateOf("all") }
     val store = rememberRails(slug, kind)
     val first = remember { FocusRequester() }
-    Page(g.name, if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else "${g.rails.size} rows") {
+    Page(g.name, if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else "${g.rails.size} rows",
+        action = { AddToHome("genre", slug, g.name, kind) }) {
         Chips(media, kind, Modifier.padding(top = 12.dp)) { kind = it }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
             items(g.rails, key = { "$kind|${it.key}" }) { r ->
@@ -230,7 +235,8 @@ fun DecadePage(nav: Nav, slug: String) {
     val d = remember(slug) { Wuplay.decade(slug) } ?: return
     var kind by rememberSaveable { mutableStateOf("all") }
     val store = rememberRails(slug, kind)
-    Page(d.name, if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else null) {
+    Page(d.name, if (com.lekathedon.visionlite.home.Tmdb.key() == null) "Add your TMDB key (Settings › Integrations) to fill these rows." else null,
+        action = { AddToHome("decade", slug, d.name, kind) }) {
         Chips(media, kind, Modifier.padding(top = 12.dp)) { kind = it }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
             items(d.rails, key = { "$kind|${it.key}" }) { r ->
@@ -245,11 +251,15 @@ fun DecadePage(nav: Nav, slug: String) {
 private fun AnimeGenrePage(nav: Nav, name: String) {
     val store = rememberRails(name)
     val mg = com.lekathedon.visionlite.anime.MalGenres
-    val rails = listOf("Popular shows" to ("series" to "popular"), "Popular movies" to ("movie" to "popular"),
-        "Top rated shows" to ("series" to "top"), "Top rated movies" to ("movie" to "top"), "Latest shows" to ("series" to "latest"))
-    Page(name) {
+    val rails = com.lekathedon.visionlite.home.PageRows.ANIME_GENRE_RAILS
+    // Its subgenres (MAL themes and demographics) that have enough titles in it, most first: Action › Isekai, Shounen…
+    val subs by produceState(emptyList<String>(), name) { value = runCatching { mg.subsWithin(name) }.getOrDefault(emptyList()) }
+    Page(name, if (subs.isEmpty()) null else "${rails.size + subs.size} rows", action = { AddToHome("agenre", name, name) }) {
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
-            items(rails, key = { it.first }) { (t, a) -> LoadingRail(t, nav, store, key = "$name|$t") { skip, _ -> mg.browse(name, a.first, a.second, skip = skip) } }
+            items(rails, key = { it.first }) { (k, t) -> LoadingRail(t, nav, store, key = "$name|$t") { skip, _ ->
+                k.split('|').let { (type, sort) -> mg.browse(name, type, sort, skip = skip) } } }
+            items(subs, key = { "sub|$it" }) { sub -> LoadingRail(sub, nav, store, key = "$name|sub|$sub") { skip, _ ->
+                mg.browseAll(listOf(name, sub), null, "popular", skip = skip) } }
         }
     }
 }
@@ -261,22 +271,22 @@ private fun AnimeDecadePage(nav: Nav, decade: Int) {
     val to = minOf(decade + 9, year)
     val store = rememberRails(decade)
     val mg = com.lekathedon.visionlite.anime.MalGenres
-    Page("${decade}s") {
+    Page("${decade}s", action = { AddToHome("adecade", decade.toString(), "${decade}s anime") }) {
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), contentPadding = PaddingValues(bottom = 60.dp)) {
             listOf("series" to "Popular shows", "movie" to "Popular movies").forEach { (t, title) ->
                 item(key = "pop|$t") { LoadingRail(title, nav, store, key = "pop|$t") { skip, _ -> mg.browse(null, t, "popular", decade, to, skip) } }
             }
-            items(mg.ALL, key = { it }) { g ->
+            items(mg.MAIN, key = { it }) { g ->
                 LoadingRail(g, nav, store, key = "sub|$g") { skip, _ -> mg.browse(g, null, "popular", decade, to, skip) }
             }
         }
     }
 }
 
-/** Home's Genres / Decades tiles for a hub: (id, name). Films & TV: WuPlay's 19 and 9; Anime: its 52 subgenres and decades. */
+/** Home's Genres / Decades tiles for a hub: (id, name). Films & TV: WuPlay's 19 and 9; Anime: MAL's 17 main genres and decades. */
 object BrowseTiles {
     fun genres(anime: Boolean): List<Pair<String, String>> =
-        if (anime) com.lekathedon.visionlite.anime.MalGenres.ALL.map { "genre:anime:$it" to it }
+        if (anime) com.lekathedon.visionlite.anime.MalGenres.MAIN.map { "genre:anime:$it" to it }
         else Wuplay.genres.map { "genre:${it.slug}" to it.name }
     fun decades(anime: Boolean): List<Pair<String, String>> {
         if (!anime) return Wuplay.decades.map { "decade:${it.slug}" to it.name }
@@ -296,6 +306,7 @@ private typealias ScoutGroupRef = com.lekathedon.visionlite.recs.ScoutGroup
 fun ScoutPage(nav: Nav, id: String) {
     when (id) {
         "build" -> ScoutBuildPage(nav)
+        "abuild" -> AnimeBuildPage(nav)
         "ask" -> ScoutAskPage(nav)
         "mixes" -> ScoutMixesPage(nav)
         else -> ScoutSlicePage(nav, id)
@@ -329,7 +340,7 @@ private fun ScoutSlicePage(nav: Nav, id: String) {
         }
         return
     }
-    Page(slice.title, noKey() ?: "${slice.group.label} · ranked by your taste") {
+    Page(slice.title, noKey() ?: "${slice.group.label} · ranked by your taste", action = { if (award == null && noKey() == null) AddToHome("scout", id, slice.title) }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 60.dp)) {
             if (award != null) {
                 listOf(false, true).forEach { tv -> if (com.lekathedon.visionlite.recs.Scout.awardIds(award, tv).isNotEmpty())
@@ -366,6 +377,41 @@ private fun ScoutBuildPage(nav: Nav) {
                 }
             }
             LazyListScopeResults(nav, slice, this, store)
+        }
+    }
+}
+
+/**
+ * The Anime hub's Build your own row (user 2026-11-24): any of MAL's genres, themes and demographics, all on the title,
+ * shows / movies / both, popular / top rated / newest. From the MAL pool on the box: picking makes no request.
+ */
+@Composable
+private fun AnimeBuildPage(nav: Nav) {
+    var code by rememberSaveable { mutableStateOf(com.lekathedon.visionlite.home.AnimeBuild().encode()) }
+    val b = remember(code) { com.lekathedon.visionlite.home.AnimeBuild.decode(code) ?: com.lekathedon.visionlite.home.AnimeBuild() }
+    val store = rememberRails(code)
+    var added by remember(code) { mutableStateOf<String?>(null) }
+    val mg = com.lekathedon.visionlite.anime.MalGenres
+    Page("Build your own anime row", added ?: if (b.empty) "Pick any genres, themes and demographics: they all apply together, then Add to Home" else b.title) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)) {
+            listOf("Genres" to mg.MAIN, "Themes" to mg.THEME_NAMES, "Demographics" to mg.DEMOGRAPHIC_NAMES).forEach { (label, opts) ->
+                item(key = "g|$label") {
+                    ScoutChoice(label) { Chips(opts.map { it to (if (it in b.genres) "✓ $it" else it) }, null) { code = b.press(it).encode() } }
+                }
+            }
+            item(key = "type") { ScoutChoice("Shows or movies") {
+                Chips(listOf("" to "Both", "series" to "Shows", "movie" to "Movies"), b.type ?: "") { code = b.copy(type = it.ifBlank { null }).encode() } } }
+            item(key = "sort") { ScoutChoice("Order") {
+                Chips(listOf("popular" to "Popular", "top" to "Top rated", "latest" to "Newest"), b.sort) { code = b.copy(sort = it).encode() } } }
+            if (!b.empty) item(key = "add") {
+                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button("Add to Home", { added = com.lekathedon.visionlite.home.PageRows.add("abuild", b.encode(), com.lekathedon.visionlite.home.PageRows.ALL, "all", b.title, com.lekathedon.visionlite.anime.Hub.ANIME) })
+                    Button("Start over", { code = com.lekathedon.visionlite.home.AnimeBuild().encode() })
+                }
+            }
+            if (!b.empty) item(key = "res|$code") {
+                LoadingRail("Titles", nav, store, key = "res|$code") { skip, _ -> mg.browseAll(b.genres, b.type, b.sort, skip = skip) }
+            }
         }
     }
 }
@@ -508,7 +554,7 @@ fun ServicePage(nav: Nav, id: String) {
     val store = rememberRails(id)
     val first = remember { FocusRequester() }
     var focusedOnce by rememberSaveable(id) { mutableStateOf(false) }
-    Page(s.title, when (s.region) { "GB" -> "UK"; "FR" -> "France"; "JP" -> "Japan"; else -> "US" }) {
+    Page(s.title, when (s.region) { "GB" -> "UK"; "FR" -> "France"; "JP" -> "Japan"; else -> "US" }, action = { AddToHome("service", id, s.title) }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
             itemsIndexed(rows, key = { _, r -> r.first }) { i, (title, load) ->
                 val d = store.getOrPut(title) { RailData() }
@@ -546,9 +592,10 @@ private fun ServiceRail(title: String, nav: Nav, d: RailData, firstFocus: FocusR
 }
 
 /**
- * A person (Vision's look, user 2026-11-22): Known for first so you recognise them, then a row for every role they had
- * (Actor, Director, Creator, Writer, Producer; the biggest first), newest first. Follow makes them a favourite: they
- * steer the engine and get "Because you like" rows on Home. One IMDb request per page opened.
+ * A person (Vision's look, user 2026-11-22): a short wiki first (photo, what they do, born, awards, biography; user
+ * 2026-11-24), then Known for so you recognise them, then a row for every role they had (Actor, Director, Creator,
+ * Writer, Producer; the biggest first), newest first. Follow makes them a favourite: they steer the engine and get
+ * "Because you like" rows on Home. One IMDb request per page (kept for the run: Back draws it at once).
  */
 @Composable
 fun PersonPage(nav: Nav, id: String, name: String) {
@@ -560,24 +607,29 @@ fun PersonPage(nav: Nav, id: String, name: String) {
     val hubKey = com.lekathedon.visionlite.anime.Hubs.content.collectAsState().value.key
     val following = list.any { it.id == id && it.hub == hubKey }
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
+    var bioOpen by rememberSaveable(id) { mutableStateOf(false) }
+    val bioFocus = remember { FocusRequester() }
     val d = data
     val shownName = d?.person?.name?.ifBlank { null } ?: name
-    val sub = when {
-        d == null -> "Loading…"
-        d.rows.isEmpty() -> "Nothing found"
-        else -> d.rows.joinToString(" · ") { it.first }
-    }
-    Page(shownName, sub) {
-        Row(Modifier.padding(top = 10.dp)) {
-            Button(if (following) "Following ✓" else "Follow", {
-                people.toggle(d?.person?.copy(name = shownName, hub = hubKey) ?: com.lekathedon.visionlite.home.People.Person(id, name, hub = hubKey))
-            }, Modifier.focusRequester(first))
-        }
-        val subOf: (MetaPreview) -> String = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }
+    val subOf: (MetaPreview) -> String = { listOfNotNull(it.releaseInfo, it.imdbRating?.let { r -> "★ $r" }).joinToString(" · ") }
+    Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 40.dp, end = 24.dp, top = 24.dp)) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 60.dp)) {
+            item(key = "about") {
+                PersonAbout(shownName, d, following, first, bioFocus, onFollow = {
+                    people.toggle(d?.person?.copy(name = shownName, hub = hubKey) ?: com.lekathedon.visionlite.home.People.Person(id, name, hub = hubKey))
+                }, onBio = { bioOpen = true })
+            }
+            if (d != null && d.person != null && d.rows.isEmpty() && d.knownFor.isEmpty()) item(key = "none") {
+                Text("Nothing found", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+            }
+            if (d != null && d.person == null) item(key = "none") {
+                Text("Couldn't reach IMDb", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+            }
             if (d != null && d.knownFor.isNotEmpty()) item(key = "known") { Rail("Known for", d.knownFor, nav, subOf = subOf, key = "known") }
             d?.rows?.forEach { (role, items) -> item(key = role) { Rail(role, items, nav, subOf = subOf, key = role) } }
         }
     }
+    val bio = d?.about?.bio
+    if (bioOpen && bio != null) BioSheet(shownName, bio) { bioOpen = false; runCatching { bioFocus.requestFocus() } }
 }

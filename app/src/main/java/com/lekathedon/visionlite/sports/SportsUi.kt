@@ -185,6 +185,8 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
     val events by Sports.events.collectAsState()
     val matches by Sports.matches.collectAsState()
     val status by Sports.status.collectAsState()
+    val refresh by Sports.liveRefresh.collectAsState()
+    val searching by Sports.searching.collectAsState()
     val now = minuteTick()
     val live = remember(events, matches, now / 60_000) { Sports.liveNow(now) }
     var game by remember { mutableStateOf<SportsEvent?>(null) }
@@ -208,6 +210,16 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         returnTo = null
         delay(200); holdTabs = 0L
     }
+    // A game opened: its channels are looked for again now (user 2026-11-24), the list fills in as they're found.
+    LaunchedEffect(game?.id) { game?.let { g -> runCatching { Sports.matchOne(g) } } }
+    // Refresh finished: the live games are shown again with focus on the first (the chip when there are none).
+    var refreshAsked by remember { mutableStateOf(false) }
+    LaunchedEffect(refresh.busy) {
+        if (refresh.busy || !refreshAsked) return@LaunchedEffect
+        refreshAsked = false
+        delay(80)
+        if (game == null && tab == PanelTab.LIVE) runCatching { first.requestFocus() }
+    }
 
     // The list tabs, each read when opened.
     val cw by produceState(emptyList<com.lekathedon.visionlite.trakt.Resume>(), tab) {
@@ -228,9 +240,15 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         value = runCatching { com.lekathedon.visionlite.youtube.Yt.subscriptions().flatMap { it.items }.filter { it.videoId != null }.distinctBy { it.videoId }.shuffled().take(30) }.getOrDefault(emptyList())
     }
     val comingAll by com.lekathedon.visionlite.home.ComingUp.items.collectAsState()
-    // The clock's notices and calendar follow the hub Home shows (Films & TV or Anime).
+    // Saved, Activity, Notices and Calendar keep to the hub Home shows (user 2026-11-24: no Films & TV in Anime's and
+    // the other way round); Live now, YouTube and Music are shared.
     val panelHub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
-    val coming = comingAll.filter { com.lekathedon.visionlite.anime.Hubs.keepsId(panelHub, it.imdb) }
+    com.lekathedon.visionlite.anime.AnimeIds.changed.collectAsState().value   // a title moved hub: lists redraw
+    fun mine(id: String) = com.lekathedon.visionlite.anime.Hubs.keepsId(panelHub, id)
+    val coming = comingAll.filter { mine(it.imdb) }
+    val cwMine = cw.filter { mine(it.imdb) }
+    val savesMine = com.lekathedon.visionlite.library.Saves.all().filter { mine(it.id) }
+    val historyMine = history.filter { h -> (h.movie?.ids?.imdb ?: h.show?.ids?.imdb)?.let { mine(it) } == true }
     // Vision's windows on the left: the first OK on a video or a song plays it there, OK again goes full screen.
     // Back closes the window (music stops); leaving the tab closes it too.
     var ytShown by remember { mutableStateOf<com.lekathedon.visionlite.youtube.YtItem?>(null) }
@@ -247,14 +265,14 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
 
     val lines: List<PanelLine> = when (tab) {
         PanelTab.SAVED -> {
-            val saves = com.lekathedon.visionlite.library.Saves.all()
-            cw.mapIndexed { i, r -> PanelLine("cw:${r.streamId}", r.name, listOfNotNull(epText(r.season, r.episode), if (r.progress > 0f) "${r.progress.toInt()}% watched" else "Up next").joinToString(" · "),
+            val saves = savesMine
+            cwMine.mapIndexed { i, r -> PanelLine("cw:${r.streamId}", r.name, listOfNotNull(epText(r.season, r.episode), if (r.progress > 0f) "${r.progress.toInt()}% watched" else "Up next").joinToString(" · "),
                 com.lekathedon.visionlite.library.posterOf(r.imdb), if (i == 0) "CONTINUE WATCHING" else null) {
                 onDismiss(); nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb)) } } +
             saves.mapIndexed { i, sv -> PanelLine("sv:${sv.id}", sv.name, if (sv.type == "series") "Series" else "Movie",
                 sv.poster ?: com.lekathedon.visionlite.library.posterOf(sv.id.substringBefore(':')), if (i == 0) "SAVED" else null) { detail(sv.type, sv.id, sv.name) } }
         }
-        PanelTab.ACTIVITY -> history.mapNotNull { h ->
+        PanelTab.ACTIVITY -> historyMine.mapNotNull { h ->
             val at = isoMs(h.watchedAt)
             when {
                 h.movie != null -> h.movie.ids.imdb?.let { id -> PanelLine("act:${h.id}", h.movie.title, "${ago(at, now)} · Movie", com.lekathedon.visionlite.library.posterOf(id)) { detail("movie", id, h.movie.title) } }
@@ -280,16 +298,16 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         PanelTab.LIVE -> emptyList()
     }
     val kicker = when (tab) {
-        PanelTab.SAVED -> "${(cw.map { it.imdb } + com.lekathedon.visionlite.library.Saves.all().map { it.id }).toSet().size} TITLES · ${cw.size} TO RESUME"
-        PanelTab.ACTIVITY -> "${history.size} RECENTLY WATCHED"
+        PanelTab.SAVED -> "${panelHub.label.uppercase()} · ${(cwMine.map { it.imdb } + savesMine.map { it.id }).toSet().size} TITLES · ${cwMine.size} TO RESUME"
+        PanelTab.ACTIVITY -> "${panelHub.label.uppercase()} · ${historyMine.size} RECENTLY WATCHED"
         PanelTab.LIVE -> "${live.size} LIVE NOW"
         PanelTab.YOUTUBE -> if (yt.isNullOrEmpty()) "RECOMMENDED" else "${yt!!.size} RECOMMENDED"
         PanelTab.MUSIC -> if (music.isNullOrEmpty()) "FROM YOUR SUBSCRIPTIONS" else "${music!!.size} FROM YOUR SUBSCRIPTIONS"
-        PanelTab.NOTICES -> "${lines.size} NEW"
-        PanelTab.CALENDAR -> "NEXT 14 DAYS"
+        PanelTab.NOTICES -> "${panelHub.label.uppercase()} · ${lines.size} NEW"
+        PanelTab.CALENDAR -> "${panelHub.label.uppercase()} · NEXT 14 DAYS"
     }
     val empty = when (tab) {
-        PanelTab.SAVED -> "Nothing saved or to resume yet."
+        PanelTab.SAVED -> "Nothing saved or to resume in ${panelHub.label} yet."
         PanelTab.ACTIVITY -> if (app.trakt.connected.value == null) "Sign in to Trakt to see what you watched." else "Nothing watched yet."
         PanelTab.YOUTUBE -> if (yt == null) "Loading YouTube…" else "Nothing from YouTube right now."
         PanelTab.MUSIC -> if (music == null) "Loading your subscriptions…" else "Nothing from your subscriptions right now."
@@ -363,21 +381,28 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                             }
                         }
                     } else if (g == null) {
-                        // Refresh (old Vision's chip): the scores and games again now.
-                        item(key = "refresh") {
-                            Focusable({ Sports.refreshNow() }, if (live.isEmpty()) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(50)) { f ->
+                        // Refresh: the TV guide, the scores and every game's channels again now, each step shown.
+                        item(key = "refresh") { Row(verticalAlignment = Alignment.CenterVertically) {
+                            Focusable({ refreshAsked = true; Sports.refreshLive() }, if (live.isEmpty()) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(50)) { f ->
                                 Row(Modifier.background(if (f) com.lekathedon.visionlite.ui.Kit.accent else com.lekathedon.visionlite.ui.Kit.card2).padding(horizontal = 12.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically) {
                                     androidx.compose.material3.Icon(com.lekathedon.visionlite.ui.Icons.Sync, null, Modifier.size(14.dp),
                                         tint = if (f) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text)
-                                    Text("Refresh", color = if (f) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                    Text(if (refresh.busy) "Refreshing" else "Refresh", color = if (f) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(start = 6.dp))
-                                    if (status.isNotEmpty()) Text(status, color = Muted, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
                                 }
                             }
-                        }
+                            val note = when {
+                                refresh.busy -> refresh.step
+                                refresh.failed != null -> refresh.failed
+                                refresh.at > 0 -> "Updated ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(refresh.at))} · ${if (refresh.live == 0) "nothing live" else "${refresh.live} live"}"
+                                else -> status.ifEmpty { null }
+                            }
+                            if (note != null) Text(note, color = if (refresh.busy) com.lekathedon.visionlite.ui.Kit.accent else Muted, fontSize = 11.sp, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp))
+                        } }
                         if (live.isEmpty()) item {
-                            Text(when { status.isNotEmpty() -> status; events.isEmpty() -> "Getting the scores…"; else -> "Nothing live right now." },
+                            Text(when { refresh.busy -> "Looking for live games…"; status.isNotEmpty() -> status; events.isEmpty() -> "Getting the scores…"; else -> "Nothing live right now." },
                                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp))
                         }
                         items(live, key = { it.id }) { ev ->
@@ -391,9 +416,12 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                         }
                     } else {
                         val chans = matches[g.id].orEmpty()
+                        val looking = searching == g.id
                         if (chans.isEmpty()) item {
-                            Text(if (Iptv.hasChannels()) "No channel found for this game yet." else "Add a Live TV playlist to see the channels.",
+                            Text(when { !Iptv.hasChannels() -> "Add a Live TV playlist to see the channels."; looking -> "Searching your channels for this game…"; else -> "No channel found for this game." },
                                 color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp))
+                        } else if (looking) item(key = "looking") {
+                            Text("Searching for more channels…", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp))
                         }
                         items(chans, key = { it.channel.key }) { m ->
                             Focusable({ if (playing?.channel?.key == m.channel.key) { onDismiss(); clockWatch(nav, g, m, chans) } else playing = m },

@@ -104,6 +104,49 @@ object Sports {
     private val kick = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     fun refreshNow() { force = true; kick.trySend(Unit); if (viewers > 0 && loop?.isActive != true) loop = scope.launch { run() } }
 
+    /** The clock's Refresh, step by step: [busy] while it runs, [step] what it's doing, [at] when it last finished. */
+    data class LiveRefresh(val busy: Boolean = false, val step: String = "", val at: Long = 0L, val live: Int = 0, val failed: String? = null)
+    private val _liveRefresh = MutableStateFlow(LiveRefresh())
+    val liveRefresh: StateFlow<LiveRefresh> get() = _liveRefresh
+    @Volatile private var liveJob: Job? = null
+
+    /**
+     * The clock's Refresh (user 2026-11-24: "it does nothing, it doesn't even seem to register"): the TV guide asked
+     * again (downloaded only when the provider's copy changed), every league's scores asked now, the guide's own games
+     * read again, then every game matched to your channels. Each step shows on the chip. A press while it runs is ignored.
+     * Cost: the playlist + a conditional guide request, one ESPN request per league (6 at a time), one full match.
+     */
+    fun refreshLive() {
+        if (liveJob?.isActive == true) return
+        _liveRefresh.value = LiveRefresh(busy = true, step = "Starting…", at = _liveRefresh.value.at)
+        liveJob = scope.launch {
+            fun step(t: String) { _liveRefresh.value = _liveRefresh.value.copy(step = t) }
+            var failed: String? = null
+            try {
+                if (data.isEmpty()) runCatching { loadCache() }
+                val pls = Iptv.playlists()
+                if (pls.isNotEmpty()) {
+                    step("Updating the TV guide…")
+                    pls.forEach { pl -> runCatching { Iptv.refresh(pl) }.onFailure { failed = "Guide: ${it.message}" } }
+                }
+                step("Getting the live scores…")
+                val now = System.currentTimeMillis()
+                runCatching { update(now, everything = true) }.onFailure { failed = "Scores: ${it.message}" }
+                runCatching { updateDay(now) }
+                guide = runCatching { guideEvents(now) }.getOrDefault(guide)
+                publish()
+                if (Iptv.hasChannels()) {
+                    step("Finding the channels…")
+                    runCatching { match(System.currentTimeMillis()) }.onFailure { failed = "Channels: ${it.message}" }
+                }
+            } finally {
+                val t = System.currentTimeMillis()
+                _liveRefresh.value = LiveRefresh(busy = false, at = t, live = runCatching { liveNow(t).size }.getOrDefault(0), failed = failed)
+                kick.trySend(Unit)
+            }
+        }
+    }
+
     private suspend fun run() {
         if (data.isEmpty()) loadCache()
         // Live TV's channels and guide (only now that sports is open; loads at most daily).
@@ -154,7 +197,7 @@ object Sports {
     // ---- fetching ----
 
     /** Fetches the leagues that are due; true when anything new arrived. */
-    private suspend fun update(now: Long): Boolean = coroutineScope {
+    private suspend fun update(now: Long, everything: Boolean = false): Boolean = coroutineScope {
         val s = settings
         val forced = force.also { force = false }
         val leagues = activeLeagues(s)
@@ -163,7 +206,7 @@ object Sports {
             val d = data[l.id]
             val age = now - (d?.at ?: 0L)
             val live = d?.events?.any { it.state == GameState.LIVE || (it.state == GameState.PRE && it.startMs in (now - 15 * MINUTE)..(now + 10 * MINUTE)) } == true
-            when { forced -> age > 15_000; live -> age > 30_000; else -> age > 5 * MINUTE }
+            when { everything -> true; forced -> age > 15_000; live -> age > 30_000; else -> age > 5 * MINUTE }
         }
         val fx = leagues.filter { it.espnPath == null && it.fixtureSlug != null && now - (fixtures[it.id]?.at ?: 0L) > 6 * 60 * MINUTE }
         if (due.isEmpty() && fx.isEmpty()) return@coroutineScope false
@@ -175,7 +218,7 @@ object Sports {
                 gate.withPermit {
                     val old = data[l.id]
                     // A live league only needs today's page; the three days on the first fetch and every 5 minutes.
-                    val all = old == null || now - old.at > 5 * MINUTE
+                    val all = everything || old == null || now - old.at > 5 * MINUTE
                     val raws = espnDays(now, all).mapNotNull { d -> runCatching { feeds.scoreboardDayRaw(l, d) }.getOrNull() }
                     if (raws.isEmpty()) { failed++; return@withPermit }
                     val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }
