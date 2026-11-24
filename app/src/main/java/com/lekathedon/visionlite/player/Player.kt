@@ -325,6 +325,30 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         kotlinx.coroutines.delay(15_000)
         if (!firstFrame) sportsFailover()
     }
+    // Live reconnect (Zero TV / TiviDeck idea): providers that cut the stream every so often, a stream that ends, or
+    // one stuck buffering are reopened quietly. 5 tries in 2 minutes (2 when it never showed a picture), then it says so.
+    val drops = remember(s.url) { ArrayList<Long>() }
+    var everPlayed by remember(s.url) { mutableStateOf(false) }
+    fun liveReconnect(why: String): Boolean {
+        if (s.type != "live") return false
+        val t = android.os.SystemClock.elapsedRealtime()
+        drops.removeAll { t - it > 120_000 }
+        if (drops.size >= (if (everPlayed) 5 else 2)) { failNote = "This channel keeps failing · try another one (OK = channel list)"; return false }
+        drops += t
+        failNote = "$why · reconnecting…"
+        scope.launch { kotlinx.coroutines.delay(if (drops.size == 1) 300L else 1_500L * drops.size); gen++ }
+        return true
+    }
+    androidx.compose.runtime.LaunchedEffect(firstFrame) { if (firstFrame && s.type == "live") { everPlayed = true; failNote = null } }
+    androidx.compose.runtime.LaunchedEffect(s.url, gen, firstFrame) {
+        if (s.type != "live" || !firstFrame) return@LaunchedEffect
+        var stuck = 0
+        while (true) {
+            kotlinx.coroutines.delay(2_000)
+            stuck = if (player.playWhenReady && player.playbackState == MediaPlayer.STATE_BUFFERING) stuck + 2 else 0
+            if (stuck >= 12) { liveReconnect("Stuck buffering"); break }
+        }
+    }
     // Link memory: a link that plays 2 minutes without buffering trouble clears its mark and becomes your pick for the show.
     val linkKey = remember(s.url) { if (s.type != "live" && s.addon.isNotBlank()) com.lekathedon.visionlite.streams.LinkMemory.keyOf(s.addon, s.name) else null }
     val stalls = remember(s.url) { intArrayOf(0) }
@@ -363,6 +387,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     stallFrom = 0
                 }
                 if (state == MediaPlayer.STATE_ENDED && prefs.nextEpisode.value && s.type == "series") scope.launch { nextEpisode(nav, s) }
+                if (state == MediaPlayer.STATE_ENDED && s.type == "live") liveReconnect("The stream ended")
             }
             override fun onPlayerError(error: PlaybackException) {
                 val at = player.currentPosition
@@ -388,6 +413,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     switchTo(Engine.EXO, "startup-failover", at); return
                 }
                 if (sportsFailover()) return
+                if (liveReconnect(if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) "Fell behind live" else "Signal dropped")) return
                 if (at < 15_000) linkKey?.let { com.lekathedon.visionlite.streams.LinkMemory.mark(it, com.lekathedon.visionlite.streams.LinkMemory.Bad.FAILED) }
                 // The link died before it really played: the next link of the same list (Vision's source fallback).
                 if (at < 15_000 && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
@@ -495,7 +521,30 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             if (s.type == "live" || !prefs.seekThumbs.value || !SeekThumbs.allowed(context)) null else SeekThumbs(s.url, s.headers) { felNow.get() }
         }
         DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
-        Controls(player, s.title, canNext = s.type == "series",
+        fun aspectTo(mode: Int) {
+            if (current == Engine.MPV) mpvView?.aspect(when (mode) {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "zoom"
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> "stretch"
+                else -> "fit"
+            }) else view?.resizeMode = mode
+        }
+        // Live TV has its own controls (LiveControls.kt): channel list, guide, numbers, options; not the film deck.
+        if (s.type == "live") LiveControls(player, s,
+            tune = { c, list ->
+                if (list != null) com.lekathedon.visionlite.iptv.Iptv.zapList = list
+                com.lekathedon.visionlite.iptv.Iptv.played(c)
+                nav.replace(Screen.Player(c.url, c.name, c.headers, type = "live"))
+            },
+            playArchive = { url, title, headers -> nav.push(Screen.Player(url, title, headers, type = "catchup")) },
+            onAspect = ::aspectTo,
+            stats = {
+                StatsSource(player, current, (if (session.smartAuto || session.reason != null) session.reason?.let { if (session.smartAuto) "Auto: $it" else it } else null),
+                    exoStats.takeIf { current == Engine.EXO }, mpvView, s.addon, s.url,
+                    s.name.lineSequence().firstOrNull { it.isNotBlank() } ?: s.url.substringBefore('?').substringAfterLast('/').takeIf { it.contains('.') }, s.bytes)
+            },
+            engine = current,
+            onEngine = { switchTo(if (current == Engine.EXO) Engine.MPV else Engine.EXO, "manual", player.currentPosition) })
+        else Controls(player, s.title, canNext = s.type == "series",
             logo = s.id.substringBefore(':').takeIf { it.startsWith("tt") && s.type != "live" }?.let { "https://images.metahub.space/logo/medium/$it/img" },
             release = s.name,
             onDelays = {
@@ -505,13 +554,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             thumbs = thumbs,
             onNext = { scope.launch { nextEpisode(nav, s) } },
             onSources = { nav.pop() },
-            onAspect = { mode ->
-                if (current == Engine.MPV) mpvView?.aspect(when (mode) {
-                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "zoom"
-                    androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> "stretch"
-                    else -> "fit"
-                }) else view?.resizeMode = mode
-            },
+            onAspect = ::aspectTo,
             stats = {
                 StatsSource(player, current, (if (session.smartAuto || session.reason != null) session.reason?.let { if (session.smartAuto) "Auto: $it" else it } else null),
                     exoStats.takeIf { current == Engine.EXO }, mpvView, s.addon, s.url,
@@ -526,7 +569,6 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     nav.replace(Screen.Player(c.url, c.name, c.headers, type = "live"))
                 }
             })
-        if (s.type == "live") ChannelBanner(s)
         (switchNote ?: failNote)?.let {
             androidx.compose.material3.Text(it, color = Color.White, fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
                 modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 40.dp)
@@ -734,26 +776,3 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
 }
 
 /** Live TV: the channel and what's on, top left, for a few seconds after tuning (and after each channel change). */
-@Composable
-private fun ChannelBanner(s: Screen.Player) {
-    var show by remember(s.url) { mutableStateOf(true) }
-    val info by androidx.compose.runtime.produceState<Pair<com.lekathedon.visionlite.iptv.Channel?, com.lekathedon.visionlite.iptv.EpgProgram?>>(null to null, s.url) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val c = com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url)
-            c to c?.let { com.lekathedon.visionlite.iptv.Iptv.nowNext(it).firstOrNull { p -> p.isLive(System.currentTimeMillis()) } }
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(s.url) { kotlinx.coroutines.delay(5_000); show = false }
-    if (!show) return
-    val (c, now) = info
-    androidx.compose.foundation.layout.Row(
-        Modifier.padding(start = 40.dp, top = 32.dp).background(Color(0xCC000000), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(14.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-    ) {
-        c?.logo?.let { com.lekathedon.visionlite.ui.Img(it, 80.dp, 45.dp, Modifier.size(80.dp, 45.dp), androidx.compose.ui.layout.ContentScale.Fit) }
-        androidx.compose.foundation.layout.Column(Modifier.padding(start = 12.dp)) {
-            androidx.compose.material3.Text((c?.n?.let { "$it  " } ?: "") + s.title, color = Color.White, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            now?.let { androidx.compose.material3.Text(it.title, color = Color(0xFFD9DC8E), fontSize = 14.sp) }
-        }
-    }
-}

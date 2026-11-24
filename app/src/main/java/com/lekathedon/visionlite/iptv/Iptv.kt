@@ -360,6 +360,20 @@ object Iptv {
         return l[Math.floorMod(i + step, l.size)]
     }
 
+    /** Typed channel numbers in the live player: the zap list first, then every playlist. */
+    fun byNumber(n: Int): Channel? = zapList.firstOrNull { it.n == n }
+        ?: db.readableDatabase.rawQuery("SELECT $COLS FROM ch WHERE ord=? ORDER BY rowid LIMIT 1", arrayOf(n.toString())).use { if (it.moveToFirst()) readChannel(it) else null }
+
+    /** The channel played before this one (Left in the live player). */
+    fun previous(current: String): Channel? = recents().firstOrNull { it.substringAfter('|') != current }?.let { channelsByKey(listOf(it)).firstOrNull() }
+
+    /** Start over: the running show from its start, out of the channel's archive (catch-up channels only). */
+    fun startOverUrl(c: Channel, pr: EpgProgram, now: Long = System.currentTimeMillis()): String? {
+        val cu = c.catchup ?: return null
+        if (!pr.isLive(now) || !CatchupUrlBuilder.isAvailable(cu, pr.startMs, now)) return null
+        return CatchupUrlBuilder.build(c.url, cu, pr.startMs, pr.stopMs, now)
+    }
+
     fun byUrl(url: String): Channel? = zapList.firstOrNull { it.url == url }
         ?: db.readableDatabase.rawQuery("SELECT $COLS FROM ch WHERE url=? LIMIT 1", arrayOf(url)).use { if (it.moveToFirst()) readChannel(it) else null }
 

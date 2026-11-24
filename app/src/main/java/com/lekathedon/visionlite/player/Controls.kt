@@ -424,7 +424,7 @@ private fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Uni
 }
 
 @Composable
-private fun SidePanel(title: String, items: List<String>, selected: Int, onPick: (Int) -> Unit) {
+internal fun SidePanel(title: String, items: List<String>, selected: Int, onPick: (Int) -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(30); runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize()) {
@@ -446,7 +446,7 @@ private fun SidePanel(title: String, items: List<String>, selected: Int, onPick:
 
 /** The file's tracks of [type]; picking one pins it, "Off" turns subtitles off. */
 @Composable
-private fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, close: () -> Unit) {
+internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, close: () -> Unit) {
     val groups = player.currentTracks.groups.filter { it.type == type }
     val options = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
     val off = allowOff && player.trackSelectionParameters.disabledTrackTypes.contains(type)
