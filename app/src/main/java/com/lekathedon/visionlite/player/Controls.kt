@@ -3,6 +3,7 @@ package com.lekathedon.visionlite.player
 import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -95,8 +96,8 @@ internal fun Controls(
     onZap: ((Int) -> Unit)? = null,
     /** Sync panel changed a delay: the engine applies it (MPV properties / an ExoPlayer flush). */
     onDelays: () -> Unit = {},
-    /** Seek thumbnails for this link (null = none: live TV, small boxes, switched off). */
-    thumbs: SeekThumbs? = null,
+    /** Nuvio Arc's seek thumbnails run for this link (ExoPlayer, not live TV, switched on). */
+    thumbs: Boolean = false,
     /** The title's styled name (logo picture), shown instead of the plain name as in Vision; null = the name. */
     logo: String? = null,
     /** The link's release name (file name, add-on name and details): source type, Atmos, DTS-HD MA for the badges. */
@@ -111,6 +112,7 @@ internal fun Controls(
     var dur by remember { mutableLongStateOf(0L) }
     var buffered by remember { mutableLongStateOf(0L) }
     var panel by remember { mutableStateOf<Panel?>(null) }
+    var syncSubsFirst by remember { mutableStateOf(false) }
     var aspect by remember { mutableIntStateOf(0) }
     var speed by remember { mutableStateOf(1f) }
     var seekTo by remember { mutableStateOf<Long?>(null) }
@@ -138,7 +140,10 @@ internal fun Controls(
     // A seek runs once the presses stop (so ten presses are one jump, not ten).
     LaunchedEffect(seekTo) {
         val t = seekTo ?: return@LaunchedEffect
-        delay(650); player.seekTo(t); pos = t; seekTo = null; seekRepeats = 0
+        // Lands on the keyframe the thumbnail showed (Arc's landingFor), so the picture and the video match.
+        delay(650)
+        val land = if (thumbs) com.nuvio.tv.core.player.thumbnail.SeekThumbnails.landingFor(t) ?: t else t
+        player.seekTo(land); pos = land; seekTo = null; seekRepeats = 0
     }
     LaunchedEffect(note) { if (note.isNotEmpty()) { delay(3_500); note = "" } }
     // Sleep timer: pauses at the time picked, or just before the end of this episode (no next episode then).
@@ -153,15 +158,8 @@ internal fun Controls(
             if (due) { player.pause(); sleepAt = null; sleepEnd = false; note = "Sleep timer: paused"; break }
         }
     }
-    // Seek thumbnail: asked only while a seek is pending, for the spot it would land on.
-    var thumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(seekTo != null) { if (seekTo == null) thumb = null }
-    LaunchedEffect(seekTo?.div(10_000)) {
-        val t = seekTo ?: return@LaunchedEffect
-        if (thumbs == null) return@LaunchedEffect
-        delay(120)
-        thumbs.at(t)?.let { thumb = it }
-    }
+    // Arc's engine makes the pictures for the spot first (as Arc's notePriority on every seek step).
+    LaunchedEffect(seekTo) { if (thumbs) seekTo?.let { com.nuvio.tv.core.player.thumbnail.SeekThumbnails.notePriority(it) } }
     LaunchedEffect(visible) { runCatching { if (visible) playButton.requestFocus() else root.requestFocus() } }
 
     // Skip intro / recap / outro / credits (Vision's IntroDB + AniSkip) and the next-episode popup.
@@ -229,16 +227,30 @@ internal fun Controls(
             true
         }
     ) {
-        if (note.isNotEmpty()) Text(note, color = Color.White, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
-            .background(Color(0xCC000000), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
+        if (note.isNotEmpty()) com.lekathedon.visionlite.ui.Inside(true) { Text(note, color = com.lekathedon.visionlite.ui.Palette.Text, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+            .background(K.panel.copy(alpha = 0.96f), RoundedCornerShape(K.cardR)).border(1.dp, K.line, RoundedCornerShape(K.cardR)).padding(horizontal = 16.dp, vertical = 8.dp)) }
         // Bottom right, over the video: OK takes it, Back waves it off.
-        if (nextUp) Column(Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
-            .background(Color(0xF0101114), RoundedCornerShape(12.dp)).padding(horizontal = 22.dp, vertical = 16.dp)) {
-            Text("Next episode", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(if (autoNext) "Starts in $countdown s · OK now · Back to stay" else "OK to play · Back to stay", color = Color(0xFFBDBDBD), fontSize = 14.sp)
-        } else if (seg != null && skipMode == "button") Text("${seg.label}   OK", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+        if (nextUp) com.lekathedon.visionlite.ui.Inside(true) { Column(Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
+            .background(K.panel.copy(alpha = 0.96f), RoundedCornerShape(K.cardR)).border(1.dp, K.line, RoundedCornerShape(K.cardR)).padding(horizontal = 22.dp, vertical = 16.dp)) {
+            com.lekathedon.visionlite.ui.Eyebrow("Up next")
+            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "NEXT EPISODE" else "Next episode", 18.sp, maxLines = 1)
+            Text(if (autoNext) "Starts in $countdown s · OK now · Back to stay" else "OK to play · Back to stay", color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 14.sp)
+        } } else if (seg != null && skipMode == "button") com.lekathedon.visionlite.ui.Inside(true) { Text("${seg.label}   OK", color = K.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
-                .background(Color.White, RoundedCornerShape(22.dp)).padding(horizontal = 22.dp, vertical = 11.dp))
+                .background(K.accent, K.buttonShape).padding(horizontal = 22.dp, vertical = 11.dp)) }
+        // Paused: the time now and when this ends, top right (as Nuvio Arc); not for live TV.
+        if (!playing && onZap == null && dur > 0) {
+            var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+            LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(5_000) } }
+            val fmt = remember { java.text.SimpleDateFormat(if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm", Locale.getDefault()) }
+            Box(Modifier.align(Alignment.TopEnd).width(420.dp).height(170.dp)
+                .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, 0f), radius = 900f)))
+            Column(Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 48.dp), horizontalAlignment = Alignment.End) {
+                val shade = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
+                Text(fmt.format(java.util.Date(now)), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, style = shade)
+                Text("Ends at ${endsAt((dur - (seekTo ?: pos)).coerceAtLeast(0), speed)}", color = Color.White.copy(alpha = 0.9f), fontSize = 16.sp, style = shade)
+            }
+        }
         if (!visible) return@Box
 
         // Vision's control chrome (old Vision, "Previous" style): everything bottom-left over a 260 dp shade — logo,
@@ -266,15 +278,7 @@ internal fun Controls(
 
             val shown = seekTo ?: pos
             var barFocused by remember { mutableStateOf(false) }
-            thumb?.takeIf { seekTo != null && dur > 0 }?.let { b ->
-                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val x = ((maxWidth - 240.dp) * (shown.toFloat() / dur).coerceIn(0f, 1f))
-                    Column(Modifier.padding(start = x).width(240.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        androidx.compose.foundation.Image(b.asImageBitmap(), null, Modifier.width(240.dp).height(135.dp).clip(RoundedCornerShape(8.dp)))
-                        Text(clock(shown), color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
-                    }
-                }
-            }
+            if (thumbs && seekTo != null) ArcThumbPane(shown, dur, Modifier.padding(bottom = 10.dp))
             // Vision's timeline: 20 dp box, pill track 4 dp (8 focused), white played + buffered, a round marker.
             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(20.dp)
                 .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
@@ -315,6 +319,8 @@ internal fun Controls(
                     ControlButton(Icons.Info, "Stats") { panel = if (panel == Panel.STATS) null else Panel.STATS }
                     ControlButton(Icons.Audio, "Audio") { panel = Panel.AUDIO }
                     ControlButton(Icons.Subtitles, "Subtitles") { panel = Panel.SUBS }
+                    // Audio and subtitle delay, one press away (as Nuvio Arc / old Vision), remembered per title.
+                    ControlButton(Icons.Sync, "Sync") { syncSubsFirst = false; panel = Panel.SYNC }
                     ControlButton(Icons.Sources, "Sources") { onSources() }
                     if (vs10) ControlButton(Icons.Hdr, "VS10") {
                         note = "VS10…"
@@ -326,11 +332,13 @@ internal fun Controls(
         }
 
         when (panel) {
-            Panel.AUDIO -> TrackPanel("Audio", player, C.TRACK_TYPE_AUDIO, allowOff = false) { panel = null }
-            Panel.SUBS -> TrackPanel("Subtitles", player, C.TRACK_TYPE_TEXT, allowOff = true) { panel = null }
+            Panel.AUDIO -> TrackPanel("Audio", player, C.TRACK_TYPE_AUDIO, allowOff = false,
+                extra = "Audio delay · ${Sync.label(Sync.audioMs)}  ›" to { syncSubsFirst = false; panel = Panel.SYNC }) { panel = null }
+            Panel.SUBS -> TrackPanel("Subtitles", player, C.TRACK_TYPE_TEXT, allowOff = true,
+                extra = "Subtitle delay · ${Sync.label(Sync.subMs)}  ›" to { syncSubsFirst = true; panel = Panel.SYNC }) { panel = null }
             Panel.SPEED -> SidePanel("Speed", Speeds.map { fmtSpeed(it) }, Speeds.indexOf(speed)) { i -> speed = Speeds[i]; player.setPlaybackSpeed(speed); panel = null }
             Panel.STATS -> StatsPanel(remember(engine) { stats() }, Modifier.align(Alignment.TopEnd))
-            Panel.SYNC -> SyncPanel(onDelays)
+            Panel.SYNC -> SyncPanel(onDelays, subsFirst = syncSubsFirst)
             Panel.SLEEP -> {
                 val opts = listOf(0, 15, 30, 45, 60, 90)
                 val labels = opts.map { if (it == 0) "Off" else "$it minutes" } + (if (dur > 0 && onZap == null) listOf("End of this episode / film") else emptyList())
@@ -368,7 +376,7 @@ private fun vs10Text(s: Vs10Engine.Step): String {
 
 /** Audio and subtitle delay: Left / Right move a line by 50 ms (held: faster), OK on a line sets it back to 0. */
 @Composable
-private fun SyncPanel(onDelays: () -> Unit) {
+private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
     var a by remember { mutableLongStateOf(Sync.audioMs) }
     var sub by remember { mutableLongStateOf(Sync.subMs) }
     val first = remember { FocusRequester() }
@@ -376,12 +384,12 @@ private fun SyncPanel(onDelays: () -> Unit) {
     // Applied once the presses stop (the ExoPlayer flush is a short re-buffer).
     LaunchedEffect(a, sub) { if (a != Sync.audioMs || sub != Sync.subMs) { delay(500); Sync.set(a, sub); onDelays() } }
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Color(0xF0101114)).padding(24.dp)) {
-            Text("Sync", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Remembered for this title. Left / Right: 50 ms; OK: back to 0", color = Color(0xFFBDBDBD), fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+        com.lekathedon.visionlite.ui.Inside(true) { Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(K.panel.copy(alpha = 0.96f)).padding(24.dp)) {
+            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "SYNC" else "Sync", 20.sp, maxLines = 1)
+            Text("Remembered for this title. Left / Right: 50 ms; OK: back to 0", color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
             listOf(true, false).forEach { audio ->
                 var reps by remember { mutableIntStateOf(0) }
-                Box(Modifier.padding(top = 8.dp).fillMaxWidth().then(if (audio) Modifier.focusRequester(first) else Modifier)) {
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().then(if (audio != subsFirst) Modifier.focusRequester(first) else Modifier)) {
                     var f by remember { mutableStateOf(false) }
                     Row(Modifier.fillMaxWidth().onFocusChanged { f = it.isFocused }.focusable().onKeyEvent { e ->
                         if (e.type == KeyEventType.KeyUp) { reps = 0; return@onKeyEvent false }
@@ -393,16 +401,17 @@ private fun SyncPanel(onDelays: () -> Unit) {
                             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { if (audio) a = 0 else sub = 0; true }
                             else -> false
                         }
-                    }.background(if (f) Color.White else Color(0x14FFFFFF)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    }.clip(RoundedCornerShape(K.rowR)).background(if (f) com.lekathedon.visionlite.ui.kitFocus.first else K.rowFill).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val ink = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text
                         Column(Modifier.weight(1f)) {
-                            Text(if (audio) "Audio delay" else "Subtitle delay", color = if (f) Color.Black else Color.White, fontSize = 16.sp)
-                            Text(if (audio) "+ = sound later" else "+ = subtitles later", color = if (f) Color.DarkGray else Color(0xFFBDBDBD), fontSize = 12.sp)
+                            Text(if (audio) "Audio delay" else "Subtitle delay", color = ink, fontSize = 16.sp)
+                            Text(if (audio) "+ = sound later" else "+ = subtitles later", color = ink.copy(alpha = 0.7f), fontSize = 12.sp)
                         }
-                        Text("‹  " + Sync.label(if (audio) a else sub) + "  ›", color = if (f) Color.Black else Color(0xFFD9DC8E), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("‹  " + Sync.label(if (audio) a else sub) + "  ›", color = if (f) ink else K.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
-        }
+        } }
     }
 }
 
@@ -430,34 +439,43 @@ internal fun SidePanel(title: String, items: List<String>, selected: Int, bottom
     LaunchedEffect(Unit) { delay(30); runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize()) {
         // bottom = the live player's popup over its control bar (TiviMate style), not a side panel.
-        Column((if (bottom) Modifier.align(Alignment.BottomStart).padding(start = 48.dp, bottom = 120.dp).width(440.dp)
-            .heightIn(max = 470.dp).background(Color(0xF0101114), RoundedCornerShape(14.dp)).padding(20.dp)
-        else Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Color(0xF0101114)).padding(24.dp))) {
-            Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+        com.lekathedon.visionlite.ui.Inside(true) { Column((if (bottom) Modifier.align(Alignment.BottomStart).padding(start = 48.dp, bottom = 120.dp).width(440.dp)
+            .heightIn(max = 470.dp).background(K.panel.copy(alpha = 0.96f), RoundedCornerShape(K.cardR)).border(1.dp, K.line, RoundedCornerShape(K.cardR)).padding(20.dp)
+        else Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(K.panel.copy(alpha = 0.96f)).padding(24.dp))) {
+            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) title.uppercase() else title, 20.sp, Modifier.padding(bottom = 12.dp), maxLines = 1)
             LazyColumn {
                 itemsIndexed(items) { i, label ->
-                    Focusable({ onPick(i) }, (if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier).padding(top = 6.dp).fillMaxWidth()) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x14FFFFFF)).padding(12.dp)) {
-                            Text(if (i == selected) "● " else "   ", color = if (f) Color.Black else Color(0xFFD9DC8E), fontSize = 15.sp)
-                            Text(label, color = if (f) Color.Black else Color.White, fontSize = 15.sp)
+                    Focusable({ onPick(i) }, (if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier).padding(top = 6.dp).fillMaxWidth(), RoundedCornerShape(K.rowR)) { f ->
+                        val ink = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text
+                        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.kitFocus.first else K.rowFill).padding(12.dp)) {
+                            Text(if (i == selected) "● " else "   ", color = if (f) ink else K.accent, fontSize = 15.sp)
+                            Text(label, color = ink, fontSize = 15.sp)
                         }
                     }
                 }
             }
-        }
+        } }
     }
 }
 
 /** The file's tracks of [type]; picking one pins it, "Off" turns subtitles off. */
 @Composable
-internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, bottom: Boolean = false, close: () -> Unit) {
+internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, bottom: Boolean = false,
+                        extra: Pair<String, () -> Unit>? = null, close: () -> Unit) {
     val groups = player.currentTracks.groups.filter { it.type == type }
     val options = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
     val off = allowOff && player.trackSelectionParameters.disabledTrackTypes.contains(type)
-    val selected = if (off) 0 else options.indexOfFirst { (g, i) -> g.isTrackSelected(i) }.let { if (allowOff && it >= 0) it + 1 else it }
-    val labels = (if (allowOff) listOf("Off") else emptyList()) + options.map { (g, i) -> trackLabel(g.getTrackFormat(i), type) }
-    if (labels.isEmpty()) { SidePanel(title, listOf("None in this file"), -1, bottom) { close() }; return }
-    SidePanel(title, labels, selected, bottom) { pick ->
+    val selected0 = if (off) 0 else options.indexOfFirst { (g, i) -> g.isTrackSelected(i) }.let { if (allowOff && it >= 0) it + 1 else it }
+    val labels0 = (if (allowOff) listOf("Off") else emptyList()) + options.map { (g, i) -> trackLabel(g.getTrackFormat(i), type) }
+    if (labels0.isEmpty() && extra == null) { SidePanel(title, listOf("None in this file"), -1, bottom) { close() }; return }
+    // [extra] (the delay line) on top; the tracks below it.
+    val shift = if (extra != null) 1 else 0
+    val labels = listOfNotNull(extra?.first) + labels0.ifEmpty { listOf("None in this file") }
+    val selected = if (selected0 >= 0) selected0 + shift else -1
+    SidePanel(title, labels, selected, bottom) { pick0 ->
+        if (extra != null && pick0 == 0) { extra.second(); return@SidePanel }
+        val pick = pick0 - shift
+        if (pick !in 0 until labels0.size) { close(); return@SidePanel }
         val b = player.trackSelectionParameters.buildUpon()
         if (allowOff && pick == 0) b.setTrackTypeDisabled(type, true)
         else {
@@ -510,11 +528,13 @@ private fun bitDepth(f: androidx.media3.common.Format): Int? = f.colorInfo?.luma
     when { c.startsWith("dvh") || c.startsWith("hvc1.2.") || c.startsWith("hev1.2.") -> 10; c.startsWith("hvc1.1.") || c.startsWith("hev1.1.") -> 8; else -> null }
 }
 
+private val K get() = com.lekathedon.visionlite.ui.Kit
+
 private val EPISODE = Regex("""\s[Ss](\d+)[Ee](\d+)\b""")
 
 private fun fmtSpeed(s: Float) = if (s == 1f) "1×" else "${s.toString().trimEnd('0').trimEnd('.')}×"
 
-private fun clock(ms: Long): String {
+internal fun clock(ms: Long): String {
     val t = (ms.coerceAtLeast(0) / 1000)
     val h = t / 3600; val m = t % 3600 / 60; val s = t % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)

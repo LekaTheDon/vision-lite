@@ -79,6 +79,8 @@ dependencies {
     implementation(libs.media3.ui)
     // Second engine (Vision's MPV) and FFmpeg audio for ExoPlayer (DTS / TrueHD / anything the box can't decode).
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+    // Nuvio Arc seek thumbnails keep their settings in DataStore (ported unchanged, 0.39.0).
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.8.0+1")
     // libass for ExoPlayer (styled ASS/SSA subtitles), the release made for media3 1.8.0.
     implementation("io.github.peerless2012:ass-media:0.5.1")

@@ -173,6 +173,8 @@ class Prefs(context: Context) {
     val epRatings = Text("detail_ep_ratings", "all")
     /** Spoiler blur: unwatched episodes' images and plots blurred (details page, Continue watching billboard). */
     val blurUnwatched = Flag("blur_unwatched", false)
+    /** Spoiler plots: unwatched episodes' plots hidden (its own switch since 0.39.0; starts as the picture switch was). */
+    val hidePlots = Flag("hide_plots", sp.getBoolean("blur_unwatched", false))
     /** Custom poster source (the built-in postersplus pattern) on every poster and wide card. */
     val customPosters = Flag("custom_posters", true)
     /** Reviews row source: "imdb" or "trakt". */
@@ -234,6 +236,10 @@ class Prefs(context: Context) {
     /** Player: audio/subtitle delay per title (JSON) and seek thumbnails (on; boxes under 3 GB skip them anyway). */
     val syncDelays = Text("sync_delays", "")
     val seekThumbs = Flag("seek_thumbs", true)
+    /** Nuvio Arc's seek-thumbnail mode: "hd" = up to 1080p, "all" = 4K too (Arc's default on boxes with 3.3 GB+). */
+    val seekThumbsMode = Text("seek_thumbs_mode", "all")
+    /** Netflix's age rating and warnings at the start of a film / episode (30 s, top left). */
+    val ageRating = Flag("age_rating", true)
     val linkPicks = Text("link_picks", "")
     val visionTb = Flag("vision_tb", false)
     /** Your IPTV VOD films and series join Vision TB's links (autoplay can pick them). */

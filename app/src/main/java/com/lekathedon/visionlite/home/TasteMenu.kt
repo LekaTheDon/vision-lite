@@ -82,37 +82,35 @@ fun TasteMenuHost() {
     var armed by remember { mutableStateOf(false) }
     LaunchedEffect(cur.id) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Dialog(onDismissRequest = close) {
-        Column(
-            Modifier.width(380.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(20.dp)
+        com.lekathedon.visionlite.ui.KitPopup(cur.name,
+            Modifier.width(380.dp)
                 .onPreviewKeyEvent { e ->
                     val k = e.nativeKeyEvent
                     val ok = k.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || k.keyCode == KeyEvent.KEYCODE_ENTER || k.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
                     if (!ok || armed) false
                     else { if (k.action == KeyEvent.ACTION_DOWN && k.repeatCount == 0) { armed = true; false } else true }
                 },
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            sub = "Love and Like steer every recommendation; Not for me and Watched are never recommended again."
         ) {
-            Text(cur.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("Love and Like steer every recommendation; Not for me and Watched are never recommended again.", color = Color(0x99FFFFFF), fontSize = 13.sp)
-            com.lekathedon.visionlite.ui.Button(if (verdict == "love") "Loved ✓ (undo)" else "Love it", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "love") "Loved ✓ (undo)" else "Love it", {
                 if (verdict == "love") Recs.forget(cur.id) else Recs.love(cur.id, tv, cur.name); close()
             }, Modifier.fillMaxWidth().focusRequester(first))
-            com.lekathedon.visionlite.ui.Button(if (verdict == "like") "Liked ✓ (undo)" else "Like · more like this", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "like") "Liked ✓ (undo)" else "Like · more like this", {
                 if (verdict == "like") Recs.forget(cur.id) else Recs.moreLikeThis(cur.id, tv, cur.name); close()
             }, Modifier.fillMaxWidth())
-            com.lekathedon.visionlite.ui.Button(if (verdict == "nope") "Not for me ✓ (undo)" else "Not for me", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "nope") "Not for me ✓ (undo)" else "Not for me", {
                 if (verdict == "nope") Recs.forget(cur.id) else Recs.notForMe(cur.id, tv, cur.name); close()
             }, Modifier.fillMaxWidth())
-            com.lekathedon.visionlite.ui.Button(if (verdict == "watched") "Watched ✓ (undo)" else "Watched", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "watched") "Watched ✓ (undo)" else "Watched", {
                 if (verdict == "watched") Recs.forget(cur.id) else Ticks.watched(cur); close()
             }, Modifier.fillMaxWidth())
-            if (Rate.available()) com.lekathedon.visionlite.ui.Button(Rate.mine(cur.id).takeIf { it > 0 }?.let { "Rated $it/10 on Trakt (change)" } ?: "Rate on Trakt…", {
+            if (Rate.available()) com.lekathedon.visionlite.ui.KitMenuItem(Rate.mine(cur.id).takeIf { it > 0 }?.let { "Rated $it/10 on Trakt (change)" } ?: "Rate on Trakt…", {
                 close(); scope.launch { imdbIdOf(cur)?.let { id -> Rate.ask(id, tv, cur.name) } }
             }, Modifier.fillMaxWidth())
-            com.lekathedon.visionlite.ui.Button(if (saved) "Remove from Library" else "Add to Library", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (saved) "Remove from Library" else "Add to Library", {
                 scope.launch { imdbIdOf(cur)?.let { id -> Saves.toggle(Saved(cur.type, id, cur.name, cur.poster)) } }; close()
             }, Modifier.fillMaxWidth())
-            com.lekathedon.visionlite.ui.Button("Cancel", { close() }, Modifier.fillMaxWidth())
+            com.lekathedon.visionlite.ui.KitMenuItem("Cancel", { close() }, Modifier.fillMaxWidth())
         }
     }
 }

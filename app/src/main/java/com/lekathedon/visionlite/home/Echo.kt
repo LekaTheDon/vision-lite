@@ -706,7 +706,7 @@ private fun Billboard(
                 }
             }
             // A Continue watching episode is not watched yet: its plot is a spoiler when the blur is on.
-            val blurOn by com.lekathedon.visionlite.App.instance.prefs.blurUnwatched.flow.collectAsState()
+            val blurOn by com.lekathedon.visionlite.App.instance.prefs.hidePlots.flow.collectAsState()
             (video?.overview ?: meta?.description ?: m.description)?.takeIf { it.isNotBlank() }?.let {
                 Text(it, color = Color(0xF2FFFFFF), fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 12.dp).spoiler(blurOn && video?.overview != null))
@@ -1668,13 +1668,11 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
     val verdict = remember(m.id) { Recs.verdict(m.id) }
     val saved = remember(m.id) { Saves.has(m.id) }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(360.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(m.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        com.lekathedon.visionlite.ui.KitPopup(m.name, Modifier.width(360.dp), eyebrow = row.title.takeIf { it.isNotBlank() }) {
             var firstUsed = false
             @Composable fun Choice(label: String, removes: Boolean = false, act: () -> Unit) {
                 val mod = if (!firstUsed) { firstUsed = true; Modifier.fillMaxWidth().focusRequester(first) } else Modifier.fillMaxWidth()
-                com.lekathedon.visionlite.ui.Button(label, { act(); onClose(removes) }, mod)
+                com.lekathedon.visionlite.ui.KitMenuItem(label, { act(); onClose(removes) }, mod)
             }
             if (m.type == "movie" || m.type == "series") {
                 Choice(if (verdict == "love") "Loved ✓ (undo)" else "Love it") { if (verdict == "love") Recs.forget(m.id) else Recs.love(m.id, tv, m.name) }
@@ -1683,6 +1681,10 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
                 Choice("Not for me", removes = VisionRows.isEngine(row.key)) { Recs.notForMe(m.id, tv, m.name) }
                 // A tick on the card, then gone from every recommendation for good; lists (charts, services, Library) keep it.
                 Choice(if (verdict == "watched") "Watched ✓ (undo)" else "Watched") { if (verdict == "watched") Recs.forget(m.id) else Ticks.watched(m) }
+            }
+            if (tv && m.id.startsWith("tt")) {
+                val following = remember(m.id) { ComingUp.isFollowed(m.id) }
+                Choice(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up") { ComingUp.follow(m.id, m.name, !following) }
             }
             if (row.key == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
             // Wrong hub: the title moves to the other one, everywhere (its IMDb id too, when the card has another id).

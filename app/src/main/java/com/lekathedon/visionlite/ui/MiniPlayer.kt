@@ -29,7 +29,7 @@ fun MiniPlayer(url: String?, headers: Map<String, String>, modifier: Modifier = 
             .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(headers)))
             .build()
     }
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) { Screensaver.track(player); onDispose { Screensaver.untrack(player); player.release() } }
     LaunchedEffect(player, url) {
         if (url == null) { player.stop(); player.clearMediaItems(); return@LaunchedEffect }
         player.setMediaItem(MediaItem.fromUri(url)); player.prepare(); player.playWhenReady = true

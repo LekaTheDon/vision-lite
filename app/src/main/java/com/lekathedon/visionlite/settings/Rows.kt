@@ -1,5 +1,7 @@
 package com.lekathedon.visionlite.settings
 
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -123,7 +125,11 @@ fun VodRowsPrompt(onDone: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     androidx.activity.compose.BackHandler { onDone() }
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)), contentAlignment = Alignment.Center) {
-        LazyColumn(Modifier.fillMaxWidth(0.6f).fillMaxSize(0.9f).background(Color(0xFF1C1C1F)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.lekathedon.visionlite.ui.Inside(true) { LazyColumn(Modifier.fillMaxWidth(0.6f).fillMaxSize(0.9f)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
+            .background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.98f))
+            .border(1.dp, com.lekathedon.visionlite.ui.Kit.line, androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
+            .padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Text("VOD rows on Home", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text(when {
@@ -143,6 +149,6 @@ fun VodRowsPrompt(onDone: () -> Unit) {
                 Button((if (on) "✓  " else "     ") + g.grp + "  ·  " + (if (g.kind == "series") "Series" else "Films") + " · ${g.count}" + (if (g.anime) " · Anime hub" else ""),
                     { if (on) picked.remove(g.key) else picked.add(g.key) }, Modifier.fillMaxWidth())
             }
-        }
+        } }
     }
 }

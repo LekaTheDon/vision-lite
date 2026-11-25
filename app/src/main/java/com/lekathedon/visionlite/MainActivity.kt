@@ -34,6 +34,8 @@ import com.lekathedon.visionlite.ui.Screen
 
 class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        // Any key is use of the app (Ambient Mode's idle clock), whoever takes the key after.
+        com.lekathedon.visionlite.ui.DpadPace.touch().let { false } ||
         com.lekathedon.visionlite.ui.Screensaver.dismiss(event) || com.lekathedon.visionlite.ui.HoldGuard.consume(event) ||
             com.lekathedon.visionlite.ui.DpadPace.consume(event) || super.dispatchKeyEvent(event)
 
@@ -190,8 +192,6 @@ class MainActivity : ComponentActivity() {
                   com.lekathedon.visionlite.sports.SportsHost(nav)
                   com.lekathedon.visionlite.home.TasteMenuHost()
                   com.lekathedon.visionlite.home.RateHost()
-                  // Vision's Ambient Mode: idle minutes off the player → 4K backdrops from your rows.
-                  com.lekathedon.visionlite.ui.ScreensaverHost(nav)
                   // Vision TB: a source that stopped working (or came back), told once.
                   com.lekathedon.visionlite.settings.RowsAskHost()
                   com.lekathedon.visionlite.tb.TbAlertHost(nav.current is Screen.Player || nav.current is Screen.YtPlay)
@@ -202,6 +202,9 @@ class MainActivity : ComponentActivity() {
                       TopPill(nav, pillFocused, pillHome, onDown = { fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }, onRight = null,
                           onFocus = { pillFocused = it }, current = hub)
                   }
+                  // Vision's Ambient Mode: idle minutes off the player → 4K backdrops from your rows. Drawn last, over
+                  // everything (the top pill showed through it).
+                  com.lekathedon.visionlite.ui.ScreensaverHost(nav)
                 }
             }
         }

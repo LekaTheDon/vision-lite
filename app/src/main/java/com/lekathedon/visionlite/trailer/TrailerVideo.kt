@@ -49,6 +49,7 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: Stri
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setMaxVideoSize(1920, 1080).build()
         player.setVideoTextureView(texture)
         player.volume = if (muted) 0f else 1f
+        com.lekathedon.visionlite.ui.Screensaver.track(player)
         player.addListener(object : Player.Listener {
             override fun onRenderedFirstFrame() { shown = true }
             override fun onVideoSizeChanged(size: VideoSize) {
@@ -68,7 +69,7 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: Stri
         }
         player.playWhenReady = true
         player.prepare()
-        onDispose { player.release() }
+        onDispose { com.lekathedon.visionlite.ui.Screensaver.untrack(player); player.release() }
     }
     AndroidView({ frame }, modifier.clipToBounds().graphicsLayer { alpha = if (shown) 1f else 0f })
 }

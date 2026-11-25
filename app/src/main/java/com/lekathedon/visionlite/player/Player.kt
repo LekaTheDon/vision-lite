@@ -551,15 +551,33 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(400))) {
             com.lekathedon.visionlite.ui.LoadingHero(s.id, s.title, "Starting…")
         }
+        // Netflix's age rating and warnings, top left for 30 s from the first picture.
+        if (s.type != "live" && s.type != "catchup") MaturityBadge(s.id, firstFrame,
+            Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(start = 48.dp, top = 48.dp))
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
         val skipMode = prefs.skipIntro.value
         val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {
             if (skipMode != "off" || (prefs.nextPopup.value && s.type == "series")) value = Skips.find(s.type, s.id)
         }
-        val thumbs = remember(s.url) {
-            if (s.type == "live" || !prefs.seekThumbs.value || !SeekThumbs.allowed(context)) null else SeekThumbs(s.url, s.headers) { felNow.get() }
+        // Nuvio Arc's seek thumbnails (its engine, ported as is): ExoPlayer only, as in Arc; never live TV. Arc's own
+        // rules decide the rest (boxes under 3.3 GB start with it off, 4K only in "All resolutions", memory governor).
+        val thumbs = s.type != "live" && s.type != "catchup" && prefs.seekThumbs.value && current == Engine.EXO
+        LaunchedEffect(s.url, gen, thumbs) {
+            com.nuvio.tv.core.player.thumbnail.SeekThumbnails.stopSession()
+            if (!thumbs) return@LaunchedEffect
+            val app = context.applicationContext
+            val want = if (prefs.seekThumbsMode.value == "hd") com.nuvio.tv.core.player.thumbnail.SeekThumbMode.HD else com.nuvio.tv.core.player.thumbnail.SeekThumbMode.ALL
+            runCatching { if (com.nuvio.tv.core.player.thumbnail.SeekThumbnailPreferences.mode(app) != want) com.nuvio.tv.core.player.thumbnail.SeekThumbnailPreferences.setMode(app, want) }
+            com.nuvio.tv.core.player.thumbnail.SeekThumbnails.startWhenEligible(
+                context = app,
+                source = com.nuvio.tv.core.player.thumbnail.ThumbSource(
+                    url = s.url, headers = s.headers, identity = s.id.ifBlank { s.title },
+                    holdBeforePlay = false, playbackConnections = 1, identityExact = s.id.startsWith("tt"),
+                    usenet = com.nuvio.tv.ui.screens.player.SlowStartServer.isUsenet(s.url),
+                    kindNote = { "Lite addon HTTP" }),
+                playerProvider = { player as? ExoPlayer })
         }
-        DisposableEffect(thumbs) { onDispose { thumbs?.close() } }
+        DisposableEffect(Unit) { onDispose { com.nuvio.tv.core.player.thumbnail.SeekThumbnails.playerClosed() } }
         fun aspectTo(mode: Int) {
             if (current == Engine.MPV) mpvView?.aspect(when (mode) {
                 androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "zoom"

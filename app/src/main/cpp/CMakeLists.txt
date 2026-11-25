@@ -23,3 +23,16 @@ target_compile_definitions(dovi_bridge PRIVATE DOVI_REAL_LINKED=1)
 target_compile_options(dovi_bridge PRIVATE -Os -Wno-unused-parameter)
 target_link_options(dovi_bridge PRIVATE -Wl,--gc-sections -s "-Wl,-z,max-page-size=16384")
 target_link_libraries(dovi_bridge dovi_static log)
+
+# Nuvio Arc's seek thumbnails (0.39.0), unchanged: a keyframe decoder over the FFmpeg mpv already ships (libavcodec
+# from mpv-android-lib), loaded at runtime with dlopen/dlsym, so no FFmpeg is linked or duplicated. Each backend is
+# compiled against its own vendored headers; the FFmpeg 6.0 one (libmediainfo.so) finds nothing in Lite and stays idle.
+add_library(nuviothumb SHARED thumb_shim.cpp thumb_backend_mpv.cpp thumb_backend_ff60.cpp thumbcolor.c thumbdovi.c)
+find_library(jnigraphics-lib jnigraphics)
+target_include_directories(nuviothumb PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+set_source_files_properties(thumb_backend_mpv.cpp PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/third_party/ffmpeg-a7522f3fef")
+set_source_files_properties(thumb_backend_ff60.cpp PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/third_party/ffmpeg-n6.0")
+target_compile_features(nuviothumb PRIVATE cxx_std_17)
+target_compile_options(nuviothumb PRIVATE -O2 -Wno-deprecated-declarations -Wno-unused-parameter)
+target_link_options(nuviothumb PRIVATE "-Wl,-z,max-page-size=16384" -s)
+target_link_libraries(nuviothumb log ${jnigraphics-lib} dl m)

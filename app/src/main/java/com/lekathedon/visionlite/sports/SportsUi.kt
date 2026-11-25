@@ -59,7 +59,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val Muted = Color(0x99FFFFFF)
+private val Muted get() = Palette.TextDim
 private val LiveRed = Color(0xFFE5484D)
 private val Gold = Color(0xFFD9DC8E)
 private val hm = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -93,14 +93,14 @@ private fun stateText(ev: SportsEvent, now: Long): String = when (ev.state) {
 @Composable
 private fun ClockGameLine(ev: SportsEvent, now: Long, channels: Int, f: Boolean, compact: Boolean = false) {
     val hide = Sports.settings.hideScores && ev.state != GameState.PRE
-    val text = if (f) Color.Black else Color.White
-    val dim = if (f) Color.DarkGray else Muted
-    Column(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x12FFFFFF)).padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 10.dp)) {
+    val text = if (f) com.lekathedon.visionlite.ui.kitFocus.second else Palette.Text
+    val dim = if (f) text.copy(alpha = 0.7f) else Palette.TextDim
+    Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.kitFocus.first else com.lekathedon.visionlite.ui.Kit.rowFill).padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (ev.state == GameState.LIVE) Box(Modifier.padding(end = 6.dp).size(7.dp).clip(RoundedCornerShape(50)).background(LiveRed))
             Text(stateText(ev, now), color = if (ev.state == GameState.LIVE) LiveRed else dim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Text("  ${leagueShort(ev)}", color = dim, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1)
-            if (channels > 0) Text("$channels channel" + if (channels == 1) "" else "s", color = if (f) Color.DarkGray else Gold, fontSize = 12.sp)
+            if (channels > 0) Text("$channels channel" + if (channels == 1) "" else "s", color = if (f) dim else com.lekathedon.visionlite.ui.Kit.accent, fontSize = 12.sp)
         }
         val sides = listOfNotNull(ev.away, ev.home)
         if (sides.size == 2) sides.forEach { s ->
@@ -121,15 +121,16 @@ private fun ClockGameLine(ev: SportsEvent, now: Long, channels: Int, f: Boolean,
 /** A channel showing the game: logo, name, what the guide says, quality; the one in the window says so. */
 @Composable
 private fun ClockChannelLine(m: ChannelMatch, playing: Boolean, f: Boolean) {
-    Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (playing) Color(0x33D9DC8E) else Color(0x12FFFFFF)).padding(10.dp),
+    val ink = if (f) com.lekathedon.visionlite.ui.kitFocus.second else Palette.Text
+    Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.kitFocus.first else if (playing) com.lekathedon.visionlite.ui.Kit.accent.copy(alpha = 0.2f) else com.lekathedon.visionlite.ui.Kit.rowFill).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp, 28.dp), contentAlignment = Alignment.Center) { Img(m.channel.logo, 48.dp, 28.dp, Modifier.size(48.dp, 28.dp), ContentScale.Fit) }
         Column(Modifier.padding(start = 10.dp).weight(1f)) {
-            Text(m.channel.name, color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(m.channel.name, color = ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(m.quality?.takeIf { it.isNotBlank() }, m.program?.title?.takeIf { it.isNotBlank() }, if (m.sure) null else "may be another game")
                 .joinToString(" · ")
             val hint = if (playing) "Playing · OK again: full screen" else sub
-            if (hint.isNotBlank()) Text(hint, color = if (f) Color.DarkGray else Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (hint.isNotBlank()) Text(hint, color = if (f) ink.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -143,7 +144,7 @@ private fun ClockWindow(ev: SportsEvent, playing: ChannelMatch?, modifier: Modif
             MiniPlayer(playing?.channel?.url, playing?.channel?.headers ?: emptyMap(), Modifier.fillMaxSize())
             if (playing == null) Text("Pick a channel to try it here", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
-        Text(ev.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+        Text(ev.title, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
         Text(playing?.let { "On ${it.channel.name} · OK on it again to watch full screen" } ?: "OK on a channel plays it here",
             color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -326,7 +327,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
         }
     }
     Dialog(onDismissRequest = back, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (com.lekathedon.visionlite.ui.Theme.skin == com.lekathedon.visionlite.ui.Skin.OLED) 0.7f else 0.45f))) {
             // The small window lives in the space left of the panel (412 dp), centred there, never under it (user 2026-11-24).
             Box(Modifier.fillMaxHeight().fillMaxWidth().padding(start = 24.dp, end = 436.dp), contentAlignment = Alignment.Center) {
                 game?.let { ClockWindow(it, playing) }
@@ -336,7 +337,7 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
             // The panel wears the look and skin (the clock on Home keeps its own shape).
             val style = com.lekathedon.visionlite.ui.Kit.style
             Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(400.dp).fillMaxHeight().clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
-                .background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(top = 20.dp)) {
+                .background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.97f)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(top = 20.dp)) {
                 com.lekathedon.visionlite.ui.Eyebrow(kicker, Modifier.padding(horizontal = 24.dp))
                 com.lekathedon.visionlite.ui.DisplayText(if (tab == PanelTab.LIVE) game?.title ?: tab.title else tab.title, 24.sp,
                     Modifier.padding(horizontal = 24.dp, vertical = 6.dp), maxLines = 1)
@@ -369,9 +370,9 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                                 l.header?.let { Text(it, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 4.dp)) }
                                 Focusable(l.open, if (l == lines.first()) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.rowR)) { f ->
                                     val halo = f && style == com.lekathedon.visionlite.ui.Style.HALO
-                                    Row(Modifier.fillMaxWidth().background(when { halo -> com.lekathedon.visionlite.ui.Kit.accent; f && style == com.lekathedon.visionlite.ui.Style.TONAL -> com.lekathedon.visionlite.ui.Kit.lerp(com.lekathedon.visionlite.ui.Kit.card2, com.lekathedon.visionlite.ui.Kit.accent, 0.25f); f -> com.lekathedon.visionlite.ui.Kit.card2; else -> Color(0x0FFFFFFF) }).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.fillMaxWidth().background(when { halo -> com.lekathedon.visionlite.ui.Kit.accent; f && style == com.lekathedon.visionlite.ui.Style.TONAL -> com.lekathedon.visionlite.ui.Kit.lerp(com.lekathedon.visionlite.ui.Kit.card2, com.lekathedon.visionlite.ui.Kit.accent, 0.25f); f -> com.lekathedon.visionlite.ui.Kit.card2; else -> com.lekathedon.visionlite.ui.Kit.rowFill }).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         val wide = tab == PanelTab.YOUTUBE || tab == PanelTab.MUSIC
-                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else 4.dp)).background(Color(0x22FFFFFF))) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
+                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else 4.dp)).background(com.lekathedon.visionlite.ui.Kit.card2)) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
                                         Column(Modifier.padding(start = 10.dp).weight(1f)) {
                                             Text(l.title, color = if (halo) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             Text(l.sub, color = if (halo) com.lekathedon.visionlite.ui.Kit.onAccent.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -442,13 +443,13 @@ private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modi
     val s by androidx.compose.runtime.produceState<com.lekathedon.visionlite.youtube.YtStreams?>(null, v.videoId) {
         value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.youtube.Yt.streams(v.videoId!!, 1080) } }.getOrNull()
     }
-    Column(modifier.widthIn(max = 560.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f))) {
+    Column(modifier.widthIn(max = 560.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.97f))) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
             Img(v.image, 560.dp, 315.dp, Modifier.fillMaxSize())
             val url = s?.video ?: s?.hls
             if (url != null) com.lekathedon.visionlite.trailer.TrailerVideo(url, false, Modifier.fillMaxSize(), s?.audio?.takeIf { s?.video != null }) {}
         }
-        Text(v.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
+        Text(v.title, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
         Text(v.sub, color = Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 12.dp))
     }
 }
@@ -458,11 +459,11 @@ private fun YtWindow(v: com.lekathedon.visionlite.youtube.YtItem, modifier: Modi
 private fun MusicWindow(modifier: Modifier = Modifier) {
     val now by com.lekathedon.visionlite.music.MusicPlayer.now.collectAsState()
     val n = now
-    Column(modifier.widthIn(max = 420.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.97f)).padding(16.dp)) {
-        Box(Modifier.fillMaxWidth().height(236.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
+    Column(modifier.widthIn(max = 420.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.97f)).padding(16.dp)) {
+        Box(Modifier.fillMaxWidth().height(236.dp).clip(RoundedCornerShape(10.dp)).background(com.lekathedon.visionlite.ui.Kit.card2)) {
             n?.art?.let { Img(it, 388.dp, 236.dp, Modifier.fillMaxSize()) }
         }
-        Text(n?.title ?: "Loading…", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp))
+        Text(n?.title ?: "Loading…", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp))
         Text(n?.let { "${it.artist} · ${if (it.playing) "Playing" else "Paused"}" } ?: "", color = Muted, fontSize = 12.sp, maxLines = 1)
         Text("Back stops the music · OK again: full screen", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
     }
@@ -473,13 +474,13 @@ private fun MusicWindow(modifier: Modifier = Modifier) {
 private fun LogoChips(list: List<ChannelMatch>) {
     if (list.isEmpty()) return
     val shown = list.distinctBy { it.channel.key }
-    Row(Modifier.fillMaxWidth().background(Color(0x0AFFFFFF)).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().background(com.lekathedon.visionlite.ui.Kit.rowFill).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         shown.take(3).forEach { m ->
-            Row(Modifier.padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF2A2A2E)).padding(horizontal = 4.dp, vertical = 2.dp),
+            Row(Modifier.padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).background(com.lekathedon.visionlite.ui.Kit.card2).padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!m.channel.logo.isNullOrBlank()) Img(m.channel.logo, 18.dp, 18.dp, Modifier.size(18.dp), ContentScale.Fit)
                 Spacer(Modifier.width(4.dp))
-                Text(m.channel.name, color = Color.White, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 90.dp))
+                Text(m.channel.name, color = Palette.Text, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 90.dp))
             }
         }
         if (shown.size > 3) Text("+${shown.size - 3}", color = Muted, fontSize = 10.sp)

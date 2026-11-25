@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Vision's Ambient Mode (user 2026-11-22): after Settings › Home and look › Screensaver minutes with no key pressed,
- * outside the players, full-screen backdrops of titles from your Home rows (random, never the same twice in a row)
+ * outside the players and while no video plays in the app (clock window, trailers), full-screen backdrops of titles from your Home rows (random, never the same twice in a row)
  * with a slow Ken Burns move, the logo and genres bottom-left. Any key closes it (that key does nothing else).
  * Cost: one check every 15 s while the app is open; images only while it shows.
  */
@@ -55,6 +55,18 @@ object Screensaver {
         while (pool.size > 400) pool.remove(pool.keys.first())
     }
     fun titles(): List<MetaPreview> = synchronized(pool) { pool.values.toList() }
+
+    /** Videos playing inside the app (the clock's small window, trailers): watching is using the app. */
+    private val playingNow = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Any, Boolean>())
+    val videoPlaying get() = playingNow.isNotEmpty()
+
+    /** Counts [p] as use of the app while it plays; call [untrack] when it's released. */
+    fun track(p: androidx.media3.common.Player) {
+        p.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) { if (isPlaying) playingNow += p else playingNow -= p; DpadPace.touch() }
+        })
+    }
+    fun untrack(p: androidx.media3.common.Player) { playingNow -= p; DpadPace.touch() }
 
     fun dismiss(e: KeyEvent): Boolean {
         if (e.action == KeyEvent.ACTION_UP && e.keyCode == swallowUp) { swallowUp = -1; return true }
@@ -80,6 +92,8 @@ fun ScreensaverHost(nav: Nav) {
         DpadPace.touch()
         while (true) {
             delay(15_000)
+            // A video playing in the app (clock window, trailer) is use: the idle minutes count from when it stops.
+            if (Screensaver.videoPlaying) DpadPace.touch()
             if (!Screensaver.showing.value && com.lekathedon.visionlite.link.LinkState.front &&
                 SystemClock.uptimeMillis() - DpadPace.lastInput >= minutes * 60_000L && Screensaver.titles().size >= 3) Screensaver.showing.value = true
         }

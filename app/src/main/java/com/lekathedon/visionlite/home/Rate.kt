@@ -83,9 +83,8 @@ fun RateHost() {
     LaunchedEffect(cur) { withFrameNanos { }; runCatching { first.requestFocus() } }
     LaunchedEffect(done) { if (done != null) { kotlinx.coroutines.delay(900); close() } }
     Dialog(onDismissRequest = { if (cur.afterWatching) Rate.skip(cur); close() }) {
-        Column(Modifier.width(560.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (cur.afterWatching) "How was ${cur.name}?" else "Rate ${cur.name}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text(done ?: "Goes to Trakt and steers your recommendations. 8-10 = loved, 6-7 = liked, 1-4 = not for you.", color = Color(0x99FFFFFF), fontSize = 13.sp)
+        com.lekathedon.visionlite.ui.KitPopup(if (cur.afterWatching) "How was ${cur.name}?" else "Rate ${cur.name}", Modifier.width(560.dp),
+            sub = done ?: "Goes to Trakt and steers your recommendations. 8-10 = loved, 6-7 = liked, 1-4 = not for you.") {
             val current = Rate.mine(cur.imdb)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 (1..10).forEach { n ->

@@ -43,7 +43,7 @@ object CloudSetup {
         "phone_link", "dv7", "afr", "match_res", "device_asked", "pt_ac3", "pt_eac3", "pt_truehd", "pt_dts", "pt_dtshd", "dv5_mpv", "hdr_on_sdr", "sound_out",
         "dv5_to_81", "strip_hdr10plus", "buffer", "tv_auto", "tv_facts", "perf_class", "exit_seen", "player_engine",
         "engine_backup", "seek_thumbs", "black_bars", "anime_ids_at", "lp_current", "lp_switched", "cloud_setup",
-        "app_section", "phone_queue", "menus_1080_applied", "comingup_v2", "comingup_v3", "link_marks", "link_picks",
+        "app_section", "phone_queue", "menus_1080_applied", "comingup_v2", "comingup_v3", "comingup_v4", "link_marks", "link_picks",
     )
     private val SKIP_PREFIX = listOf("si_nuvio_token", "si_nuvio_refresh", "si_nuvio_user", "si_nuvio_until", "si_nuvio_faces", "si_nuvio_avatar_")
     fun syncs(k: String) = k !in SKIP && SKIP_PREFIX.none { k.startsWith(it) } && !k.endsWith("_at")

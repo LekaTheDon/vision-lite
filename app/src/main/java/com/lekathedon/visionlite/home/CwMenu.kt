@@ -48,22 +48,27 @@ fun CwMenu(r: Resume, nav: Nav, onDrop: () -> Unit, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(380.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1C1C1F)).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(r.label, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            com.lekathedon.visionlite.ui.Button("Play: choose the link", {
+        com.lekathedon.visionlite.ui.KitPopup(r.label, Modifier.width(380.dp), eyebrow = "Continue watching") {
+            com.lekathedon.visionlite.ui.KitMenuItem("Play: choose the link", {
                 onClose(); nav.push(Screen.Streams(r.type, r.streamId, r.label, r.imdb, manual = true))
             }, Modifier.fillMaxWidth().focusRequester(first))
-            com.lekathedon.visionlite.ui.Button(if (r.type == "series") "Show details" else "Movie details", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (r.type == "series") "Show details" else "Movie details", {
                 onClose(); nav.push(Screen.Detail(r.type, r.imdb, r.name))
             }, Modifier.fillMaxWidth())
-            com.lekathedon.visionlite.ui.Button(if (r.type == "series") "Drop this show" else "Drop this movie", { onDrop(); onClose() }, Modifier.fillMaxWidth())
+            com.lekathedon.visionlite.ui.KitMenuItem(if (r.type == "series") "Drop this show" else "Drop this movie", { onDrop(); onClose() }, Modifier.fillMaxWidth())
+            // Follow: the next season shows in Coming up the day it's dated.
+            if (r.type == "series" && r.imdb.startsWith("tt")) {
+                val following = remember(r.imdb) { ComingUp.isFollowed(r.imdb) }
+                com.lekathedon.visionlite.ui.KitMenuItem(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up", {
+                    ComingUp.follow(r.imdb, r.name, !following); onClose()
+                }, Modifier.fillMaxWidth())
+            }
             // Wrong hub: the title moves (and leaves this Continue watching for the other hub's).
             val anime = com.lekathedon.visionlite.anime.AnimeIds.isAnime(r.imdb)
-            com.lekathedon.visionlite.ui.Button(if (anime) "Move to Films & TV" else "Move to Anime", {
+            com.lekathedon.visionlite.ui.KitMenuItem(if (anime) "Move to Films & TV" else "Move to Anime", {
                 com.lekathedon.visionlite.anime.AnimeIds.move(r.imdb, !anime); onClose()
             }, Modifier.fillMaxWidth())
-            com.lekathedon.visionlite.ui.Button("Cancel", { onClose() }, Modifier.fillMaxWidth())
+            com.lekathedon.visionlite.ui.KitMenuItem("Cancel", { onClose() }, Modifier.fillMaxWidth())
         }
     }
 }

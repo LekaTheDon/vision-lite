@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,6 +58,10 @@ object Kit {
     val onAccent: Color get() = Theme.onAccent
     val card: Color get() = Theme.skin.card
     val card2: Color get() = Theme.skin.card2
+    /** Pop-ups, side panels and the clock's panel: the skin's own page colour (OLED = true black), not a grey card. */
+    val panel: Color get() = if (Theme.skin == Skin.OLED) Color.Black else Theme.skin.card
+    /** An unfocused line inside a panel: barely lifted off [panel] (OLED keeps near-black). */
+    val rowFill: Color get() = if (Theme.skin == Skin.OLED) Theme.skin.capsule else Theme.skin.card2.copy(alpha = 0.55f)
     val line: Color get() = Theme.skin.text.copy(alpha = 0.13f)
     /** Tonal's coloured surface: the accent laid lightly over the card. */
     val tonal: Color get() = lerp(card, accent, 0.18f)
@@ -153,7 +158,8 @@ fun KitChip(t: String, modifier: Modifier = Modifier, strong: Boolean = false) {
  */
 @Composable
 fun KitButton(label: String, icon: ImageVector?, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false,
-              on: Boolean = false, iconOnly: Boolean = false, extra: (@Composable androidx.compose.foundation.layout.BoxScope.() -> Unit)? = null) {
+              on: Boolean = false, iconOnly: Boolean = false, wide: Boolean = false,
+              extra: (@Composable androidx.compose.foundation.layout.BoxScope.() -> Unit)? = null) {
     val style = Kit.style
     val shape = when (style) {
         Style.TONAL -> RoundedCornerShape(if (primary) 24.dp else 16.dp)
@@ -184,9 +190,9 @@ fun KitButton(label: String, icon: ImageVector?, onClick: () -> Unit, modifier: 
         }
         val showLabel = !iconOnly || icon == null
         Box {
-            Row(Modifier.height(h).then(bg).padding(horizontal = if (showLabel) (if (primary) 20.dp else 16.dp) * k else 0.dp)
+            Row((if (wide) Modifier.fillMaxWidth() else Modifier).height(h).then(bg).padding(horizontal = if (showLabel) (if (primary) 20.dp else 16.dp) * k else 0.dp)
                 .then(if (!showLabel) Modifier.size(h, h) else Modifier),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = if (wide) Arrangement.Start else Arrangement.Center) {
                 if (icon != null) {
                     if (primary && style == Style.TONAL) Box(Modifier.size(34.dp * k).clip(CircleShape).background(ink), contentAlignment = Alignment.Center) {
                         androidx.compose.material3.Icon(icon, null, Modifier.size(20.dp * k), tint = Kit.accent)
@@ -226,3 +232,34 @@ fun DisplayText(t: String, size: TextUnit, modifier: Modifier = Modifier, color:
     Text(t, color = color, fontFamily = Kit.display, fontSize = size, lineHeight = size * 1.02f, maxLines = maxLines, fontWeight = FontWeight.ExtraBold,
         letterSpacing = if (Kit.style == Style.MARQUEE) (-1.4).sp else (-0.8).sp, modifier = modifier,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+
+/**
+ * A menu or prompt card in the look and skin (user 2026-11-25: no popup in the old washed-out grey): the skin's card,
+ * the look's corner and hairline, the look's fonts and buttons (Inside). [title] in the display face, [sub] dim.
+ */
+@Composable
+fun KitPopup(title: String?, modifier: Modifier = Modifier, sub: String? = null, eyebrow: String? = null,
+             content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Inside(true) {
+        val shape = RoundedCornerShape(Kit.cardR)
+        androidx.compose.foundation.layout.Column(modifier.clip(shape).background(Kit.panel.copy(alpha = 0.98f)).border(1.dp, Kit.line, shape)
+            .padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            eyebrow?.let { Eyebrow(it) }
+            title?.let { DisplayText(if (Kit.style == Style.MARQUEE) it.uppercase() else it, 20.sp, maxLines = 2) }
+            sub?.let { Text(it, color = Palette.TextDim, fontSize = 13.sp) }
+            content()
+        }
+    }
+}
+
+/** The look's focus fill for list rows and small panels: (background, ink), as KitButton paints a focused button. */
+val kitFocus: Pair<Color, Color> get() = when (Kit.style) {
+    Style.TONAL -> Kit.lerp(Kit.card2, Kit.accent, 0.35f) to Palette.Text
+    Style.MARQUEE -> Palette.Text to Theme.skin.base
+    Style.HALO -> Kit.accent to Kit.onAccent
+}
+
+/** A menu line in the look: a full-width button, label on the left (menus and prompts, in a [KitPopup]). */
+@Composable
+fun KitMenuItem(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) =
+    KitButton(label, icon, onClick, modifier.fillMaxWidth(), wide = true)

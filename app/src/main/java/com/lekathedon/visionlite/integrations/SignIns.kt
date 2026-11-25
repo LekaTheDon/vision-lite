@@ -43,25 +43,33 @@ object SignIns {
         "si_${id}_token" to token, "si_${id}_refresh" to refresh, "si_${id}_user" to user,
         "si_${id}_until" to if (expiresInS > 0) (System.currentTimeMillis() + expiresInS * 1000).toString() else "")
 
+    /** A title a service follows for Coming up: [id] = IMDb id, or "tmdb:N" when the service has no IMDb id. */
+    data class Followed(val type: String, val id: String, val title: String)
+
     /**
-     * Simkl's shows and anime you watch, finished, put on hold or plan to watch (not dropped), for Coming up:
-     * (IMDb id, title). One request; nothing when not signed in.
+     * Simkl, for Coming up: shows and anime you watch, finished, put on hold or plan to watch (not dropped), and films
+     * you plan to watch. A title without an IMDb id comes by its TMDB id. One request; nothing when not signed in.
      */
-    suspend fun simklShows(): List<Pair<String, String>> {
+    suspend fun simklFollowed(): List<Followed> {
         if (!signedIn("simkl")) return emptyList()
         val (code, body) = call(Request.Builder().url("https://api.simkl.com/sync/all-items/?extended=full")
             .header("Authorization", "Bearer ${t("si_simkl_token")}").header("simkl-api-key", BuildConfig.SIMKL_CLIENT_ID).build())
         if (code !in 200..299) return emptyList()
         return runCatching {
             val o = org.json.JSONObject(body)
-            listOf("shows", "anime").flatMap { k ->
+            listOf("shows", "anime", "movies").flatMap { k ->
                 val a = o.optJSONArray(k) ?: return@flatMap emptyList()
+                val film = k == "movies"
                 (0 until a.length()).mapNotNull { i ->
                     val it = a.optJSONObject(i) ?: return@mapNotNull null
-                    if (it.optString("status") == "dropped") return@mapNotNull null
-                    val sh = it.optJSONObject("show") ?: return@mapNotNull null
-                    val imdb = sh.optJSONObject("ids")?.optString("imdb")?.takeIf { x -> x.startsWith("tt") } ?: return@mapNotNull null
-                    imdb to sh.optString("title")
+                    val status = it.optString("status")
+                    if (status == "dropped" || film && status != "plantowatch") return@mapNotNull null
+                    val sh = it.optJSONObject(if (film) "movie" else "show") ?: return@mapNotNull null
+                    val ids = sh.optJSONObject("ids")
+                    val id = ids?.optString("imdb")?.takeIf { x -> x.startsWith("tt") }
+                        ?: ids?.optString("tmdb")?.takeIf { x -> x.isNotBlank() && x.all(Char::isDigit) }?.let { t -> "tmdb:$t" }
+                        ?: return@mapNotNull null
+                    Followed(if (film) "movie" else "series", id, sh.optString("title"))
                 }
             }
         }.getOrDefault(emptyList())
@@ -370,17 +378,23 @@ object SignIns {
      * (what Vision and Nuvio save there), for the chosen profile. (IMDb id, title). A few requests; nothing when
      * not signed in.
      */
-    suspend fun nuvioShows(): List<Pair<String, String>> {
+    /**
+     * The Nuvio account, for Coming up: every show in its library or watched there (Vision / Nuvio progress), and the
+     * films saved in its library (watched films are done). Ids as [Followed].
+     */
+    suspend fun nuvioFollowed(): List<Followed> {
         val tk = nuvioToken().ifBlank { return emptyList() }
         val prof = nuvioProfile()
-        val out = LinkedHashMap<String, String>()
-        fun take(a: org.json.JSONArray, title: String) {
+        val out = LinkedHashMap<String, Followed>()
+        fun take(a: org.json.JSONArray, title: String, films: Boolean) {
             for (i in 0 until a.length()) {
                 val o = a.optJSONObject(i) ?: continue
-                val type = o.optString("content_type")
-                if (type != "series" && type != "tv" && type != "anime") continue
-                val id = o.optString("content_id").substringBefore(':')
-                if (id.startsWith("tt")) out.putIfAbsent(id, o.optString(title))
+                val type = when (o.optString("content_type")) { "series", "tv", "anime" -> "series"; "movie" -> if (films) "movie" else continue; else -> continue }
+                val raw = o.optString("content_id")
+                val id = raw.substringBefore(':').takeIf { it.startsWith("tt") }
+                    ?: raw.removePrefix("tmdb:").substringBefore(':').takeIf { raw.startsWith("tmdb:") && it.isNotBlank() && it.all(Char::isDigit) }?.let { "tmdb:$it" }
+                    ?: continue
+                if (id !in out) out[id] = Followed(type, id, o.optString(title))
             }
         }
         var offset = 0
@@ -389,7 +403,7 @@ object SignIns {
                 JSONObject().put("p_profile_id", prof).put("p_limit", 500).put("p_offset", offset).toString(), tk))
             val a = runCatching { org.json.JSONArray(r) }.getOrNull()
             if (c !in 200..299 || a == null) break
-            take(a, "name"); if (a.length() < 500) break; offset += 500
+            take(a, "name", films = true); if (a.length() < 500) break; offset += 500
         }
         var page = 1
         while (page <= 20) {
@@ -397,9 +411,9 @@ object SignIns {
                 JSONObject().put("p_profile_id", prof).put("p_page", page).put("p_page_size", 900).toString(), tk))
             val a = runCatching { org.json.JSONArray(r) }.getOrNull()
             if (c !in 200..299 || a == null) break
-            take(a, "title"); if (a.length() < 900) break; page++
+            take(a, "title", films = false); if (a.length() < 900) break; page++
         }
-        return out.map { it.key to it.value }
+        return out.values.toList()
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")

@@ -145,6 +145,7 @@ private val SkipOpts = listOf("button" to "Show a button", "auto" to "Skip by it
 private val ControlsSizeOpts = listOf("60" to "Smallest (60%)", "70" to "Small (70%)", "80" to "Medium (80%)", "90" to "Large (90%)", "100" to "Largest (100%)")
 private val RewindOpts = listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s")
 private val SubsWhenOpts = listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off")
+private val SeekThumbOpts = listOf("hd" to "Up to 1080p", "all" to "All, including 4K")
 private val SubSizeOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")
 private val SubStyleOpts = listOf("outline" to "Outline", "white" to "Shadow", "yellow" to "Yellow", "box" to "Black box")
 private val SubHdrBrightOpts = listOf("30" to "Dim", "58" to "Normal (Vision)", "80" to "Bright", "100" to "Full")
@@ -307,7 +308,9 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Style", "", p.subStyle, SubStyleOpts, m) }
         row { m -> Toggle("HDR and Dolby Vision subtitles", "White and dimmed on HDR/DV films, so they don't glare (Vision)", p.subHdr, m) }
         row { m -> Choice("HDR subtitle brightness", "", p.subHdrBright, SubHdrBrightOpts, m) }
-        row { m -> Toggle("Seek thumbnails", "A picture of the spot while you seek (boxes under 3 GB skip it)", p.seekThumbs, m) }
+        row { m -> Toggle("Seek thumbnails", "Nuvio Arc's: pictures of the spots either side while you seek, made in the background and kept per title (ExoPlayer)", p.seekThumbs, m) }
+        row { m -> Choice("Seek thumbnails for", "", p.seekThumbsMode, SeekThumbOpts, m) }
+        row { m -> Toggle("Age rating at the start", "The certificate and its warnings top left for 30 s, as Netflix", p.ageRating, m) }
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
     }
     pages += page("Home and look", "Rows, posters, clock, background", {
@@ -347,12 +350,15 @@ fun Settings(nav: Nav, start: String? = null) {
     }
     pages += page("Spoilers and trailers", "What stays hidden, when trailers play", {
         val blur = p.blurUnwatched.flow.collectAsState().value
+        val plots = p.hidePlots.flow.collectAsState().value
         val tr = p.trailers.flow.collectAsState().value
         val wait = label(DelayOpts, p.trailerDelay.flow.collectAsState().value)
-        "${if (blur) "Spoilers hidden" else "Spoilers shown"} · ${if (tr) "trailers wait $wait" else "no trailers"}"
+        val sp = when { blur && plots -> "Pictures and plots hidden"; blur -> "Pictures hidden"; plots -> "Plots hidden"; else -> "Spoilers shown" }
+        "$sp · ${if (tr) "trailers wait $wait" else "no trailers"}"
     }) {
         head("Spoilers")
-        row { m -> Toggle("Hide unwatched episodes", "Pictures and plots stay blurred until watched, here and in Continue watching", p.blurUnwatched, m) }
+        row { m -> Toggle("Hide episode pictures", "Unwatched episodes' pictures stay blurred until watched, here and in Continue watching", p.blurUnwatched, m) }
+        row { m -> Toggle("Hide episode plots", "Unwatched episodes' plots stay hidden until watched, here and in Continue watching", p.hidePlots, m) }
         row { m -> Choice("Episode ratings", "IMDb rating on each episode", p.epRatings, EpRatingOpts, m) }
         head("Trailers")
         row { m -> Toggle("Trailers", "When you rest on the billboard or an opened poster", p.trailers, m) }
@@ -625,10 +631,34 @@ fun Settings(nav: Nav, start: String? = null) {
 
     val sel = if (picked >= 0) picked else pages.indexOfFirst { it.name == start }.coerceAtLeast(0)
     val groupReq = remember { List(pages.size) { FocusRequester() } }
-    val paneFirst = remember { FocusRequester() }
     var inPane by remember { mutableStateOf(false) }
+    // Entering a page (Right / OK on the rail): its row you were last on, else its first. The page is scrolled to that
+    // row first: a row scrolled out of the list isn't there to take focus, which locked Right out (user 2026-11-25:
+    // after going deep into a page and back to the rail, Right did nothing until Settings was reopened).
+    val paneState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val rowReq = remember { HashMap<String, FocusRequester>() }
+    fun rowReqOf(page: Int, i: Int) = rowReq.getOrPut("$page:$i") { FocusRequester() }
+    val lastRow = remember { HashMap<Int, Int>() }
+    val enterScope = androidx.compose.runtime.rememberCoroutineScope()
+    fun enterPane() {
+        val page = sel
+        val rows = pages[page].items
+        val i = lastRow[page]?.takeIf { rows.getOrNull(it) is Line } ?: rows.indexOfFirst { it is Line }
+        if (i < 0) return
+        enterScope.launch {
+            // +1: the page's heading is item 0.
+            val shown = paneState.layoutInfo.visibleItemsInfo.any { it.index == i + 1 }
+            if (!shown) paneState.scrollToItem((i + 1 - 1).coerceAtLeast(0))
+            repeat(4) {
+                androidx.compose.runtime.withFrameNanos { }
+                if (runCatching { rowReqOf(page, i).requestFocus() }.isSuccess) return@launch
+            }
+        }
+    }
+    // A new page on the rail starts at its top.
+    LaunchedEffect(sel) { if (!inPane) paneState.scrollToItem(0) }
     LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { groupReq[sel].requestFocus() } }
-    LaunchedEffect(jumpPane) { if (jumpPane) { androidx.compose.runtime.withFrameNanos { }; runCatching { paneFirst.requestFocus() }; jumpPane = false } }
+    LaunchedEffect(jumpPane) { if (jumpPane) { androidx.compose.runtime.withFrameNanos { }; enterPane(); jumpPane = false } }
     androidx.activity.compose.BackHandler(enabled = inPane) { runCatching { groupReq[sel].requestFocus() } }
     val g = pages[sel]
     val skin = Theme.skin
@@ -658,7 +688,7 @@ fun Settings(nav: Nav, start: String? = null) {
         Column(Modifier.width(300.dp).fillMaxHeight()
             .focusProperties { onExit = {
                 when (requestedFocusDirection) {
-                    androidx.compose.ui.focus.FocusDirection.Right -> { cancelFocusChange(); runCatching { paneFirst.requestFocus() } }
+                    androidx.compose.ui.focus.FocusDirection.Right -> { cancelFocusChange(); enterPane() }
                     androidx.compose.ui.focus.FocusDirection.Up, androidx.compose.ui.focus.FocusDirection.Down,
                     androidx.compose.ui.focus.FocusDirection.Left -> cancelFocusChange()
                     else -> {}
@@ -670,13 +700,12 @@ fun Settings(nav: Nav, start: String? = null) {
                 GroupItem(pg, i == sel, Modifier.focusRequester(groupReq[i])
                     .onFocusChanged { if (it.isFocused) picked = i }
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { runCatching { paneFirst.requestFocus() }; true } else false
-                    }) { runCatching { paneFirst.requestFocus() } }
+                        if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) { enterPane(); true } else false
+                    }) { enterPane() }
             }
             Text("Changes save as you go", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, top = 14.dp, bottom = 24.dp))
         }
-        val firstRow = g.items.indexOfFirst { it is Line }
-        LazyColumn(
+        LazyColumn(state = paneState, modifier =
             Modifier.weight(1f).fillMaxHeight().padding(start = 36.dp)
                 .onFocusChanged { inPane = it.hasFocus }
                 .focusProperties { onExit = {
@@ -706,7 +735,7 @@ fun Settings(nav: Nav, start: String? = null) {
                 item(key = "$sel:$i") {
                     when (it) {
                         is Head -> GroupHead(it.text)
-                        is Line -> it.content(if (i == firstRow) Modifier.focusRequester(paneFirst) else Modifier)
+                        is Line -> it.content(Modifier.focusRequester(rowReqOf(sel, i)).onFocusChanged { f -> if (f.isFocused) lastRow[sel] = i })
                         is Block -> it.content()
                     }
                 }
@@ -1178,7 +1207,11 @@ fun RowsPrompt(a: com.lekathedon.visionlite.addons.Addon, onDone: () -> Unit) {
     val first = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)), contentAlignment = Alignment.Center) {
-        LazyColumn(Modifier.fillMaxWidth(0.6f).fillMaxSize(0.9f).background(Color(0xFF1C1C1F)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.lekathedon.visionlite.ui.Inside(true) { LazyColumn(Modifier.fillMaxWidth(0.6f).fillMaxSize(0.9f)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
+            .background(com.lekathedon.visionlite.ui.Kit.card.copy(alpha = 0.98f))
+            .border(1.dp, com.lekathedon.visionlite.ui.Kit.line, androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
+            .padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Text("${a.manifest.name} has ${cats.size} rows", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("Add which to this profile's Home? Arrange them later in Settings › Home rows.", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
@@ -1198,7 +1231,7 @@ fun RowsPrompt(a: com.lekathedon.visionlite.addons.Addon, onDone: () -> Unit) {
                 val c = cats[i]; val k = key(c); val on = picked[k] == true
                 Button((if (on) "✓  " else "     ") + (c.name ?: c.id) + "  ·  " + (if (c.type == "movie") "Movies" else if (c.type == "series") "Series" else c.type), { picked[k] = !on }, Modifier.fillMaxWidth())
             }
-        }
+        } }
     }
 }
 

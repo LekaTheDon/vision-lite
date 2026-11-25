@@ -28,6 +28,8 @@ class App : Application(), SingletonImageLoader.Factory {
         instance = this
         com.lekathedon.visionlite.data.Profiles.init(this)
         prefs = Prefs(this)
+        // Arc seek thumbnails: stored pictures kept within their budget, 60 s after start (off cold start).
+        com.nuvio.tv.core.player.thumbnail.SeekThumbnails.scheduleStartupHousekeeping(this)
         com.lekathedon.visionlite.device.Tier.init(this, prefs.perfClass.value)
         android.util.Log.i("VLDevice", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} · " +
             com.lekathedon.visionlite.device.Tier.summary())

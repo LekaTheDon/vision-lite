@@ -148,6 +148,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
         }
         val epRule by prefs.epRatings.flow.collectAsState()
         val blurOn by prefs.blurUnwatched.flow.collectAsState()
+        val plotsOff by prefs.hidePlots.flow.collectAsState()
         fun showRating(e: Ep) = when (epRule) { "off" -> false; "watched" -> (e.season to e.episode) in watched; else -> true }
 
         val seasons = remember(eps) { eps.map { it.season }.distinct().sorted().let { l -> if (l.size > 1) l.filter { it != 0 } else l } }
@@ -300,6 +301,14 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         KitIcon(if (saved) "In Library" else "Add to Library", if (saved) I.Check else I.Bookmark, {
                             saved = Saves.toggle(Saved(s.type, s.id, name, m?.poster ?: t?.poster))
                         }, Modifier.hint(if (saved) "In Library" else "Add to Library"), on = saved)
+                        // Follow (shows): checked every time on TVmaze and TMDB, so the next season is in Coming up the day it's dated.
+                        if (isSeries && imdbId != null) {
+                            val CU = com.lekathedon.visionlite.home.ComingUp
+                            val fr by CU.followRev.collectAsState()
+                            val following = remember(imdbId, fr) { CU.isFollowed(imdbId) }
+                            KitIcon(if (following) "Following" else "Follow", I.Bell, { CU.follow(imdbId, name, !following) },
+                                Modifier.hint(if (following) "Following · new seasons in Coming up · press to stop" else "Follow · new seasons in Coming up"), on = following)
+                        }
                         // The one engine behind every recommendation: each verdict its own icon; pressed again, it's undone.
                         val rc by com.lekathedon.visionlite.recs.Recs.changed.collectAsState()
                         val verdict = remember(s.id, rc) { com.lekathedon.visionlite.recs.Recs.verdict(s.id) }
@@ -371,7 +380,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                                 Text("S${e.season} E${e.episode}" + (e.title?.let { " · $it" } ?: "") + (e.airedMs?.let { " · " + date(it) } ?: ""),
                                     color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 e.plot?.let { Text(it, color = Palette.TextDim, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(top = 3.dp).spoiler(blurOn && (e.season to e.episode) !in watched)) }
+                                    modifier = Modifier.padding(top = 3.dp).spoiler(plotsOff && (e.season to e.episode) !in watched)) }
                             }
                         }
                     }
