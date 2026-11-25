@@ -152,13 +152,30 @@ fun SignInScreen(nav: Nav, id: String, firstStart: Boolean = false, onDone: () -
 /** First start: Nuvio's QR straight away, with a way past it for people without a Nuvio account. */
 @Composable
 fun NuvioFirst(nav: Nav, onPast: () -> Unit) {
+    // Or the whole setup from the phone app: pair it here; when the phone finishes, the TV goes on by itself.
+    var phone by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    if (phone) {
+        androidx.activity.compose.BackHandler { phone = false }
+        LaunchedEffect(Unit) { App.instance.prefs.phoneLink.value = true; com.lekathedon.visionlite.link.LinkService.sync(ctx) }
+        Column(Modifier.fillMaxSize().background(LocalLook.current.page)) {
+            Text("Set up from your phone: scan this with the Vision Lite phone app, then follow it there. Keys, sign-ins, YouTube, IPTV " +
+                "and your taste all go to this TV; it moves on by itself when the phone says Done. Back = set up here instead.",
+                color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.fillMaxWidth(0.85f).padding(start = 56.dp, top = 32.dp))
+            com.lekathedon.visionlite.link.PhoneLinkScreen()
+        }
+        return
+    }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page)) {
         Column(Modifier.padding(start = 48.dp, top = 48.dp, end = 48.dp)) {
             Text("Sign in with your Nuvio account", color = Palette.Text, fontSize = 30.sp, fontWeight = FontWeight.Bold)
             Text("Used Vision before? Everything comes back: keys, sign-ins, profiles, Home and your settings. " +
                 "Keys you saved in Nuvio (TorBox, MDBList…) come too. This TV's own picture and sound settings stay per device.",
                 color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.fillMaxWidth(0.8f).padding(top = 6.dp))
-            Button("I don't use Nuvio", onPast, Modifier.padding(top = 12.dp))
+            Row {
+                Button("I don't use Nuvio", onPast, Modifier.padding(top = 12.dp, end = 12.dp))
+                Button("Set up from your phone", { phone = true }, Modifier.padding(top = 12.dp))
+            }
         }
         SignInScreen(nav, "nuvio", firstStart = true, onDone = onPast)
     }

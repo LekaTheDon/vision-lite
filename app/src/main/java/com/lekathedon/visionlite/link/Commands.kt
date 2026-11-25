@@ -48,6 +48,8 @@ class Commands(private val ctx: Context) {
             ok().put("titles", phone.calendar(a.optLong("from", now - 7 * DAY), a.optLong("to", now + 60 * DAY)))
         }
         "creds" -> ok().put("sealed", phone.creds())
+        // The whole setup from the phone (keys, sign-ins, YouTube, IPTV, taste, Anime): see Setup.
+        "setup" -> Setup.handle(a)
         "queue" -> ok().put("queue", phone.queue(a.optJSONArray("items") ?: JSONArray()))
         "queueStatus" -> ok().put("queue", phone.queueStatus())
         else -> err("Unknown command")
