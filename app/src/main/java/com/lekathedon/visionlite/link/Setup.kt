@@ -176,7 +176,7 @@ object Setup {
         val P = com.lekathedon.visionlite.home.People
         a.optJSONArray("follow")?.let { l -> for (i in 0 until l.length()) l.optJSONObject(i)?.let { o ->
             val id = o.optString("id"); if (!id.startsWith("nm") || P.has(id, "NUVIO")) return@let
-            P.toggle(P.Person(id, o.optString("name"), o.optString("photo").takeIf { it.startsWith("http") })); hubs += com.lekathedon.visionlite.anime.Hub.FILMS
+            P.toggle(com.lekathedon.visionlite.home.People.Person(id, o.optString("name"), o.optString("photo").takeIf { it.startsWith("http") })); hubs += com.lekathedon.visionlite.anime.Hub.FILMS
         } }
         a.optJSONArray("unfollow")?.let { l -> for (i in 0 until l.length()) l.optString(i).let { id ->
             P.list.value.firstOrNull { it.id == id && it.hub == "NUVIO" }?.let(P::toggle) } }
