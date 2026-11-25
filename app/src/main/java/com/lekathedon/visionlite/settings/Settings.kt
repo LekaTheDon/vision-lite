@@ -147,7 +147,6 @@ private val RewindOpts = listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" t
 private val SubsWhenOpts = listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off")
 private val SeekThumbOpts = listOf("hd" to "Up to 1080p", "all" to "All, including 4K")
 private val SubSizeOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")
-private val SubStyleOpts = listOf("outline" to "Outline", "white" to "Shadow", "yellow" to "Yellow", "box" to "Black box")
 private val SubHdrBrightOpts = listOf("30" to "Dim", "58" to "Normal (Vision)", "80" to "Bright", "100" to "Full")
 private val SortOpts = listOf("addon" to "Add-on order", "quality" to "Best quality", "biggest" to "Biggest file", "smallest" to "Smallest file")
 private val QualityOpts = listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p")
@@ -305,12 +304,17 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("If that's missing", "Second subtitle language", p.subLang2, Langs, m) }
         head("How they look")
         row { m -> Choice("Size", "", p.subSize, SubSizeOpts, m) }
-        row { m -> Choice("Style", "", p.subStyle, SubStyleOpts, m) }
+        row { m -> Choice("Colour", "", p.subColor, com.lekathedon.visionlite.player.SubStyle.TextColors, m) }
+        row { m -> Choice("Edge", "Shadow = old Vision's soft shadow", p.subEdge, com.lekathedon.visionlite.player.SubStyle.Edges, m) }
+        row { m -> Choice("Outline colour", "For the Outline edge", p.subOutlineColor, com.lekathedon.visionlite.player.SubStyle.OutlineColors, m) }
+        row { m -> Choice("Background", "", p.subBack, com.lekathedon.visionlite.player.SubStyle.Backgrounds, m) }
+        row { m -> Toggle("Bold", "", p.subBold, m) }
+        row { m -> Choice("Position", "How high above the bottom", p.subPos, com.lekathedon.visionlite.player.SubStyle.Positions, m) }
         row { m -> Toggle("HDR and Dolby Vision subtitles", "White and dimmed on HDR/DV films, so they don't glare (Vision)", p.subHdr, m) }
         row { m -> Choice("HDR subtitle brightness", "", p.subHdrBright, SubHdrBrightOpts, m) }
         row { m -> Toggle("Seek thumbnails", "Nuvio Arc's: pictures of the spots either side while you seek, made in the background and kept per title (ExoPlayer)", p.seekThumbs, m) }
         row { m -> Choice("Seek thumbnails for", "", p.seekThumbsMode, SeekThumbOpts, m) }
-        row { m -> Toggle("Age rating at the start", "The certificate and its warnings top left for 30 s, as Netflix", p.ageRating, m) }
+        row { m -> Toggle("Content warnings at the start", "IMDb's parents guide top left for 15 s, as old Vision", p.ageRating, m) }
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
     }
     pages += page("Home and look", "Rows, posters, clock, background", {

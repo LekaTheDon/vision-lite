@@ -551,9 +551,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(400))) {
             com.lekathedon.visionlite.ui.LoadingHero(s.id, s.title, "Starting…")
         }
-        // Netflix's age rating and warnings, top left for 30 s from the first picture.
-        if (s.type != "live" && s.type != "catchup") MaturityBadge(s.id, firstFrame,
-            Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(start = 48.dp, top = 48.dp))
+        // Old Vision's start-of-play overlays (15 s): content warnings top left, refresh rate + resolution top right.
+        if (s.type != "live" && s.type != "catchup") MaturityBadge(s.id, firstFrame, Modifier.align(androidx.compose.ui.Alignment.TopStart))
+        DisplayModeBadge(firstFrame, Modifier.align(androidx.compose.ui.Alignment.TopEnd))
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
         val skipMode = prefs.skipIntro.value
         val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {
@@ -740,37 +740,10 @@ private fun foreignOnly(player: MediaPlayer, tracks: Tracks) {
     if (audio in mine) player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
 }
 
-/** Size and look from Settings; the file's own sizes/styles are ignored so the choice always shows. */
+/** Old Vision's subtitle look (SubStyle): size, colour, edge, background, bold and position from Settings. */
 @OptIn(UnstableApi::class)
-private fun styleSubtitles(v: androidx.media3.ui.SubtitleView, hdr: Boolean = false) {
-    val p = App.instance.prefs
-    if (hdr && p.subHdr.value) {
-        // Vision's SubtitleStyleSettings.forVideo: the text turns white and every colour is dimmed by the HDR brightness.
-        val dim = hdrSubColor(android.graphics.Color.WHITE)
-        val k = when (p.subSize.value) { "s" -> 0.8f; "l" -> 1.25f; "xl" -> 1.5f; else -> 1f }
-        v.setApplyEmbeddedFontSizes(false)
-        v.setApplyEmbeddedStyles(false)
-        v.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * k)
-        val clear = android.graphics.Color.TRANSPARENT; val black = android.graphics.Color.BLACK
-        v.setStyle(when (p.subStyle.value) {
-            "white" -> androidx.media3.ui.CaptionStyleCompat(dim, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, black, null)
-            "box" -> androidx.media3.ui.CaptionStyleCompat(dim, 0xCC000000.toInt(), clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE, black, null)
-            else -> androidx.media3.ui.CaptionStyleCompat(dim, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE, black, null)
-        })
-        return
-    }
-    val k = when (p.subSize.value) { "s" -> 0.8f; "l" -> 1.25f; "xl" -> 1.5f; else -> 1f }
-    v.setApplyEmbeddedFontSizes(false)
-    v.setApplyEmbeddedStyles(false)
-    v.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * k)
-    val white = android.graphics.Color.WHITE; val clear = android.graphics.Color.TRANSPARENT; val black = android.graphics.Color.BLACK
-    v.setStyle(when (p.subStyle.value) {
-        "white" -> androidx.media3.ui.CaptionStyleCompat(white, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, black, null)
-        "yellow" -> androidx.media3.ui.CaptionStyleCompat(0xFFFFE14D.toInt(), clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE, black, null)
-        "box" -> androidx.media3.ui.CaptionStyleCompat(white, 0xCC000000.toInt(), clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE, black, null)
-        else -> androidx.media3.ui.CaptionStyleCompat(white, clear, clear, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE, black, null)
-    })
-}
+private fun styleSubtitles(v: androidx.media3.ui.SubtitleView, hdr: Boolean = false) =
+    SubStyle.apply(v, hdr && App.instance.prefs.subHdr.value)
 
 /** Vision's HDR dimming: setting 0-100 maps onto 30-100 % brightness (58 = white at ~180/255). */
 internal fun hdrSubColor(color: Int): Int {

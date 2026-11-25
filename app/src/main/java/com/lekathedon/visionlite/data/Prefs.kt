@@ -146,6 +146,13 @@ class Prefs(context: Context) {
     val subSize = Text("sub_size", "m")
     /** "white", "yellow", "box", "outline". */
     val subStyle = Text("sub_style", "outline")
+    /** Old Vision's subtitle look (player/SubStyle.kt): colours as AARRGGBB, edge shadow/outline/none, offset in %. */
+    val subColor = Text("sub_color", "FFFFFFFF")
+    val subEdge = Text("sub_edge", "shadow")
+    val subOutlineColor = Text("sub_outline_color", "FF000000")
+    val subBack = Text("sub_back", "00000000")
+    val subBold = Flag("sub_bold", false)
+    val subPos = Text("sub_pos", "5")
     // Streams
     /** "addon" (installed order), "quality", "biggest", "smallest". */
     val streamSort = Text("stream_sort", "addon")
