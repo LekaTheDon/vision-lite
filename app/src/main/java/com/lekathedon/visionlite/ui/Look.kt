@@ -74,6 +74,8 @@ object Theme {
     var style by mutableStateOf(Style.MARQUEE)
     /** Settings › Button size: buttons, icons and switches past Home (1 = the 0.37.0 size). */
     var scale by mutableStateOf(0.67f)
+    /** Settings › Home look: true = Home's text, colours, pills and focus follow the look and skin (sizes stay Home's); false = Home's own (0.39.1). */
+    var homeLook by mutableStateOf(true)
     val sizes = listOf("smallest" to "Smallest", "small" to "Small", "medium" to "Medium", "large" to "Large")
     fun scaleOf(key: String) = when (key) { "smallest" -> 0.55f; "medium" -> 0.83f; "large" -> 1f; else -> 0.67f }
     /** Tinted: the last title's art colour, brightened (null until a title page read one). */

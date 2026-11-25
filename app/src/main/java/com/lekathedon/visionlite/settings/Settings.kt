@@ -328,6 +328,7 @@ fun Settings(nav: Nav, start: String? = null) {
                 com.lekathedon.visionlite.ui.Skin.TINT -> "Tinted · colours from the title's art"
                 com.lekathedon.visionlite.ui.Skin.OLED -> "OLED black · pure black pages"
                 else -> it.label } }, m) }
+        row { m -> Toggle("Home follows the look", "Home's fonts, colours, pills and focus in the look and skin (sizes stay); off = Home's own look", p.homeLook, m) }
         row { m -> Choice("Button size", "Buttons, icons and switches past Home", p.uiSize,
             com.lekathedon.visionlite.ui.Theme.sizes.map { (k, l) -> k to if (k == "small") "$l · default" else l }, m) }
         head("Rows")
