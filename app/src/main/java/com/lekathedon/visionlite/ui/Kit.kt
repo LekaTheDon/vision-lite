@@ -82,11 +82,28 @@ object Kit {
     fun lerp(a: Color, b: Color, t: Float) = Color(a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t, 1f)
 }
 
-/** Screens past Home: the look's body font for every Text, its focus ring for every Focusable. */
+/**
+ * Screens past Home: the look's body font for every Text, its focus ring for every Focusable. [font] alone (Home):
+ * the look's font, while Home keeps its own sizes and parts (user 2026-11-25: Home's text, colours and pills follow the look).
+ */
 @Composable
-fun Inside(on: Boolean, content: @Composable () -> Unit) {
+fun Inside(on: Boolean, font: Boolean = on, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalInside provides on,
-        LocalTextStyle provides if (on) LocalTextStyle.current.copy(fontFamily = Kit.body) else LocalTextStyle.current, content = content)
+        LocalTextStyle provides if (font) LocalTextStyle.current.copy(fontFamily = Kit.body) else LocalTextStyle.current, content = content)
+}
+
+/** A Home row's title: Home's size (18sp), the look's type (Tonal heavy display, Marquee tracked capitals, Halo bold). */
+@Composable
+fun HomeHeading(t: String, modifier: Modifier = Modifier) {
+    val o = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+    when (Kit.style) {
+        Style.TONAL -> Text(t, color = Palette.Text, fontFamily = Fonts.tonalDisplay, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.2).sp, maxLines = 1, overflow = o, modifier = modifier)
+        Style.MARQUEE -> Text(t.uppercase(), color = Palette.Text, fontFamily = Fonts.marqueeLabel, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp, maxLines = 1, overflow = o, modifier = modifier)
+        Style.HALO -> Text(t, color = Palette.Text, fontFamily = Fonts.halo, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.1).sp, maxLines = 1, overflow = o, modifier = modifier)
+    }
 }
 
 /** A section's heading in the look: Tonal big and heavy, Marquee tracked capitals, Halo bold. */

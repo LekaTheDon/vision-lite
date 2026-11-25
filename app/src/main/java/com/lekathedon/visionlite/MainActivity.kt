@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                   Box(Modifier.fillMaxSize().padding(top = if (hub != null) 50.dp else 0.dp)) {
                     // Past Home (not the player) every screen wears the look: its font and parts (ui/Kit.kt).
                     val inside = nav.current != Screen.Home && nav.current !is Screen.Player && nav.current !is Screen.YtPlay
-                    com.lekathedon.visionlite.ui.Inside(inside) {
+                    com.lekathedon.visionlite.ui.Inside(inside, font = inside || nav.current == Screen.Home) {
                     // Home keeps its scroll/focus position under the screens opened from it. Every other screen
                     // keeps its own (scroll positions, the part last focused) while screens opened from it are on top.
                     val cur = nav.current

@@ -264,7 +264,7 @@ private fun LoadingCard(rowKey: String, width: Dp, height: Dp, radius: Dp, below
         if (LoadingHold.key == rowKey) LoadingHold.key = null
     }
     Box(Modifier.focusRequester(me).onFocusChanged { focused = it.isFocused }.focusable().size(width, height).clip(shape)
-        .background(CardBackground).then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier))
+        .background(com.lekathedon.visionlite.ui.Kit.card).then(if (focused) Modifier.border(2.dp, com.lekathedon.visionlite.ui.Kit.ringColor, shape) else Modifier))
 }
 private val LocalRowSlots = androidx.compose.runtime.compositionLocalOf<RowSlots?> { null }
 private val LocalSlotIndex = androidx.compose.runtime.compositionLocalOf { -1 }
@@ -275,7 +275,6 @@ private val TopBand = 52.dp
 /** Where the rows start: the hero's copy sits above, the wall-to-wall backdrop behind both. */
 private val RowsTop = 262.dp
 private val ImdbYellow = Color(0xFFF5C518)
-private val CardBackground = Color(0xFF222222)
 
 /** Metahub art for IMDb ids when the catalog gave none. */
 private fun MetaPreview.wide(): String? = background ?: if (id.startsWith("tt")) backdropOf(id) else poster
@@ -635,7 +634,7 @@ private fun HomeLoading(page: Color) {
     Box(Modifier.fillMaxSize().background(page), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             com.lekathedon.visionlite.ui.VisionWordmark(64.dp)
-            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 24.dp).size(28.dp), color = Color.White, strokeWidth = 2.dp)
+            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 24.dp).size(28.dp), color = com.lekathedon.visionlite.ui.Kit.accent, strokeWidth = 2.dp)
         }
     }
 }
@@ -659,7 +658,17 @@ private suspend fun trailerAfterRest(m: MetaPreview, delayMs: Long, maxHeight: I
 /** A billboard title: Continue Watching entries carry their episode. */
 private data class HeroEntry(val m: MetaPreview, val season: Int?, val episode: Int?)
 
-private val ViewTitleYellow = Color(0xFFD9DC8E)
+/** Home's buttons (View title): the look's shape and fills, Home's size (user 2026-11-25: one look across the app). */
+private fun Modifier.homeButton(f: Boolean): Modifier {
+    val shape = com.lekathedon.visionlite.ui.Kit.buttonShape
+    val st = com.lekathedon.visionlite.ui.Kit.style
+    return clip(shape).then(when {
+        f -> Modifier.background(com.lekathedon.visionlite.ui.kitFocus.first)
+        st == com.lekathedon.visionlite.ui.Style.TONAL -> Modifier.background(com.lekathedon.visionlite.ui.Kit.card2)
+        st == com.lekathedon.visionlite.ui.Style.MARQUEE -> Modifier.background(Color(0x8C000000)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, shape)
+        else -> Modifier.background(Color(0x40000000)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, shape)
+    })
+}
 
 // ---- Legacy billboard (NetflixLegacyBillboard): logo, details, IMDb, plot, View title, page dots ----
 
@@ -682,9 +691,9 @@ private fun Billboard(
                     contentScale = ContentScale.Fit, alignment = Alignment.BottomStart, onError = { failed = true })
             } else {
                 Text((meta?.name ?: m.name).uppercase(), color = Color.White, fontSize = 30.sp, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 10f)))
+                    overflow = TextOverflow.Ellipsis, style = androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = com.lekathedon.visionlite.ui.Kit.display, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 10f)))
             }
-            val dim = Color(0xFFBDBDBD)
+            val dim = com.lekathedon.visionlite.ui.Palette.TextDim
             val parts = listOfNotNull(
                 when (m.type) { "movie" -> "Movie"; "series" -> "TV Show"; else -> null },
                 (meta?.genres ?: m.genres).firstOrNull(),
@@ -708,13 +717,14 @@ private fun Billboard(
             // A Continue watching episode is not watched yet: its plot is a spoiler when the blur is on.
             val blurOn by com.lekathedon.visionlite.App.instance.prefs.hidePlots.flow.collectAsState()
             (video?.overview ?: meta?.description ?: m.description)?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = Color(0xF2FFFFFF), fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                Text(it, color = com.lekathedon.visionlite.ui.Palette.Text.copy(alpha = 0.95f), fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 12.dp).spoiler(blurOn && video?.overview != null))
             }
             val source = remember { MutableInteractionSource() }
             val f by source.collectIsFocusedAsState()
             Text(
-                "View title", color = if (f) Color(0xFF1A1A1A) else Color(0xE6FFFFFF), fontSize = 15.sp,
+                "View title", color = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text, fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 16.dp).focusRequester(viewTitle)
                     .focusProperties { up = clock }
                     .onPreviewKeyEvent { e ->
@@ -725,7 +735,7 @@ private fun Billboard(
                             else -> false
                         }
                     }
-                    .clip(RoundedCornerShape(50)).background(if (f) ViewTitleYellow else Color(0x99383838))
+                    .homeButton(f)
                     .clickable(interactionSource = source, indication = null) { onOpen(meta?.let { MetaPreview(m.id, m.type, it.name) } ?: m) }
                     .padding(horizontal = 20.dp, vertical = 8.dp)
             )
@@ -737,7 +747,7 @@ private fun Billboard(
             Text("‹", color = Color(0x99FFFFFF), fontSize = 13.sp, modifier = Modifier.padding(end = 6.dp))
             repeat(count) { i ->
                 Box(Modifier.size(if (i == index) 13.dp else 4.dp, 4.dp).clip(RoundedCornerShape(50))
-                    .background(if (i == index) ViewTitleYellow else Color(0x66FFFFFF)))
+                    .background(if (i == index) com.lekathedon.visionlite.ui.Kit.accent else com.lekathedon.visionlite.ui.Palette.Text.copy(alpha = 0.4f)))
             }
             Text("›", color = Color(0x99FFFFFF), fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
         }
@@ -762,7 +772,7 @@ fun BoxScope.TopPill(
     /** Bumped from outside (Left on the clock): focus the pill's last item. */
     enterAtEnd: Int = 0
 ) {
-    val shape = RoundedCornerShape(50)
+    val shape = com.lekathedon.visionlite.ui.Kit.buttonShape
     val prefs = App.instance.prefs
     val section by prefs.appSection.flow.collectAsStateWithLifecycle()
     var choosing by remember { mutableStateOf(false) }
@@ -869,7 +879,7 @@ fun BoxScope.TopPill(
                 }
             }
         }
-        if (pages > 1) Text("${page + 1}/$pages", color = Color(0x88FFFFFF), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        if (pages > 1) Text("${page + 1}/$pages", color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
         PillDivider()
         item("settings", null) { nav.push(Screen.Settings) }
         item("account", account, face = avatar) { picking = true }
@@ -892,12 +902,9 @@ fun hubOf(s: Screen): String? {
 /** The hub page each menu screen is (for the pill on that page): its label, or null when it isn't one. */
 fun hubPageOf(s: Screen): String? = hubOf(s)?.let { key -> Sections.pages(key).firstOrNull { it.second == s }?.first }
 
-/** The pill and clock keep their shape; their focus takes the skin's colour (white on OLED and Tinted). */
-private fun pillRing(): Color = com.lekathedon.visionlite.ui.Theme.skin.let { if (it == com.lekathedon.visionlite.ui.Skin.OLED || it.tinted) Color(0xCCFFFFFF) else it.accent }
-private fun pillFocusFill(): Color = com.lekathedon.visionlite.ui.Theme.skin.let { if (it == com.lekathedon.visionlite.ui.Skin.OLED || it.tinted) Color(0x40FFFFFF) else it.accent.copy(alpha = 0.3f) }
 
 @Composable
-private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(Color(0x55FFFFFF)))
+private fun PillDivider() = Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 16.dp).background(com.lekathedon.visionlite.ui.Palette.Text.copy(alpha = 0.33f)))
 
 @Composable
 private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = false, modifier: Modifier = Modifier, white: Boolean = false,
@@ -905,18 +912,18 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
     face: Pair<String, String>? = null, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(50)
-    val tint = Color.White.copy(alpha = if (f || selected || white) 1f else 0.85f)
+    val shape = com.lekathedon.visionlite.ui.Kit.buttonShape
+    val tint = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text.copy(alpha = if (selected || white) 1f else 0.85f)
     Box(
         modifier.fillMaxHeight().focusProperties { this.canFocus = canFocus }.clip(shape)
-            .then(if (f) Modifier.background(pillFocusFill()).border(1.5.dp, pillRing(), shape)
-                else if (selected) Modifier.background(Color(0x26FFFFFF)).border(1.dp, Color(0x40FFFFFF), shape) else Modifier)
+            .then(if (f) Modifier.background(com.lekathedon.visionlite.ui.kitFocus.first)
+                else if (selected) Modifier.background(com.lekathedon.visionlite.ui.Palette.Text.copy(alpha = 0.15f)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, shape) else Modifier)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = if (face != null) 2.dp else 11.dp),
         contentAlignment = Alignment.Center
     ) {
         if (face != null) ProfileFace(label.orEmpty(), face.first, face.second, 26.dp)
-        else if (label != null) Text(label, color = tint, fontSize = 15.sp, fontWeight = if (white) FontWeight.SemiBold else FontWeight.Normal)
+        else if (label != null) Text(label, color = tint, fontSize = 15.sp, fontWeight = if (white || f) FontWeight.SemiBold else FontWeight.Normal)
         else androidx.compose.foundation.Canvas(Modifier.size(17.dp)) {
             val w = size.width
             val c = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
@@ -925,7 +932,7 @@ private fun PillItem(label: String?, canFocus: Boolean, selected: Boolean = fals
                 drawLine(tint, c, androidx.compose.ui.geometry.Offset(c.x + (w * 0.47f * Math.cos(a)).toFloat(), c.y + (w * 0.47f * Math.sin(a)).toFloat()), strokeWidth = w * 0.18f)
             }
             drawCircle(tint, radius = w * 0.33f, center = c)
-            drawCircle(Color(0xFF4A4A4E), radius = w * 0.14f, center = c)
+            drawCircle(if (f) com.lekathedon.visionlite.ui.kitFocus.first else Color(0xFF4A4A4E), radius = w * 0.14f, center = c)
         }
     }
 }
@@ -960,10 +967,10 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
     LaunchedEffect(f) { onFocus(f) }
-    val shape = RoundedCornerShape(50)
+    val shape = com.lekathedon.visionlite.ui.Kit.buttonShape
     Box(
         modifier.padding(top = 12.dp, end = 25.dp).height(25.dp)
-            .then(if (f) Modifier.border(1.5.dp, pillRing(), shape) else Modifier)
+            
             .focusRequester(me)
             // Between the menu and the billboard (Vision's LegacyClockFocus): Up = the menu's Home, Left = the menu's
             // last item (the profile: the clock sits right of it), Down = the billboard.
@@ -977,11 +984,11 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
                     else -> false
                 }
             }
-            .clip(shape).background(com.lekathedon.visionlite.ui.Theme.skin.capsule.copy(alpha = 0.86f))
+            .clip(shape).background(if (f) com.lekathedon.visionlite.ui.kitFocus.first else com.lekathedon.visionlite.ui.Theme.skin.capsule.copy(alpha = 0.86f))
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = 11.dp),
         contentAlignment = Alignment.Center
-    ) { Text(now, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+    ) { Text(now, color = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
 }
 
 /**
@@ -1022,10 +1029,7 @@ private fun EchoRow(
         if (it.hasFocus && !hasFocus) slots.entered = true
         hasFocus = it.hasFocus
     }) {
-        Text(
-            title, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Start).height(dims.rowHead)
-        )
+        com.lekathedon.visionlite.ui.HomeHeading(title, Modifier.padding(start = Start).height(dims.rowHead))
         val leadPx = with(androidx.compose.ui.platform.LocalDensity.current) { lead.toPx() }
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(leadPx) { snapSpec(leadPx) }, LocalRowSlots provides slots) {
             LazyRow(
@@ -1048,9 +1052,9 @@ private fun EchoRow(
             .padding(start = Start, top = 6.dp, end = 48.dp).widthIn(max = 900.dp)) {
             if (hasFocus && shown != null) {
                 DetailsLine(shown)
-                reason?.let { Text(it, color = Color(0xFFF5C518), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                reason?.let { Text(it, color = com.lekathedon.visionlite.ui.Kit.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
-                plot?.let { Text(it, color = Color(0xFFBDBDBD), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2,
+                plot?.let { Text(it, color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp, bottom = 4.dp)) }
             }
         }
@@ -1103,8 +1107,8 @@ private fun EchoCard(
                     else -> false
                 }
             })
-            .size(if (focused && openWidth != null) openWidth else width, height).clip(shape).background(CardBackground)
-            .then(if (focused) Modifier.border(2.dp, Color.White, shape) else Modifier)
+            .size(if (focused && openWidth != null) openWidth else width, height).clip(shape).background(com.lekathedon.visionlite.ui.Kit.card)
+            .then(if (focused) Modifier.border(2.dp, com.lekathedon.visionlite.ui.Kit.ringColor, shape) else Modifier)
             .remembersFocus { focused }
             .clickable(interactionSource = source, indication = null, onClick = onClick)
     ) { content(focused) }
@@ -1181,7 +1185,7 @@ private fun RankNumber(rank: Int, dims: EchoDims, focused: Boolean, modifier: Mo
     val twoDigits = rank >= 10
     val outline = if (focused) Color(240, 240, 240, 153) else Color(215, 215, 215, 77)
     val base = TextStyle(
-        fontSize = fontSize, fontWeight = FontWeight.ExtraBold,
+        fontSize = fontSize, fontWeight = FontWeight.ExtraBold, fontFamily = com.lekathedon.visionlite.ui.Kit.display,
         letterSpacing = if (twoDigits) (-0.09).em else (-0.06).em,
         lineHeight = fontSize, textAlign = androidx.compose.ui.text.style.TextAlign.End
     )
@@ -1326,7 +1330,7 @@ private fun BrowseTile(id: String, name: String, art: String?, dims: EchoDims, m
         Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Black.copy(alpha = if (focused) 0.35f else 0.55f), Color.Black.copy(alpha = 0.15f)))))
         Text(name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.7f), blurRadius = 12f)),
+            style = androidx.compose.material3.LocalTextStyle.current.copy(shadow = Shadow(Color.Black.copy(alpha = 0.7f), blurRadius = 12f)),
             modifier = Modifier.align(Alignment.Center).padding(horizontal = 16.dp))
     }
 }
@@ -1337,7 +1341,7 @@ private val TileColors = listOf(Color(0xFF7A1F2B), Color(0xFF1F4E7A), Color(0xFF
 /** Echo's row title, for rows on other pages. */
 @Composable
 fun EchoRowTitle(title: String) {
-    if (title.isNotBlank()) Text(title, color = Color(0xF2FFFFFF), fontSize = 18.sp, maxLines = 1, modifier = Modifier.padding(top = 18.dp, bottom = 10.dp))
+    if (title.isNotBlank()) com.lekathedon.visionlite.ui.HomeHeading(title, Modifier.padding(top = 18.dp, bottom = 10.dp))
 }
 
 /** The Continue watching episode's still from the show's meta (cached; the billboard loads the same meta). */
@@ -1370,7 +1374,7 @@ private fun ContinueWatchingCard(
         if (still != null) Img(still, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize(), blur = blur)
         else Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.background), dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize(), fallback = m.background)
         Box(Modifier.fillMaxSize().bottomShade())
-        val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
+        val shadow = androidx.compose.material3.LocalTextStyle.current.copy(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = if (hasProgress) 14.dp else 12.dp)) {
             Text(m.name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, style = shadow)
@@ -1378,7 +1382,7 @@ private fun ContinueWatchingCard(
         }
         if (hasProgress) {
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.White.copy(alpha = 0.28f))) {
-                Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).background(Color.White))
+                Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).background(com.lekathedon.visionlite.ui.Kit.accent))
             }
         }
     }
@@ -1386,7 +1390,7 @@ private fun ContinueWatchingCard(
 
 @Composable
 private fun BoxScope.Fallback(title: String) {
-    Text(title, color = Color(0xFFB3B3B3), fontSize = 13.sp, maxLines = 3, modifier = Modifier.align(Alignment.Center).padding(10.dp))
+    Text(title, color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 13.sp, maxLines = 3, modifier = Modifier.align(Alignment.Center).padding(10.dp))
 }
 
 /** Logo bottom-left, or the title as bold text when there's no logo. */
@@ -1409,7 +1413,7 @@ private fun BoxScope.CardLogo(
         Text(
             title, color = Color.White, fontSize = textSize.sp, fontWeight = FontWeight.ExtraBold, lineHeight = (textSize * 1.1f).sp,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
-            style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 10f)),
+            style = androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = com.lekathedon.visionlite.ui.Kit.display, shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 10f)),
             modifier = Modifier.align(Alignment.BottomStart).padding(start = inset, bottom = inset - 2.dp).widthIn(max = cardWidth * 0.7f)
         )
     }
@@ -1424,7 +1428,7 @@ private fun Modifier.bottomShade(): Modifier = drawWithCache {
 
 /** "Show • Drama, Mystery • 2022 • 55m • IMDb 8.7", under a row's focused card. */
 @Composable
-private fun DetailsLine(m: MetaPreview, color: Color = Color(0xFFCFCFCF), dotColor: Color = Color(0xFF777777)) {
+private fun DetailsLine(m: MetaPreview, color: Color = com.lekathedon.visionlite.ui.Palette.Text.copy(alpha = 0.82f), dotColor: Color = com.lekathedon.visionlite.ui.Palette.TextDim.copy(alpha = 0.6f)) {
     val parts = listOfNotNull(
         when (m.type) { "movie" -> "Movie"; "series" -> "Show"; else -> null },
         m.genres.take(2).joinToString(", ").takeIf { it.isNotBlank() },
@@ -1586,11 +1590,11 @@ private fun ComingCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onHo
     EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick, onHold = onHold) {
         Img(com.lekathedon.visionlite.poster.Posters.wide(m.id, m.type, m.background), dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize(), fallback = m.background)
         Box(Modifier.fillMaxSize().bottomShade())
-        val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
+        val shadow = androidx.compose.material3.LocalTextStyle.current.copy(shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
         val isNew = m.releaseInfo == "New"
-        Text(m.releaseInfo.orEmpty(), color = if (isNew) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(RoundedCornerShape(50))
-                .background(if (isNew) ImdbYellow else Color(0xCC121316)).padding(horizontal = 10.dp, vertical = 3.dp))
+        Text(m.releaseInfo.orEmpty(), color = if (isNew) com.lekathedon.visionlite.ui.Kit.onAccent else com.lekathedon.visionlite.ui.Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(com.lekathedon.visionlite.ui.Kit.buttonShape)
+                .background(if (isNew) com.lekathedon.visionlite.ui.Kit.accent else com.lekathedon.visionlite.ui.Theme.skin.capsule.copy(alpha = 0.8f)).padding(horizontal = 10.dp, vertical = 3.dp))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
             Text(m.name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shadow)
             m.description?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shadow) }
@@ -1652,8 +1656,8 @@ private fun PersonCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onCl
 private fun RefreshCard(dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
     EchoCard(dims.posterWidth, dims.posterHeight, dims.radius, Modifier, onFocus, onClick) {
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("↻", color = Color.White, fontSize = 34.sp)
-            Text("Refresh", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+            Text("↻", color = com.lekathedon.visionlite.ui.Palette.Text, fontSize = 34.sp)
+            Text("Refresh", color = com.lekathedon.visionlite.ui.Palette.Text, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
@@ -1714,7 +1718,7 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
 fun WatchedTick(id: String, modifier: Modifier = Modifier) {
     val ticks by Ticks.ids.collectAsStateWithLifecycle()
     if (id !in ticks) return
-    Box(modifier.padding(8.dp).size(30.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-        Text("✓", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    Box(modifier.padding(8.dp).size(30.dp).clip(androidx.compose.foundation.shape.CircleShape).background(com.lekathedon.visionlite.ui.Kit.accent), contentAlignment = Alignment.Center) {
+        Text("✓", color = com.lekathedon.visionlite.ui.Kit.onAccent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
     }
 }
