@@ -26,13 +26,26 @@ enum class Hub(val key: String, val label: String) {
 
 object Hubs {
     private val p get() = App.instance.prefs
-    private val _content by lazy { MutableStateFlow(Hub.of(p.contentHub.value) ?: Hub.FILMS) }
+    private val _content by lazy { MutableStateFlow(if (!separate()) Hub.FILMS else Hub.of(p.contentHub.value) ?: Hub.FILMS) }
+
+    /** Settings › Anime: "separate" (default), "merged" or "off". */
+    fun mode(): String = p.animeMode.value
+    fun separate() = mode() != "merged" && mode() != "off"
+    fun merged() = mode() == "merged"
+    fun off() = mode() == "off"
+    fun setMode(key: String) {
+        p.animeMode.value = key
+        if (key != "merged" && key != "off") return
+        _content.value = Hub.FILMS; p.contentHub.value = Hub.FILMS.key
+        if (p.appSection.value == Hub.ANIME.key) p.appSection.value = Hub.FILMS.key
+    }
     /** The content hub shown on Home (the last of Films & TV / Anime picked; IPTV, YouTube and Music leave it as it was). */
     val content: StateFlow<Hub> get() = _content
     fun now(): Hub = _content.value
 
     /** The pill's section changes: a content hub also becomes Home's hub. */
     fun setSection(key: String) {
+        if (key == Hub.ANIME.key && !separate()) return setSection(Hub.FILMS.key)
         p.appSection.value = key
         Hub.of(key)?.let { h -> if (_content.value != h) { _content.value = h; p.contentHub.value = h.key } }
     }
@@ -43,6 +56,15 @@ object Hubs {
         else -> keepsId(hub, m.id)
     }
     fun keepsId(hub: Hub, id: String): Boolean = AnimeIds.isAnime(id) == (hub == Hub.ANIME)
+    /**
+     * Pages, Search, Library, Continue watching (not Home's rows, which stay one kind each): Merged shows anime and the
+     * rest together; Off never shows anime (Films & TV's rule); Separate = this hub's titles only.
+     */
+    fun shows(hub: Hub, m: MetaPreview): Boolean = when (m.type) {
+        "service", "person", "genre", "decade" -> true
+        else -> showsId(hub, m.id)
+    }
+    fun showsId(hub: Hub, id: String): Boolean = if (merged()) true else keepsId(hub, id)
     fun hubOf(id: String) = if (AnimeIds.isAnime(id)) Hub.ANIME else Hub.FILMS
 
     fun rowOrder(h: Hub) = if (h == Hub.FILMS) p.rowOrder else p.rowOrderAnime

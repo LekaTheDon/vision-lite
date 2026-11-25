@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
             var problem by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(
                 com.lekathedon.visionlite.report.Problems.lastUnseen(this@MainActivity)) }
             BackHandler(enabled = nav.canPop) { nav.pop() }
+            var tasteAsk by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.settings.TasteStartGate.wanted()) }
             // Who's watching? (more than one profile) or the PIN of a locked profile, before anything else.
             var gate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.data.Profiles.startGate()) }
             // The phone companion's requests (Play, details, a channel…): opened like a press on the remote.
@@ -134,6 +135,8 @@ class MainActivity : ComponentActivity() {
                             else if (!asked) com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) })
                             // Then, once: every integration and tracker, one page each.
                             else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.integrations.Setup(nav) }
+                            // Then, once, to someone new: the taste questions (titles, genres, people, anime), all skippable.
+                            else if (tasteAsk && !app.prefs.tasteStartDone.value) com.lekathedon.visionlite.settings.TasteStart { tasteAsk = false }
                             else if (problem != null) problem?.let { pr ->
                                 com.lekathedon.visionlite.report.ProblemPrompt(pr,
                                     onReport = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen(); nav.push(Screen.Report(pr.kind)) },
@@ -177,6 +180,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows(nav)
                         Screen.Interests -> com.lekathedon.visionlite.settings.InterestsPage()
+                        Screen.TasteStart -> com.lekathedon.visionlite.settings.TasteStart { nav.pop() }
                         Screen.LeaveOut -> com.lekathedon.visionlite.settings.LeaveOutPage()
                         Screen.VisionTb -> com.lekathedon.visionlite.tb.VisionTbScreen()
                         Screen.PhoneLink -> com.lekathedon.visionlite.link.PhoneLinkScreen()

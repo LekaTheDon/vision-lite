@@ -69,7 +69,7 @@ private fun RowsOf(hub: com.lekathedon.visionlite.anime.Hub, nav: com.lekathedon
         item {
             Text("Home rows", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
             Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                com.lekathedon.visionlite.anime.Hub.entries.forEach { h -> Button(if (h == hub) "● ${h.label}" else h.label, { pick(h) }) }
+                com.lekathedon.visionlite.anime.Hub.entries.filter { it == com.lekathedon.visionlite.anime.Hub.FILMS || !com.lekathedon.visionlite.anime.Hubs.off() }.forEach { h -> Button(if (h == hub) "● ${h.label}" else h.label, { pick(h) }) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button("Refresh all rows", { vm.refreshAll(); msg = "Rows will load fresh" }, Modifier.focusRequester(first))

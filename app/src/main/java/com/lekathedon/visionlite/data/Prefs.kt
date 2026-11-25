@@ -198,6 +198,10 @@ class Prefs(context: Context) {
     val rowsHiddenAnime = Text("rows_hidden_anime", "")
     /** Home's content hub: "NUVIO" (Films & TV) or "ANIME". */
     val contentHub = Text("content_hub", "NUVIO")
+    /** Anime: "separate" (its own hub, default), "merged" (its own rows on Films & TV's Home) or "off" (gone from the whole app). */
+    val animeMode = Text("anime_mode", "separate")
+    /** First start's taste questions (titles, genres, people, anime) answered or skipped. */
+    val tasteStartDone = Flag("taste_start_done", false)
     /** Titles moved by hand between Anime (+id) and Films & TV (-id), one per line. */
     val animeMoves = Text("anime_moves", "")
     /** Add-on catalogs as Home rows (Vision's "Add-on rows"); off like the user's Vision. */

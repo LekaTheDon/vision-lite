@@ -15,6 +15,7 @@ import com.lekathedon.visionlite.recs.AiPicks
 import com.lekathedon.visionlite.recs.Pick
 import com.lekathedon.visionlite.recs.Recs
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -54,7 +55,38 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private val rowOrder get() = Hubs.rowOrder(hub)
     private val engineKeys = listOf(VisionRows.PICKS) + VisionRows.BECAUSE + VisionRows.MOODS + VisionRows.SCOUT
     /** Mood rows' TMDB top-up, once per mood per app run (2 TMDB requests; nothing without a key). */
-    val rows: StateFlow<List<Row>> get() = state
+    val rows: StateFlow<List<Row>> get() = if (hub == Hub.FILMS) withAnime else state
+
+    // ---- Settings › Anime › Merged: the Anime hub's own rows on this Home, each still one kind (never a mixed chart).
+    /** The Anime hub's Home, running only while Merged (its rows load as they come near, like any row here). */
+    private var animeSide: HomeModel? = null
+    private var animeJob: Job? = null
+    private val animeRows = MutableStateFlow<List<Row>>(emptyList())
+    /** Films & TV's rows with the anime rows right under its own Vision rows (above rotating rows and add-ons). */
+    private val withAnime: StateFlow<List<Row>> by lazy {
+        combine(state, animeRows) { f, a ->
+            if (a.isEmpty()) f else { val at = f.indexOfLast { it.key.startsWith("v/") || it.key.startsWith("c/") } + 1; f.take(at) + a + f.drop(at) }
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, state.value)
+    }
+    private fun animeOf(key: String): HomeModel? = if (key.startsWith(VisionRows.ANIME_PREFIX)) animeSide else null
+    private fun startAnime() {
+        if (animeSide != null) return
+        val a = HomeModel(Hub.ANIME).also { animeSide = it }
+        animeJob = viewModelScope.launch {
+            combine(a.rows, Hubs.rowsHidden(Hub.ANIME).flow) { l, h -> l to h.split('\n').toSet() }.collect { (l, hidden) ->
+                // Add-on rows stay Films & TV's (the same catalogs twice); everything Vision builds for anime comes along.
+                animeRows.value = l.filter { it.builtIn && it.key !in hidden }.map { r ->
+                    r.copy(key = VisionRows.ANIME_PREFIX + r.key, title = if (r.title.contains("anime", true)) r.title else "${r.title} · Anime")
+                }
+            }
+        }
+    }
+    private fun stopAnime() {
+        animeJob?.cancel(); animeJob = null
+        animeSide?.viewModelScope?.cancel(); animeSide = null
+        animeRows.value = emptyList()
+    }
+    override fun onCleared() { stopAnime() }
     private val loading = HashMap<String, Job>()
     private val needed = HashSet<String>()
     private val cwState = MutableStateFlow<List<com.lekathedon.visionlite.trakt.Resume>>(emptyList())
@@ -82,9 +114,10 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             cwState.value = cwRaw.filter { cwKeeps(it) }
         }
     }
-    private fun cwKeeps(r: com.lekathedon.visionlite.trakt.Resume) = Hubs.keepsId(hub, r.imdb) && !com.lekathedon.visionlite.recs.LeaveOut.hidesId(r.imdb)
+    private fun cwKeeps(r: com.lekathedon.visionlite.trakt.Resume) = Hubs.showsId(hub, r.imdb) && !com.lekathedon.visionlite.recs.LeaveOut.hidesId(r.imdb)
 
     init {
+        if (hub == Hub.FILMS) viewModelScope.launch { app.prefs.animeMode.flow.collect { if (it == "merged") startAnime() else stopAnime() } }
         viewModelScope.launch {
             AnimeIds.warm()
             app.addons.ensureDefaults()
@@ -102,7 +135,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         // Hide adult titles: a title found out to be adult leaves every row at once.
         viewModelScope.launch {
             combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow, com.lekathedon.visionlite.recs.LeaveOut.revision, app.prefs.leaveOut.flow) { a, b, _, _ -> a to b }.collect {
-                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it)) } ?: r }
+                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it).let { k -> if (r.key in VisionRows.ranked) k.take(20) else k }) } ?: r }
                 cwState.value = cwRaw.filter { cwKeeps(it) }
             }
         }
@@ -125,7 +158,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch {
             AnimeIds.changed.collect { n ->
                 if (n == 0) return@collect
-                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it)) } ?: r }
+                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it).let { k -> if (r.key in VisionRows.ranked) k.take(20) else k }) } ?: r }
                 cwState.value = cwRaw.filter { cwKeeps(it) }
             }
         }
@@ -135,6 +168,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
 
     /** Refresh: forget every loaded page and ask again as rows come into view. */
     fun refreshAll() {
+        animeSide?.refreshAll()
         loading.values.forEach { it.cancel() }; loading.clear(); needed.clear()
         app.client.clearCatalogs()
         state.value = state.value.map { if (it.builtIn) it else it.copy(items = emptyList(), done = false).also { r -> raw.remove(r.key) } }
@@ -192,12 +226,14 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
 
     /** Home's look-ahead: starts a row below the screen loading; a row already started is left alone (no redraw). */
     fun prefetch(key: String) {
+        animeOf(key)?.let { return it.prefetch(VisionRows.base(key)) }
         val row = state.value.firstOrNull { it.key == key } ?: return
         if (row.builtIn && key in needed) return
         need(key)
     }
 
     fun need(key: String) {
+        animeOf(key)?.let { return it.need(VisionRows.base(key)) }
         val row = state.value.firstOrNull { it.key == key } ?: return
         if (row.builtIn) { if (needed.add(key)) start(row) else fill(key); return }
         if (row.items.isNotEmpty() || row.done || loading.containsKey(key)) return
@@ -205,13 +241,14 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     }
 
     fun more(key: String) {
+        animeOf(key)?.let { return it.more(VisionRows.base(key)) }
         val row = state.value.firstOrNull { it.key == key } ?: return
         if (row.builtIn || row.done || row.def?.supportsSkip != true || loading.containsKey(key)) return
         load(row, raw[key]?.size ?: row.items.size)
     }
 
     /** The Refresh tile at the end of a Picks row. */
-    fun refreshPicks(@Suppress("UNUSED_PARAMETER") key: String) = Recs.rebuildNow(hub)
+    fun refreshPicks(key: String) = Recs.rebuildNow(if (animeOf(key) != null) Hub.ANIME else hub)
 
 
     /** A Vision row's first look: its source is asked to refresh when due (each keeps its own clock). */
@@ -328,7 +365,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private fun set(key: String, items: List<MetaPreview>, title: String? = null) {
         raw[key] = items
         // VOD rows were already split by hub (their TMDB ids aren't known to the anime lists).
-        val kept = if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) } else keep(items)
+        val kept = (if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) } else keep(items))
+            // Top 20 Today: its source gives 40, so 20 are still there after the filters.
+            .let { if (key in VisionRows.ranked) it.take(20) else it }
         state.value = state.value.map { r -> if (r.key == key) r.copy(items = kept, done = true, title = title ?: r.title) else r }
     }
 

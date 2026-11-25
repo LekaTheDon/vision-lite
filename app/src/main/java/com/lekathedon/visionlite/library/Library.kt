@@ -40,7 +40,7 @@ fun Library(nav: Nav) {
     var items by remember { mutableStateOf<List<ListItem>?>(null) }
     // Only the hub you're in (Films & TV or Anime).
     val hub = remember { com.lekathedon.visionlite.anime.Hubs.now() }
-    val saved = remember { Saves.all().filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.id) } }
+    val saved = remember { Saves.all().filter { com.lekathedon.visionlite.anime.Hubs.showsId(hub, it.id) } }
     LaunchedEffect(Unit) { items = if (trakt.connected.value != null) trakt.watchlist() else emptyList() }
     val first = remember { FocusRequester() }
     val list = remember(items) {
@@ -50,7 +50,7 @@ fun Library(nav: Nav) {
                 li.show != null -> li.show.ids.imdb?.let { com.lekathedon.visionlite.addons.MetaPreview(it, "series", li.show.title, posterOf(it), backdropOf(it)) }
                 else -> null
             }
-        }.filter { com.lekathedon.visionlite.anime.Hubs.keepsId(hub, it.id) }
+        }.filter { com.lekathedon.visionlite.anime.Hubs.showsId(hub, it.id) }
     }
     val savedMetas = remember(saved) { saved.map { sv -> com.lekathedon.visionlite.addons.MetaPreview(sv.id, sv.type, sv.name,
         sv.poster ?: if (sv.id.startsWith("tt")) posterOf(sv.id) else null, if (sv.id.startsWith("tt")) backdropOf(sv.id) else null) } }

@@ -247,7 +247,7 @@ private fun DiscoverOf(nav: Nav, hub: Hub) {
                     val page = runCatching { c.load(g, asked) }.getOrDefault(emptyList())
                     asked += page.size
                     val fresh = page.filter { m -> m.type != "skip" && items.none { it.id == m.id } }
-                    val kept = fresh.filter { Hubs.keeps(hub, it) }
+                    val kept = fresh.filter { Hubs.shows(hub, it) }
                     items.addAll(kept)
                     more = page.isNotEmpty()
                     if (!more || kept.isNotEmpty()) break

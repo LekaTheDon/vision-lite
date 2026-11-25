@@ -326,7 +326,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
         val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
         r.key !in hidden && (shows || !r.done || r.key == LoadingHold.key ||
-            (r.key == VisionRows.PICKS && traktOn))
+            (VisionRows.isPicks(r.key) && traktOn))
     }
     // The phone companion's copy of Home (only while it is switched on; built off the main thread).
     val linkOn by prefs.phoneLink.flow.collectAsStateWithLifecycle()
@@ -1276,7 +1276,10 @@ fun PageRow(
     // Leave out (Settings › Recommendations): gone from every page; Search marks them instead.
     val loRev by com.lekathedon.visionlite.recs.LeaveOut.revision.collectAsStateWithLifecycle()
     val loText by App.instance.prefs.leaveOut.flow.collectAsStateWithLifecycle()
-    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut, filter) {
+    // Settings › Anime › Off: anime shows on no page at all, Search included.
+    val animeMode by App.instance.prefs.animeMode.flow.collectAsStateWithLifecycle()
+    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut, filter, animeMode) {
+        val metasIn = if (animeMode != "off") metasIn else metasIn.filter { (it.type != "movie" && it.type != "series") || !com.lekathedon.visionlite.anime.AnimeIds.isAnime(it.id) }
         if (!filter) metasIn else com.lekathedon.visionlite.recs.Adult.visible(metasIn).let { l ->
             // Search keeps them, but asks what each is, so the mark appears once known.
             if (markLeftOut) l.also { it.forEach { m -> com.lekathedon.visionlite.recs.LeaveOut.hides(m) } } else com.lekathedon.visionlite.recs.LeaveOut.visible(l)
@@ -1587,7 +1590,9 @@ private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal
 
 /** Vision's sections and their pages, as far as Lite has built them (the rest join here as they arrive). */
 private object Sections {
-    val all = listOf("NUVIO" to "Films & TV", "ANIME" to "Anime", "IPTV" to "IPTV", "YOUTUBE" to "YouTube", "MUSIC" to "Music")
+    /** Anime has no section of its own when Settings › Anime is Merged or Off. */
+    val all get() = listOf("NUVIO" to "Films & TV", "ANIME" to "Anime", "IPTV" to "IPTV", "YOUTUBE" to "YouTube", "MUSIC" to "Music")
+        .filter { it.first != "ANIME" || com.lekathedon.visionlite.anime.Hubs.separate() }
     fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Films & TV"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
@@ -1708,7 +1713,7 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
                 val following = remember(m.id) { ComingUp.isFollowed(m.id) }
                 Choice(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up") { ComingUp.follow(m.id, m.name, !following) }
             }
-            if (row.key == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
+            if (VisionRows.base(row.key) == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
             // Wrong hub: the title moves to the other one, everywhere (its IMDb id too, when the card has another id).
             val anime = remember(m.id) { com.lekathedon.visionlite.anime.AnimeIds.isAnime(m.id) }
             Choice(if (anime) "Move to Films & TV" else "Move to Anime", removes = true) {

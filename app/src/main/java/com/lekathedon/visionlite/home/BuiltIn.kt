@@ -76,9 +76,12 @@ object VisionRows {
         return head + charts.map { it.first to it.second.removeSuffix(" · Anime").replace("Anime ", "").replace("Top 250 Series", "Top 250 TV Shows") } + rest.drop(head.size)
     }
 
-    fun isPicks(key: String) = key == PICKS
+    /** Settings › Anime › Merged: the Anime hub's rows on Films & TV's Home carry this before their own key. */
+    const val ANIME_PREFIX = "A|"
+    fun base(key: String) = key.removePrefix(ANIME_PREFIX)
+    fun isPicks(key: String) = base(key) == PICKS
     /** Rows the engine fills (their titles are recommendations: Love / Like / Not for me on hold). */
-    fun isEngine(key: String) = isPicks(key) || key in BECAUSE || key in FAVS || key in GENRE_ROWS
+    fun isEngine(key: String) = base(key).let { k -> isPicks(k) || k in BECAUSE || k in FAVS || k in GENRE_ROWS }
     /** Vision's ranked rows (BuiltInRow ranked = true): Top 20 Movies / Shows Today. */
     val ranked = setOf("c/${Charts.Chart.TOP_MOVIES_TODAY.id}", "c/${Charts.Chart.TOP_SHOWS_TODAY.id}",
         "c/${Charts.Chart.ANIME_TODAY_SERIES.id}", "c/${Charts.Chart.ANIME_TODAY_MOVIES.id}")
@@ -227,7 +230,8 @@ object Charts {
     @Serializable private data class Disk(val at: Long, val rows: Map<String, List<MetaPreview>>)
     private val loaded = HashMap<Src, Disk>()
     private val locks = Src.entries.associateWith { Mutex() }
-    private fun file(s: Src) = File(App.instance.filesDir, "charts/${s.name.lowercase()}.json").apply { parentFile?.mkdirs() }
+    // TMDB / AniList: "_2" since the Top 20 rows keep 40 (the old files held 20 before filtering, so the rows showed 13-15).
+    private fun file(s: Src) = File(App.instance.filesDir, "charts/${s.name.lowercase()}${if (s == Src.TMDB || s == Src.ANILIST) "_2" else ""}.json").apply { parentFile?.mkdirs() }
 
     fun byKey(key: String) = Chart.entries.firstOrNull { "c/${it.id}" == key }
 
@@ -250,8 +254,9 @@ object Charts {
     private fun fetch(s: Src): Map<String, List<MetaPreview>>? = when (s) {
         Src.TMDB -> {
             if (Tmdb.key() == null) null
-            else mapOf(Chart.TOP_MOVIES_TODAY.id to Tmdb.items(Tmdb.get("trending/movie/day"), false).take(20),
-                Chart.TOP_SHOWS_TODAY.id to Tmdb.items(Tmdb.get("trending/tv/day"), true).take(20))
+            // Two pages (40): Home leaves out anime, left-out and adult titles, then shows the first 20 left (HomeModel.set).
+            else mapOf(Chart.TOP_MOVIES_TODAY.id to (Tmdb.items(Tmdb.get("trending/movie/day"), false) + Tmdb.items(Tmdb.get("trending/movie/day?page=2"), false)).distinctBy { it.id }.take(40),
+                Chart.TOP_SHOWS_TODAY.id to (Tmdb.items(Tmdb.get("trending/tv/day"), true) + Tmdb.items(Tmdb.get("trending/tv/day?page=2"), true)).distinctBy { it.id }.take(40))
         }
         Src.IMDB -> post(IMDB_URL, JSONObject().put("query", IMDB_QUERY))?.let { d ->
             mapOf(Chart.IMDB_POPULAR_MOVIES.id to imdb(d.optJSONObject("popMovies"), "movie"), Chart.IMDB_TOP_MOVIES.id to imdb(d.optJSONObject("topMovies"), "movie"),
@@ -273,7 +278,7 @@ object Charts {
             post("https://graphql.anilist.co", JSONObject().put("query", ANILIST_QUERY).put("variables", JSONObject().put("season", season).put("year", year)
                 .put("nextSeason", nextSeason).put("nextYear", nextYear)))?.let { d ->
                 mapOf(Chart.ANILIST_TRENDING.id to ani(d, "trending"), Chart.ANILIST_SEASON.id to ani(d, "season"),
-                    Chart.ANIME_TODAY_SERIES.id to ani(d, "todayTv").take(20), Chart.ANIME_TODAY_MOVIES.id to ani(d, "todayMovies").take(20),
+                    Chart.ANIME_TODAY_SERIES.id to ani(d, "todayTv"), Chart.ANIME_TODAY_MOVIES.id to ani(d, "todayMovies"),
                     Chart.ANICHART_NEW.id to ani(d, "fresh"), Chart.ANICHART_NEXT.id to ani(d, "next"))
             }
         }
@@ -425,8 +430,8 @@ object Charts {
         "fresh: Page(perPage: 50) { ${AF.format("START_DATE_DESC", ", season: \$season, seasonYear: \$year, status: RELEASING, format_in: [TV, ONA], popularity_greater: 3000")} } " +
         "next: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", season: \$nextSeason, seasonYear: \$nextYear")} } " +
         "season: Page(perPage: 50) { ${AF.format("POPULARITY_DESC", ", season: \$season, seasonYear: \$year")} } " +
-        "todayTv: Page(perPage: 20) { ${AF.format("TRENDING_DESC", ", format_in: [TV, TV_SHORT, ONA]")} } " +
-        "todayMovies: Page(perPage: 20) { ${AF.format("TRENDING_DESC", ", format: MOVIE")} } }"
+        "todayTv: Page(perPage: 40) { ${AF.format("TRENDING_DESC", ", format_in: [TV, TV_SHORT, ONA]")} } " +
+        "todayMovies: Page(perPage: 40) { ${AF.format("TRENDING_DESC", ", format: MOVIE")} } }"
 }
 
 // ------------------------------------------------------------------ Streaming services (TMDB)
@@ -576,6 +581,17 @@ object People {
     fun toggle(person: Person) {
         val l = if (has(person.id, person.hub)) _list.value.filter { !(it.id == person.id && it.hub == person.hub) } else _list.value + person
         _list.value = l; App.instance.prefs.sp.edit().putString("people", Net.json.encodeToString(ser, l)).apply()
+    }
+
+    /** First start's people question: IMDb's people for a typed name (up to 8), with what they're known for. */
+    suspend fun search(name: String): List<Pair<Person, String>> = withContext(Dispatchers.IO) {
+        val q = java.net.URLEncoder.encode(name.trim().lowercase(), "UTF-8").replace("+", "%20")
+        if (q.length < 2) return@withContext emptyList()
+        runCatching {
+            JSONObject(Net.get("https://v3.sg.media-imdb.com/suggestion/x/$q.json", 10)).optJSONArray("d").objects()
+                .filter { it.optString("id").startsWith("nm") }.take(8)
+                .map { Person(it.optString("id"), it.optString("l"), it.optJSONObject("i")?.optString("imageUrl")?.let(::small)) to it.optString("s") }
+        }.getOrDefault(emptyList())
     }
 
     /** IMDb's person for a name (best match), for a title's cast. */

@@ -88,7 +88,7 @@ fun Poster(m: MetaPreview, nav: Nav, modifier: Modifier = Modifier, sub: String?
 fun hubOnly(metas: List<MetaPreview>): List<MetaPreview> {
     val hub by com.lekathedon.visionlite.anime.Hubs.content.collectAsState()
     com.lekathedon.visionlite.anime.AnimeIds.changed.collectAsState().value   // read, so a move redraws the rail
-    return metas.filter { com.lekathedon.visionlite.anime.Hubs.keeps(hub, it) }
+    return metas.filter { com.lekathedon.visionlite.anime.Hubs.shows(hub, it) }
 }
 
 @Composable
@@ -163,7 +163,7 @@ fun LoadingRail(title: String, nav: Nav, store: MutableMap<String, RailData>, ke
                     d.page++; d.fetched += got.size
                     val p = got.filter { m -> d.items.none { it.id == m.id } }
                     d.items.addAll(p); d.end = got.isEmpty()
-                    if (d.end || p.any { com.lekathedon.visionlite.anime.Hubs.keeps(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
+                    if (d.end || p.any { com.lekathedon.visionlite.anime.Hubs.shows(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
                 }
             } finally { d.busy = false }
         }
@@ -581,7 +581,7 @@ private fun ServiceRail(title: String, nav: Nav, d: RailData, firstFocus: FocusR
                     if (more.isEmpty()) { d.end = true; break }
                     val fresh = more.filter { m -> d.items.none { it.id == m.id } }
                     d.items.addAll(fresh)
-                    if (fresh.any { com.lekathedon.visionlite.anime.Hubs.keeps(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
+                    if (fresh.any { com.lekathedon.visionlite.anime.Hubs.shows(com.lekathedon.visionlite.anime.Hubs.now(), it) }) break
                 }
             } finally { d.busy = false }
         }

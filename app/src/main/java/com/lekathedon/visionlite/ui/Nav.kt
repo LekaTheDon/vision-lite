@@ -47,6 +47,8 @@ sealed interface Screen {
     data object Trakt : Screen
     data object Rows : Screen
     data object Interests : Screen
+    /** First start's taste questions (also Settings › Home and look › Taste questions). */
+    data object TasteStart : Screen
     data object LeaveOut : Screen
     data object VisionTb : Screen
     data object Integrations : Screen

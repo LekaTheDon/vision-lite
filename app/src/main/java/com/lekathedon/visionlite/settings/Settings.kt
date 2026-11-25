@@ -334,6 +334,8 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Rows")
         row { m -> Link("Arrange rows", "Turn rows on or off, change the order, refresh", m) { nav.push(Screen.Rows) } }
         row { m -> Link("Your interests", "The genres you watch most (learned) and the ones you like: each gets a \"Because you like\" row", m) { nav.push(Screen.Interests) } }
+        row { m -> AnimeModeRow(p, m) }
+        row { m -> Link("Taste questions", "The first-start questions again: titles, genres, people and anime you like", m) { nav.push(Screen.TasteStart) } }
         row { m ->
             var n by remember { mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }
             Link("Dropped from Coming up", if (n == 0) "Hold OK on a Coming up card to drop a show" else "OK brings them all back", m,
@@ -1247,4 +1249,35 @@ object RowsAsk { val flow = kotlinx.coroutines.flow.MutableStateFlow<com.lekathe
 fun RowsAskHost() {
     val a = RowsAsk.flow.collectAsState().value ?: return
     RowsPrompt(a) { RowsAsk.flow.value = null }
+}
+
+/**
+ * Settings › Home and look › Anime: Separate hub (default), Merged into Films & TV (the anime rows join its Home, each
+ * row still one kind) or Off. Off warns first: anime goes from the whole app, Search included.
+ */
+@Composable
+private fun AnimeModeRow(p: Prefs, m: Modifier) {
+    val v by p.animeMode.flow.collectAsState()
+    var warn by remember { mutableStateOf(false) }
+    ChoiceOf("Anime", "Its own hub, merged into Films & TV (its own rows there), or off", v,
+        listOf("separate" to "Separate hub · default", "merged" to "Merged into Films & TV", "off" to "Off"), m) { k ->
+        if (k == "off" && v != "off") warn = true else com.lekathedon.visionlite.anime.Hubs.setMode(k)
+    }
+    if (warn) Dialog(onDismissRequest = { warn = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val no = remember { FocusRequester() }
+        LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { no.requestFocus() } }
+        com.lekathedon.visionlite.ui.Inside(true) {
+            Column(Modifier.width(560.dp).clip(RoundedCornerShape(Kit.cardR + 4.dp)).background(Kit.card)
+                .border(1.dp, Kit.accent.copy(alpha = 0.5f), RoundedCornerShape(Kit.cardR + 4.dp)).padding(22.dp)) {
+                com.lekathedon.visionlite.ui.DisplayText("Turn anime off?", 22.sp, maxLines = 1)
+                Text("Every anime (Japanese, Chinese and Korean animation) disappears from the whole app: Home, pages, " +
+                    "recommendations, Continue watching and Library. It can't even be found in Search. Switch back here any time.",
+                    color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+                Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    com.lekathedon.visionlite.ui.Button("Keep anime", { warn = false }, Modifier.focusRequester(no))
+                    com.lekathedon.visionlite.ui.Button("Turn anime off", { com.lekathedon.visionlite.anime.Hubs.setMode("off"); warn = false })
+                }
+            }
+        }
+    }
 }
