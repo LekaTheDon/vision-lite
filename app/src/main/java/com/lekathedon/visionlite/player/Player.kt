@@ -562,7 +562,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         // Nuvio Arc's seek thumbnails (its engine, ported as is): ExoPlayer only, as in Arc; never live TV. Arc's own
         // rules decide the rest (boxes under 3.3 GB start with it off, 4K only in "All resolutions", memory governor).
         val thumbs = s.type != "live" && s.type != "catchup" && prefs.seekThumbs.value && current == Engine.EXO
-        LaunchedEffect(s.url, gen, thumbs) {
+        androidx.compose.runtime.LaunchedEffect(s.url, gen, thumbs) {
             com.nuvio.tv.core.player.thumbnail.SeekThumbnails.stopSession()
             if (!thumbs) return@LaunchedEffect
             val app = context.applicationContext
