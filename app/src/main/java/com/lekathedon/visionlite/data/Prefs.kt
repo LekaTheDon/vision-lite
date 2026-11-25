@@ -55,7 +55,7 @@ class Prefs(context: Context) {
     /** Buttons, icons and switches past Home: smallest, small (default, a third under 0.37.0), medium, large. */
     val uiSize = Text("ui_size", "small")
     /** Home look: on = Home follows the look and skin (fonts, colours, pills); off = Home's own look (as in 0.39.1). */
-    val homeLook = Flag("home_look", true)
+    val homeLook = Flag("home_follows", true)
     /** Play picks the best link by itself (off until autoplay is safe). */
     val autoplay = Flag("autoplay", false)
     /** IMDb ids dropped from Continue watching (hold menu), one per line; playing the title again brings it back. */
