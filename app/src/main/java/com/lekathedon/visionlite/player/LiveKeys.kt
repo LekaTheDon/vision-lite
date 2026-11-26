@@ -17,11 +17,11 @@ internal object LiveKeys {
         SUBTITLES("Subtitles"), PICTURE("Picture size"), SLEEP("Sleep timer"), STATS("Stats"),
     }
 
-    /** Buttons that can be assigned, with their default action (TiviMate's layout, plus rewind on Left / Right). */
+    /** Buttons that can be assigned, with their default action (TiviMate's layout, plus rewind on Left / Right; Down = the player options, user 2026-11-26). */
     enum class Button(val label: String, val default: Action) {
         OK("OK", Action.CHANNELS), LONG_OK("Hold OK", Action.MENU),
         UP("Up", Action.ZAP_PREV), LONG_UP("Hold Up", Action.ZAP_PREV),
-        DOWN("Down", Action.ZAP_NEXT), LONG_DOWN("Hold Down", Action.ZAP_NEXT),
+        DOWN("Down", Action.MENU), LONG_DOWN("Hold Down", Action.MENU),
         LEFT("Left", Action.REWIND), LONG_LEFT("Hold Left", Action.REWIND),
         RIGHT("Right", Action.FORWARD), LONG_RIGHT("Hold Right", Action.FORWARD),
         MENU("Menu", Action.MENU), PLAY_PAUSE("Play / Pause", Action.PLAY_PAUSE), RW("Rewind (RW)", Action.REWIND), FF("Fast forward (FF)", Action.FORWARD),

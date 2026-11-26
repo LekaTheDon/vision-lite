@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import com.lekathedon.visionlite.ui.Text
 import com.lekathedon.visionlite.ui.Icons
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -423,7 +423,7 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
 
 /** The play button (user 2026-11-26): just the play / pause icon, no disc; focused, only the skin's ring, like the other buttons. */
 @Composable
-private fun PlayButton(playing: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun PlayButton(playing: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     com.lekathedon.visionlite.ui.Inside(true) { Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape) { f ->
         Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
             androidx.compose.material3.Icon(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.size(24.dp),
@@ -434,7 +434,7 @@ private fun PlayButton(playing: Boolean, modifier: Modifier = Modifier, onClick:
 
 /** A player button: a quiet 36 dp icon; focused, it opens to show its name inside a ring in the skin's focus colour (no fill). */
 @Composable
-private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     com.lekathedon.visionlite.ui.Inside(true) { Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
         Row(Modifier.height(36.dp).animateContentSize(androidx.compose.animation.core.tween(160))
             .padding(horizontal = if (f) 12.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {

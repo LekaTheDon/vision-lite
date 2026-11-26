@@ -21,7 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Text
+import com.lekathedon.visionlite.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -357,6 +357,8 @@ fun Settings(nav: Nav, start: String? = null) {
             Choice("Billboard titles", "Which row feeds the big billboard on Home", p.billboardSource,
                 listOf("" to "Continue watching, then first row", "random" to "A random row each visit") + rows, m)
         }
+        row { m -> Choice("App language", "Menus and buttons; titles and plots keep their own language", p.appLang,
+            listOf("" to "This TV's language", "en" to "English") + com.lekathedon.visionlite.ui.Lang.bundled, m) }
         row { m -> Toggle("Clock", "Time in the top bar", p.clock, m) }
         row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
             listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"), m) }

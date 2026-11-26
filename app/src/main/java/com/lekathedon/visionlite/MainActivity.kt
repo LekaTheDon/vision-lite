@@ -8,7 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
+import com.lekathedon.visionlite.ui.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.collectAsState
@@ -98,7 +98,11 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(top) {
                 com.lekathedon.visionlite.ui.DpadPace.inPlayer = top is Screen.Player
             }
-            CompositionLocalProvider(LocalLook provides look) {
+            // App language: a change redraws every screen in it; Arabic / Hebrew / Farsi / Urdu read right to left.
+            val langKey by app.prefs.appLang.flow.collectAsState()
+            val dir = if (com.lekathedon.visionlite.ui.Lang.rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr
+            androidx.compose.runtime.key(langKey) {
+            CompositionLocalProvider(LocalLook provides look, androidx.compose.ui.platform.LocalLayoutDirection provides dir) {
                 val blackBars by app.prefs.blackBars.flow.collectAsState()
                 val clearBehind = blackBars && nav.current is Screen.Player
                 // Speed and network › Smoother with key remappers: only Button Mapper / Projectivy listen, so the screen
@@ -146,7 +150,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.Detail -> Detail(nav, s)
                         is Screen.VodSeries -> com.lekathedon.visionlite.iptv.VodSeriesScreen(nav, s.pl, s.id)
                         is Screen.Streams -> Streams(nav, s)
-                        is Screen.Player -> Player(nav, s)
+                        // Players keep left-to-right (timelines, seek keys) in every language.
+                        is Screen.Player -> CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) { Player(nav, s) }
                         Screen.Search -> Search(nav)
                         Screen.Settings -> Settings(nav)
                         Screen.Profiles -> Settings(nav, start = "Profiles")
@@ -208,6 +213,7 @@ class MainActivity : ComponentActivity() {
                   // everything (the top pill showed through it).
                   com.lekathedon.visionlite.ui.ScreensaverHost(nav)
                 }
+            }
             }
         }
     }

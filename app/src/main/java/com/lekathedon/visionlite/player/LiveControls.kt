@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import com.lekathedon.visionlite.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -292,7 +292,7 @@ internal fun LiveControls(
         if ((bannerOn || bar || pending != 0L) && !listOpen) {
             tick
             val shift = Shift(ts.on, ts.ring, ts.keptMs, (behind() - pending).coerceIn(0, maxOf(ts.keptMs, behind())), pending != 0L)
-            Banner(channel, s.title, nowNext, now, nowMs, recording != null, sleepAt, player, shift, if (bar) 128.dp else 0.dp, Modifier.align(Alignment.BottomStart))
+            Banner(channel, s.title, nowNext, now, nowMs, recording != null, sleepAt, player, shift, if (bar) 46.dp else 0.dp, Modifier.fillMaxSize())
         }
 
         when (panel) {
@@ -350,101 +350,103 @@ internal fun LiveControls(
     }
 }
 
-/** One control-bar button: icon, its name (shown under the bar while focused), a colour when it is "on". */
+/** One control-bar button: icon, its name (shown inside the button while focused), a colour when it is "on". */
 private class LiveBtn(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val tint: Color? = null, val act: () -> Unit)
 
 /**
- * The control bar along the bottom (hold OK / Menu), drawn like TiviMate's: round icon buttons in one row, the
- * focused one a white disc, its name under the row. Left / Right to move, Back closes.
+ * The IPTV dock (user 2026-11-26): the same place and look as the film/series player's buttons (quiet icons along the
+ * bottom that open into a labelled pill when focused), with live TV's own buttons. Left / Right to move, Back closes.
  */
 @Composable
 private fun ControlBar(items: List<LiveBtn>, active: Boolean, modifier: Modifier) {
     val first = remember { FocusRequester() }
-    var focusedAt by remember { mutableIntStateOf(if (items.size > 1 && items[0].label.startsWith("Back 10")) 1 else 0) }
+    val start = if (items.size > 1 && items[0].label.startsWith("Back 10")) 1 else 0
     LaunchedEffect(active) { if (active) { delay(30); runCatching { first.requestFocus() } } }
-    Column(modifier.fillMaxWidth().padding(bottom = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        androidx.compose.foundation.lazy.LazyRow(Modifier.background(Color(0xB3101014), RoundedCornerShape(36.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            itemsIndexed(items) { i, b ->
-                Focusable(b.act, (if (i == focusedAt.coerceAtMost(items.lastIndex)) Modifier.focusRequester(first) else Modifier), androidx.compose.foundation.shape.CircleShape,
-                    onFocus = { focusedAt = i }) { f ->
-                    Box(Modifier.size(52.dp).background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.Icon(b.icon, b.label, Modifier.size(28.dp), tint = when { f && b.tint != null -> b.tint; f -> com.lekathedon.visionlite.ui.KitInk.ink; else -> b.tint ?: com.lekathedon.visionlite.ui.KitInk.text })
-                    }
-                }
-            }
+    Row(modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        items.forEachIndexed { i, b ->
+            val m = if (i == start) Modifier.focusRequester(first) else Modifier
+            if (b.label == "Play" || b.label == "Pause") PlayButton(b.label == "Pause", m) { b.act() }
+            else DockButton(b.icon, b.label, m) { b.act() }
+            if (i == start) Spacer(Modifier.width(6.dp))
         }
-        Text(items.getOrNull(focusedAt)?.label.orEmpty(), color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-            modifier = Modifier.padding(top = 8.dp))
     }
 }
 
 /** Live rewind facts for the banner. */
 private class Shift(val on: Boolean, val ring: Boolean, val keptMs: Long, val behindMs: Long, val seeking: Boolean)
 
-/** Bottom banner: number, logo, name, what's on with its progress, what's next, and the line's picture. */
+/**
+ * The channel's info, laid out like the film/series player (user 2026-11-26): channel top left (logo, number and
+ * name, group, quality / catch-up / REC tags), clock and the show's end top right, and along the bottom what's on with
+ * one thin timeline (start and end times either side), what's next, and the live-rewind line. No age warnings, no
+ * DV type, no refresh rate here: live TV doesn't need them.
+ */
 @Composable
 private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: EpgProgram?, nowMs: Long, rec: Boolean, sleepAt: Long?, player: Player,
                    shift: Shift, lift: androidx.compose.ui.unit.Dp, modifier: Modifier) {
     val next = nowNext.firstOrNull { it != now && it.startMs >= (now?.stopMs ?: 0) }
-    Box(modifier.fillMaxWidth().height(230.dp + lift).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF0000000)))))
-    Row(modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 40.dp + lift), verticalAlignment = Alignment.Bottom) {
-        Box(Modifier.size(132.dp, 74.dp).background(Color(0x22FFFFFF), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Img(c?.logo, 120.dp, 66.dp, Modifier.size(120.dp, 66.dp), ContentScale.Fit)
-        }
-        Column(Modifier.padding(start = 20.dp).weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                c?.let { Text("${it.n}", color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 12.dp)) }
-                Text(c?.name ?: title, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false))
-                val h = player.videoSize.height
-                val tags = listOfNotNull(
-                    c?.takeIf { Iptv.isFavourite(it) }?.let { "★" },
-                    when { h >= 2000 -> "4K"; h >= 1000 -> "FHD"; h >= 700 -> "HD"; h > 0 -> "SD"; else -> null },
-                    c?.catchup?.let { "CATCH-UP" }, if (rec) "● REC" else null, sleepAt?.let { "SLEEP ${t(it)}" })
-                tags.forEach { tag ->
-                    Text(tag, color = if (tag == "● REC") Color(0xFFFF6B6B) else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp).background(Color(0x33FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
-                }
-                Spacer(Modifier.weight(1f))
-                Text(t(System.currentTimeMillis()), color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    val accent = com.lekathedon.visionlite.ui.KitInk.accent
+    val shade = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.85f), blurRadius = 10f))
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(140.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent))))
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(200.dp + lift).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)))))
+        // Top left: the channel.
+        Row(Modifier.align(Alignment.TopStart).padding(start = 32.dp, top = 26.dp, end = 360.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!c?.logo.isNullOrBlank()) Box(Modifier.padding(end = 14.dp).size(96.dp, 52.dp), contentAlignment = Alignment.CenterStart) {
+                Img(c?.logo, 96.dp, 52.dp, Modifier.size(96.dp, 52.dp), ContentScale.Fit)
             }
-            c?.group?.takeIf { it.isNotBlank() }?.let { Text(it, color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp, maxLines = 1) }
-            if (now != null) {
-                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${t(now.startMs)}–${t(now.stopMs)}", color = Gold, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(110.dp))
-                    Text(now.title, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text("${((now.stopMs - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)} min left", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp)
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    c?.let { Text("${it.n}", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp), style = shade) }
+                    Text(c?.name ?: title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shade)
                 }
-                Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(50))) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(now.progress(maxOf(nowMs, System.currentTimeMillis()))).background(Gold, RoundedCornerShape(50)))
-                }
-                now.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                }
-            } else Text(if (c?.tvg == null) "No guide for this channel" else "Nothing in the guide right now", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 14.sp,
-                modifier = Modifier.padding(top = 8.dp))
-            next?.let {
-                Row(Modifier.padding(top = 6.dp)) {
-                    Text("Next ${t(it.startMs)}", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 14.sp, modifier = Modifier.width(110.dp))
-                    Text(it.title, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            // Live rewind: where you are between the oldest kept minute and live.
-            if (shift.ring || shift.seeking) {
-                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (shift.behindMs <= 0) "●  LIVE" else "⏪  ${span(shift.behindMs)} behind live", color = if (shift.behindMs <= 0) Color(0xFFFF6B6B) else Gold,
-                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(190.dp))
-                    Box(Modifier.weight(1f).height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(50))) {
-                        val kept = shift.keptMs.coerceAtLeast(1)
-                        Box(Modifier.fillMaxHeight().fillMaxWidth((1f - shift.behindMs.toFloat() / kept).coerceIn(0f, 1f)).background(Color(0xFFFF6B6B), RoundedCornerShape(50)))
+                Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    c?.group?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, maxLines = 1, style = shade, modifier = Modifier.padding(end = 6.dp)) }
+                    val h = player.videoSize.height
+                    listOfNotNull(c?.takeIf { Iptv.isFavourite(it) }?.let { "★" }, when { h >= 2000 -> "4K"; h >= 1000 -> "FHD"; h >= 700 -> "HD"; h > 0 -> "SD"; else -> null },
+                        c?.catchup?.let { "CATCH-UP" }, if (rec) "● REC" else null, sleepAt?.let { "SLEEP ${t(it)}" }).forEach { tag ->
+                        Text(tag, color = if (tag == "● REC") Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.85f), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 6.dp).background(Color(0x33FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
                     }
-                    Text("  ${span(shift.keptMs)} kept", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp)
                 }
-            } else if (shift.on && shift.keptMs > 0) Text("●  LIVE · rewind up to ${span(shift.keptMs)}", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
-            fun k(b: LiveKeys.Button) = LiveKeys.get(b).label.lowercase()
-            Text("OK ${k(LiveKeys.Button.OK)} · ◀ ${k(LiveKeys.Button.LEFT)} · ▶ ${k(LiveKeys.Button.RIGHT)} · hold OK ${k(LiveKeys.Button.LONG_OK)}",
-                color = Color(0x99FFFFFF), fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+        // Top right: the time, and when this show ends.
+        Column(Modifier.align(Alignment.TopEnd).padding(top = 26.dp, end = 32.dp), horizontalAlignment = Alignment.End) {
+            Text(t(System.currentTimeMillis()), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, style = shade)
+            now?.let { Text("ends ${t(it.stopMs)}", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, style = shade) }
+        }
+        // Bottom: what's on, its timeline, what's next.
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 48.dp, end = 48.dp, bottom = 24.dp + lift).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (now != null) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(now.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), style = shade)
+                    Text("   ${((now.stopMs - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)} min left", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp, style = shade)
+                }
+                now.description?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shade) }
+            } else Text(if (c?.tvg == null) "No guide for this channel" else "Nothing in the guide right now", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, style = shade)
+            // One timeline: the show's progress; while rewound, where you are between the oldest kept minute and live.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                val rewound = shift.ring || shift.seeking
+                Text(when { rewound -> if (shift.behindMs <= 0) "LIVE" else "-" + span(shift.behindMs); now != null -> t(now.startMs); else -> "LIVE" },
+                    color = if (rewound && shift.behindMs > 0) accent else Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(64.dp))
+                val frac = when {
+                    rewound -> (1f - shift.behindMs.toFloat() / shift.keptMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    now != null -> now.progress(maxOf(nowMs, System.currentTimeMillis()))
+                    else -> 1f
+                }
+                Box(Modifier.weight(1f).height(3.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(frac).background(Brush.horizontalGradient(listOf(accent.copy(alpha = 0.55f), accent)), RoundedCornerShape(50)))
+                }
+                Text(when { rewound -> span(shift.keptMs) + " kept"; now != null -> t(now.stopMs); else -> "" }, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium, modifier = Modifier.width(84.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+            }
+            Row {
+                next?.let { Text("Next ${t(it.startMs)}  ${it.title}", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), style = shade) }
+                    ?: Spacer(Modifier.weight(1f))
+                if (shift.on && shift.keptMs > 0 && !shift.ring && !shift.seeking) Text("rewind up to ${span(shift.keptMs)}", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+            }
         }
     }
 }

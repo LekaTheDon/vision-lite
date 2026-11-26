@@ -275,6 +275,8 @@ class Prefs(context: Context) {
     val fastHorizontal = Flag("fast_horizontal", false)
     /** Screensaver (Vision's Ambient Mode): after this many idle minutes, 4K backdrops from your rows ("0" = off). */
     val screensaverMin = Text("screensaver_min", "5")
+    /** App language tag ("" = the TV's language when bundled, else English); ui/Lang.kt. */
+    val appLang = Text("app_lang", "")
     /** Where the Home billboard takes its titles: "" = Continue watching then the first row; else a row key. */
     val billboardSource = Text("billboard_source", "")
     val torboxKey = Text("torbox_key", "")
