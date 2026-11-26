@@ -255,6 +255,8 @@ class Prefs(context: Context) {
     /** Netflix's age rating and warnings at the start of a film / episode (30 s, top left). */
     val ageRating = Flag("age_rating", true)
     val linkPicks = Text("link_picks", "")
+    /** Resume on the exact link (streams/ResumeLinks.kt): JSON per episode / film. */
+    val resumeLinks = Text("resume_links", "")
     val visionTb = Flag("vision_tb", false)
     /** Your IPTV VOD films and series join Vision TB's links (autoplay can pick them). */
     val vodInTb = Flag("vod_in_tb", true)

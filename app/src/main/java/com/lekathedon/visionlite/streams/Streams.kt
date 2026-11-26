@@ -127,6 +127,13 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             pending = 0
             return@LaunchedEffect
         }
+        // Resume on the exact link: a title stopped part-way plays the same file again, no search (falls through if it won't come).
+        if (auto && ResumeLinks.has(s.id)) {
+            getting = "Resuming on the same link…"
+            val back = ResumeLinks.screen(s)
+            if (back != null) { LinkFallback.set(s, emptyList()); nav.replace(back); return@LaunchedEffect }
+            getting = ""
+        }
         val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
         val servers = MediaServers.plexOn() || MediaServers.jellyfinOn()
         // IPTV VOD in Vision TB's group (user 2026-11-22): only when a playlist listed films / series.
@@ -279,6 +286,7 @@ private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean,
         say("Getting the ${Debrid.names()} link…")
         Debrid.resolve(h, l.stream.fileIdx, l.stream.behaviorHints?.filename, EpisodeCheck.targetOf(s.id)).fold({ say(""); it }, { say(it.message ?: "Debrid failed"); null })
     } ?: return false
+    ResumeLinks.remember(s.id, l)
     // Vision TB's report: the sources that had the link you (or autoplay) played get the credit.
     l.tb?.let { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.tb.TbSources.played(s.id, it.hash) } } }
     val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source, l.bytes)

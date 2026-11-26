@@ -815,8 +815,11 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
         var asked = false
         var resumed = false
         if (trakt.connected.value != null && App.instance.prefs.resume.value) scope.launch {
-            resumeTo = trakt.savedProgress(imdb, season, episode)
+            resumeTo = trakt.savedProgress(imdb, season, episode).takeIf { it > 0f } ?: com.lekathedon.visionlite.streams.ResumeLinks.pct(s.id)
             asked = true
+        } else if (App.instance.prefs.resume.value) {
+            // No Trakt: the % kept with the exact link (ResumeLinks) is where it resumes.
+            resumeTo = com.lekathedon.visionlite.streams.ResumeLinks.pct(s.id); asked = true
         }
         val listener = object : MediaPlayer.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -838,6 +841,8 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
             val p = pct()
             PlayerReturn.mark()
             if (p > 0f) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { trakt.scrobble("stop", imdb, season, episode, p) }
+            if (p > 0f || player.playbackState == MediaPlayer.STATE_ENDED)
+                com.lekathedon.visionlite.streams.ResumeLinks.progress(s.id, if (player.playbackState == MediaPlayer.STATE_ENDED) 100f else p)
             // Finished: ask for a rating (Settings › Recommendations › Rate after watching).
             if (p >= 90f || player.playbackState == MediaPlayer.STATE_ENDED)
                 com.lekathedon.visionlite.home.Rate.afterWatching(imdb, season != null, s.title.replace(Regex("""\s+S\d+\s*E\d+.*$"""), "").ifBlank { s.title })
