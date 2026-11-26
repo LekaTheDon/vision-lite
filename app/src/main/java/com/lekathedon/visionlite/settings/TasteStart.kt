@@ -1,6 +1,9 @@
 package com.lekathedon.visionlite.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -73,8 +76,113 @@ private enum class Step(val title: String, val about: String, val anime: Boolean
     ANIME_GENRES("Anime genres", "Pick any (MyAnimeList's genres, themes and audiences).", true)
 }
 
+/**
+ * The quick start (user 2026-11-26: "don't ask about everything; people don't want to look at so many genres and
+ * people"): broad kinds grouped in a few big tiles (Action & Adventure, Crime & Mystery…), then a few favourite titles,
+ * both optional. Each tile likes the broad genres it groups, so the engine finds your subgenres by itself from what
+ * you watch. "Tell it more" opens the detailed questions (every subgenre, people, anime titles) for those who want them.
+ */
+private class Kind(val name: String, val about: String, val ids: List<String>)
+private fun imdb(name: String, about: String, vararg n: Int) = Kind(name, about, n.map { Interests.id(it) })
+private val FilmKinds = listOf(
+    imdb("Action & Adventure", "Heists, quests, superheroes", 1, 12), imdb("Comedy", "Sitcoms, rom-coms, satire", 34),
+    imdb("Crime & Mystery", "Detectives, gangsters, whodunnits", 52, 139), imdb("Thrillers", "Spies, conspiracies, suspense", 186),
+    imdb("Drama", "Characters and stories", 76), imdb("Sci-Fi & Fantasy", "Space, time travel, magic", 162, 98),
+    imdb("Horror", "Ghosts, monsters, slashers", 112), imdb("Romance", "Love stories", 152),
+    imdb("History & War", "Epics, period pieces", 80, 10), imdb("Family & Animation", "For everyone", 93, 26),
+    imdb("Documentaries", "True stories, nature, crime", 60), imdb("Reality & Game shows", "Competitions, real lives", 148, 105),
+    imdb("Westerns", "Frontier stories", 191), imdb("Sport", "On and off the field", 174)
+)
+private val AnimeKinds = listOf(
+    Kind("Action & Adventure", "Shounen battles, journeys", listOf("Action", "Adventure")), Kind("Comedy & Slice of life", "Everyday, light", listOf("Comedy", "Slice of Life")),
+    Kind("Romance & Drama", "Feelings first", listOf("Romance", "Drama")), Kind("Fantasy & Isekai", "Other worlds", listOf("Fantasy", "Isekai")),
+    Kind("Sci-Fi & Mecha", "Robots, space, the future", listOf("Sci-Fi", "Mecha")), Kind("Mystery & Psychological", "Mind games", listOf("Mystery", "Psychological")),
+    Kind("Horror & Supernatural", "Spirits, curses", listOf("Horror", "Supernatural")), Kind("Sports", "Teams and rivals", listOf("Sports"))
+).map { k -> Kind(k.name, k.about, k.ids.map { MalGenres.id(it) }) }
+
 @Composable
 fun TasteStart(onDone: () -> Unit) {
+    var more by remember { mutableStateOf(false) }
+    if (more) TasteDetailed(onDone) else TasteQuick(onDone) { more = true }
+}
+
+@Composable
+private fun TasteQuick(onDone: () -> Unit, onMore: () -> Unit) {
+    val animeOff = remember { Hubs.off() }
+    var at by remember { mutableStateOf(0) }   // 0 = kinds, 1 = favourites, 2 = all set
+    val picked = remember { mutableStateListOf<String>() }
+    fun build() { picked.distinct().forEach { Recs.rebuildNow(if (it == Hub.ANIME.key) Hub.ANIME else Hub.FILMS) }; picked.clear() }
+    fun finish() { App.instance.prefs.tasteStartDone.value = true; build(); onDone() }
+    val first = remember(at) { FocusRequester() }
+    LaunchedEffect(at) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
+    androidx.activity.compose.BackHandler(enabled = at > 0) { at-- }
+    LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(horizontal = 56.dp, vertical = 40.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item(key = "head$at") {
+            com.lekathedon.visionlite.ui.Eyebrow(if (at < 2) "Make it yours · ${at + 1} of 2" else "Make it yours")
+            com.lekathedon.visionlite.ui.DisplayText(when (at) { 0 -> "What do you like to watch?"; 1 -> "A few favourites?"; else -> "All set" }, 28.sp, Modifier.padding(top = 4.dp))
+            Text(when (at) {
+                0 -> "Pick a few. The app learns the finer kinds from what you watch."
+                1 -> "Optional: 3 to 5 films or series you love. Skip if you like."
+                else -> "Home is built around what you picked, and keeps learning as you watch. Change it any time in Settings › Home and look."
+            }, color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
+        }
+        when (at) {
+            0 -> {
+                item(key = "films") { KindGrid(if (animeOff) null else "Films & series", FilmKinds, first) { picked += Hub.FILMS.key } }
+                if (!animeOff) item(key = "anime") { KindGrid("Anime", AnimeKinds, null) { picked += Hub.ANIME.key } }
+            }
+            1 -> item(key = "titles") { TitleStep(false, first) { picked += Hub.FILMS.key } }
+            else -> {}
+        }
+        item(key = "buttons$at") {
+            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                when (at) {
+                    0 -> { com.lekathedon.visionlite.ui.KitButton("Next", null, { at = 1 }, primary = true); Button("Skip", { finish() }) }
+                    1 -> { com.lekathedon.visionlite.ui.KitButton("Next", null, { at = 2 }, primary = true); Button("Skip", { at = 2 }) }
+                    else -> {
+                        com.lekathedon.visionlite.ui.KitButton("Go to Home", null, { finish() }, Modifier.focusRequester(first), primary = true)
+                        Button("Tell it more (subgenres, actors, anime titles)", { build(); onMore() })
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Big grouped tiles, five to a line; a tile is on when every genre it groups is liked. */
+@Composable
+private fun KindGrid(title: String?, kinds: List<Kind>, first: FocusRequester?, onPick: () -> Unit) {
+    val tick by Interests.changed.collectAsState()
+    val liked = remember(tick) { Interests.liked() }
+    val K = com.lekathedon.visionlite.ui.Kit
+    androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        title?.let { com.lekathedon.visionlite.ui.Eyebrow(it, Modifier.padding(top = 8.dp)) }
+        kinds.chunked(5).forEachIndexed { r, line ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                line.forEachIndexed { c, k ->
+                    val on = k.ids.all { it in liked }
+                    val shape = androidx.compose.foundation.shape.RoundedCornerShape(K.rowR)
+                    com.lekathedon.visionlite.ui.Focusable({
+                        if (on) k.ids.filter { it in liked }.forEach(Interests::toggle) else { k.ids.filter { it !in liked }.forEach(Interests::toggle); onPick() }
+                    }, (if (first != null && r == 0 && c == 0) Modifier.focusRequester(first) else Modifier).width(176.dp), shape = shape) { f ->
+                        val (bg, ink) = when { f -> com.lekathedon.visionlite.ui.kitFocus; on -> K.tonal to Palette.Text; else -> K.rowFill to Palette.Text }
+                        androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().background(bg)
+                            .then(if (on && !f) Modifier.border(1.5.dp, K.accent, shape) else Modifier.border(1.dp, K.line, shape))
+                            .padding(horizontal = 14.dp, vertical = 11.dp)) {
+                            Text((if (on) "✓ " else "") + k.name, color = ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            Text(k.about, color = ink.copy(alpha = 0.7f), fontSize = 12.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The detailed questions (the first-start set before 0.41.7): every genre and subgenre, titles, people, anime. */
+@Composable
+private fun TasteDetailed(onDone: () -> Unit) {
     val animeOff = remember { Hubs.off() }
     val steps = remember { Step.entries.filter { !it.anime || !animeOff } }
     var at by remember { mutableStateOf(0) }
@@ -91,8 +199,8 @@ fun TasteStart(onDone: () -> Unit) {
         LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
         LazyColumn(Modifier.fillMaxSize().background(LocalLook.current.page), contentPadding = PaddingValues(48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                Text("Step ${at + 1} of ${steps.size}", color = Palette.TextDim, fontSize = 14.sp)
-                Text(step.title, color = Palette.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                com.lekathedon.visionlite.ui.Eyebrow("Tell it more · ${at + 1} of ${steps.size}")
+                com.lekathedon.visionlite.ui.DisplayText(step.title, 26.sp, Modifier.padding(top = 4.dp))
                 Text(step.about, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
             }
             when (step) {
@@ -194,6 +302,7 @@ private fun Field(q: String, onChange: (String) -> Unit, hint: String, first: Fo
     BasicTextField(q, onChange, singleLine = true,
         textStyle = TextStyle(color = Palette.Text, fontSize = 18.sp), cursorBrush = SolidColor(Color.White),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { }),
-        modifier = Modifier.fillMaxWidth(0.6f).focusRequester(first).background(Palette.Card).padding(14.dp),
+        modifier = Modifier.fillMaxWidth(0.6f).focusRequester(first).clip(androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.rowR))
+            .background(com.lekathedon.visionlite.ui.Kit.rowFill).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.rowR)).padding(14.dp),
         decorationBox = { inner -> if (q.isEmpty()) Text(hint, color = Palette.TextDim, fontSize = 18.sp); inner() })
 }

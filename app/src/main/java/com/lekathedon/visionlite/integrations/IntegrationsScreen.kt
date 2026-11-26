@@ -70,7 +70,11 @@ private fun checkText(s: Service): String = when (Integrations.status(s).value) 
 fun Setup(nav: Nav) {
     watchChanges()
     // Nuvio is asked first (user 2026-11-23): signing in brings your whole setup from the account, so it isn't a step.
-    val steps = Integrations.all.filter { (it.fields.isNotEmpty() || it.signIn) && it.id != "nuvio" }
+    // Quick (user 2026-11-26: "don't ask about everything"): just the two that make the app work — TorBox for the links,
+    // Trakt for watching and resume. Everything else waits in Settings → Integrations. "Every service" = the full walk.
+    var quick by rememberSaveable { mutableStateOf(true) }
+    val all = Integrations.all.filter { (it.fields.isNotEmpty() || it.signIn) && it.id != "nuvio" }
+    val steps = if (quick) all.filter { it.id == "torbox" || it.id == "trakt" } else all
     var step by rememberSaveable { mutableStateOf(-1) }
     val first = remember { FocusRequester() }
     val nuvio = SignIns.signedIn("nuvio")
@@ -79,19 +83,20 @@ fun Setup(nav: Nav) {
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp).verticalScroll(rememberScrollState())) {
         when {
             step < 0 -> {
-                Title(if (nuvio) "Signed in to Nuvio" else "Integrations and tracking")
-                Body((if (nuvio) "Your account has no Vision setup yet (keys you saved in Nuvio came over). Set up the rest here once; " +
-                    "it's kept in your Nuvio account, so other devices get all of it when you sign in there. " else "") +
-                    "One page per service: enter its key from your phone, or skip it. Anything not set up makes no calls. " +
-                    "All of this stays in Settings → Integrations.")
+                com.lekathedon.visionlite.ui.Eyebrow(if (nuvio) "Signed in to Nuvio" else "Set up")
+                Title("Connect your services")
+                Body((if (nuvio) "Your account has no Vision setup yet (keys you saved in Nuvio came over). It's kept in your Nuvio account, so other devices get it when you sign in there. " else "") +
+                    "Quick setup asks for two: TorBox (the links) and Trakt (what you watch, resume). Each is a QR on your phone, or skip it. " +
+                    "Anything not set up makes no calls; the rest waits in Settings → Integrations.")
                 Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button("Start", { step = 0 }, Modifier.focusRequester(first))
-                    Button("Skip all", { Integrations.setupDone.value = true })
+                    com.lekathedon.visionlite.ui.KitButton("Quick setup", null, { quick = true; step = 0 }, Modifier.focusRequester(first), primary = true)
+                    Button("Every service (${all.size})", { quick = false; step = 0 })
+                    Button("Skip", { Integrations.setupDone.value = true })
                 }
             }
             step < steps.size -> {
                 val s = steps[step]
-                Text("${step + 1} of ${steps.size} · ${s.group.title}", color = Palette.TextDim, fontSize = 14.sp)
+                com.lekathedon.visionlite.ui.Eyebrow("${step + 1} of ${steps.size} · ${s.group.title}")
                 ServicePanel(s, nav, first, setup = true, next = { step++ }, back = { step-- })
             }
             else -> {
@@ -221,7 +226,7 @@ private fun ServicePanel(s: Service, nav: Nav, first: FocusRequester, setup: Boo
 }
 
 @Composable
-private fun Title(t: String) = Text(t, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
+private fun Title(t: String) = com.lekathedon.visionlite.ui.DisplayText(t, 26.sp, Modifier.padding(top = 4.dp, bottom = 10.dp))
 
 @Composable
 private fun Body(t: String) = Text(t, color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp).fillMaxWidth(0.7f))

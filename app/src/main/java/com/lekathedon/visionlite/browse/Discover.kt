@@ -4,6 +4,7 @@
 // Each hub shows only its own titles: no anime in Films & TV, nothing but anime in Anime.
 package com.lekathedon.visionlite.browse
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -298,13 +299,15 @@ private fun Drop(label: String, options: List<Pair<String, String>>, current: St
         val reqs = remember(options) { List(options.size) { FocusRequester() } }
         val at = options.indexOfFirst { it.first == current }.coerceAtLeast(0)
         LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { reqs[at].requestFocus() } }
-        Column(Modifier.width(460.dp).clip(RoundedCornerShape(16.dp)).background(Palette.Card).padding(20.dp)) {
-            Text(label, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        // In the look and skin, like every menu (the skin's panel, the look's corner, hairline and title face).
+        Column(Modifier.width(460.dp).clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.98f))
+            .border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(20.dp)) {
+            com.lekathedon.visionlite.ui.DisplayText(label, 20.sp, maxLines = 1)
             val state = androidx.compose.foundation.lazy.rememberLazyListState(at)
             LazyColumn(Modifier.padding(top = 10.dp).heightIn(max = 420.dp), state = state) {
                 items(options.size) { i ->
                     val (id, name) = options[i]
-                    Focusable({ onPick(id); open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
+                    Focusable({ onPick(id); open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.rowR)) { f ->
                         Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Text(name, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Palette.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))

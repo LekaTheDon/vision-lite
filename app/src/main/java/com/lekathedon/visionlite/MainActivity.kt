@@ -49,6 +49,9 @@ class MainActivity : ComponentActivity() {
         com.lekathedon.visionlite.link.LinkService.sync(this)
         com.lekathedon.visionlite.integrations.CloudSetup.start()
         val app = application as App
+        // Settings shown, decided once: a box already set up keeps every setting it had; a new one starts on Basic.
+        if (app.prefs.settingsLevel.value.isEmpty())
+            app.prefs.settingsLevel.value = if (com.lekathedon.visionlite.integrations.Integrations.setupDone.value) "advanced" else "basic"
         // Vision: the window paints nothing itself (the pages draw their own background), so the player can leave the
         // bars around the film unpainted and the TV shows its true black there (True black bars).
         window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
@@ -130,20 +133,22 @@ class MainActivity : ComponentActivity() {
                     CompositionLocalProvider(com.lekathedon.visionlite.ui.LocalFocusMemory provides (if (keepsFocus) nav.memory else null)) {
                     when (val s = cur) {
                         // First start: the device check alone on screen (nothing behind it to steal focus).
-                        Screen.Home -> if (gate != null) com.lekathedon.visionlite.profiles.ProfileGate(atStart = true, pinOnly = gate == "pin") { gate = null }
+                        // Everything before Home (sign-in, This TV check, setup, taste questions, the problem card, Who's watching)
+                        // wears the look and skin like every page past Home (user rule: every new menu follows the look).
+                        Screen.Home -> if (gate != null) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.profiles.ProfileGate(atStart = true, pinOnly = gate == "pin") { gate = null } }
                             // First start, before anything else: the Nuvio QR (like Nuvio). Signing in brings your whole
                             // Vision setup from the account; "I don't use Nuvio" goes on to the device check and setup.
-                            else if (!setupDone && !nuvioPassed) com.lekathedon.visionlite.integrations.NuvioFirst(nav) { nuvioPassed = true }
-                            else if (!asked) com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) })
+                            else if (!setupDone && !nuvioPassed) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.NuvioFirst(nav) { nuvioPassed = true } }
+                            else if (!asked) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) }) }
                             // Then, once: every integration and tracker, one page each.
-                            else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.integrations.Setup(nav) }
+                            else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.Setup(nav) } }
                             // Then, once, to someone new: the taste questions (titles, genres, people, anime), all skippable.
-                            else if (tasteAsk && !app.prefs.tasteStartDone.value) com.lekathedon.visionlite.settings.TasteStart { tasteAsk = false }
-                            else if (problem != null) problem?.let { pr ->
+                            else if (tasteAsk && !app.prefs.tasteStartDone.value) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.settings.TasteStart { tasteAsk = false } }
+                            else if (problem != null) problem?.let { pr -> com.lekathedon.visionlite.ui.Inside(true) {
                                 com.lekathedon.visionlite.report.ProblemPrompt(pr,
                                     onReport = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen(); nav.push(Screen.Report(pr.kind)) },
                                     onLater = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen() })
-                            }
+                            } }
                             else saved.SaveableStateProvider("home") {
                                 com.lekathedon.visionlite.home.EchoHome(nav)
                             }

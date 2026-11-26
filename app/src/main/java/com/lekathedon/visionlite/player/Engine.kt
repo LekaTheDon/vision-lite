@@ -57,11 +57,13 @@ object EngineRules {
         return Engine.EXO
     }
 
+    @OptIn(UnstableApi::class)
     fun isHdr(v: Format?): Boolean {
         v ?: return false
         if (v.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return true
         if (v.codecs?.lowercase()?.let { c -> listOf("dvhe", "dvh1", "dav1").any { c.contains(it) } } == true) return true
-        val t = v.colorInfo?.colorTransfer
+        // Many remuxes carry no MKV Colour element: the HEVC SPS says what the picture is (Vision's PlaybackVideoColorTransfer).
+        val t = VideoColorTransfer.of(v)
         return t == C.COLOR_TRANSFER_ST2084 || t == C.COLOR_TRANSFER_HLG
     }
 

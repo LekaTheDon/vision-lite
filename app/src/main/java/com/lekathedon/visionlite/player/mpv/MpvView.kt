@@ -200,6 +200,7 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
         mpv.setOptionString("sub-ass-override", "no")
         mpv.setOptionString("sub-codepage", "auto:utf-8")
         mpv.setOptionString("sub-use-margins", "yes")
+        mpv.setOptionString("sub-ass-force-margins", "yes")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
         mpv.setOptionString("input-default-bindings", "no")

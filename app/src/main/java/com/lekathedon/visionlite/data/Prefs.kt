@@ -148,6 +148,11 @@ class Prefs(context: Context) {
     val subsStripSdh = Flag("subs_strip_sdh", true)
     /** Add-on subtitles lined up with the file's own subtitle lines while it plays (player/SubFix.kt). */
     val subsAutoSync = Flag("subs_auto_sync", true)
+    /** OpenSubtitles built in (addons/Subs.kt): subtitles in your languages when the file has none. */
+    val openSubtitles = Flag("open_subtitles", true)
+    /** Settings shown: "basic" (the essentials; This TV sets the rest) or "advanced" (everything). "" = not chosen:
+     *  a box that had finished setup before 0.41.7 keeps everything, a new one starts on Basic. */
+    val settingsLevel = Text("settings_level", "")
     /** Autoplay (user 2026-11-26): a link that carries subtitles in your Subtitle language wins over 4K (streams/SubsIn.kt). */
     val autoplaySubs = Flag("autoplay_subs", false)
     /** ArabP2P browse page in the Home pill (user 2026-11-26: off until the user decides it's worth keeping). */

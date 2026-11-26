@@ -25,6 +25,10 @@ object Posters {
         return CustomPosterUrlResolver.resolve(PATTERN, CustomPosterUrlResolver.extractIds(clean), t, shape)
     }
 
+    /** The tall poster's link outside a screen (Home's start-up warm-up), the same one [poster] gives. */
+    fun posterNow(id: String, type: String, original: String?): String? = custom(App.instance.prefs.customPosters.value, id, type, "poster") ?: original
+    fun wideNow(id: String, type: String, original: String?): String? = custom(App.instance.prefs.customPosters.value, id, type, "landscape") ?: original
+
     /** Tall poster. */
     @Composable fun poster(id: String, type: String, original: String?): String? {
         val on by App.instance.prefs.customPosters.flow.collectAsState()

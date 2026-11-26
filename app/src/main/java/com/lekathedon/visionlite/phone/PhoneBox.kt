@@ -1,5 +1,7 @@
 package com.lekathedon.visionlite.phone
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,7 +56,8 @@ fun PhoneBox(title: String, fields: List<PhoneForm.Field>, onSave: (List<String>
     val cancel = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { cancel.requestFocus() } }
     androidx.activity.compose.BackHandler { onCancel() }
-    Row(Modifier.padding(top = 12.dp).background(Palette.Card).padding(18.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)
+    Row(Modifier.padding(top = 12.dp).clip(shape).background(com.lekathedon.visionlite.ui.Kit.panel).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, shape).padding(18.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
         url?.let { u ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Qr(u, 190.dp)

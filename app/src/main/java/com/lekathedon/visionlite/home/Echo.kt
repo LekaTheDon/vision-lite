@@ -114,6 +114,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 
 // ---- Echo's sizes (NewLookDimens, Medium, scaled by the poster size setting) ----
 
@@ -197,6 +200,8 @@ internal object LoadingHold { var key by androidx.compose.runtime.mutableStateOf
 /** Home's Up/Down move under way: the row it is going to, and the job that takes focus there. */
 private class RowMover {
     var target: String? = null
+    /** Place in the row list of the last move's row (for a row that disappears while focus heads for it). */
+    var lastAt = 0
     var job: kotlinx.coroutines.Job? = null
 }
 
@@ -413,8 +418,10 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val moveRow: (Boolean) -> Boolean = moveRow@{ down ->
         val order = rowOrder
         val from = mover.target ?: HomeFocus.row ?: return@moveRow false
-        val at = order.indexOf(from)
-        if (at < 0) return@moveRow false
+        var at = order.indexOf(from)
+        // The row it was on or going to left the list (it loaded empty, or was hidden): carry on from where it stood.
+        if (at < 0) at = mover.lastAt.coerceIn(0, (order.size - 1).coerceAtLeast(0)) - (if (down) 1 else 0)
+        if (order.isEmpty()) return@moveRow false
         val to = at + if (down) 1 else -1
         if (to >= order.size) return@moveRow true          // the last row: stay
         if (to < 0) {                                       // above the first row: the billboard's View title
@@ -422,12 +429,18 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { viewTitle.requestFocus() } }
             return@moveRow true
         }
-        mover.target = order[to]
+        mover.target = order[to]; mover.lastAt = to
         if (mover.job?.isActive == true) return@moveRow true
         mover.job = scope.launch {
             var frames = 0
             while (frames < 90) {
                 val key = mover.target ?: break
+                // Gone while on the way: on to the next row that is still there.
+                if (key !in rowOrder) {
+                    val o = rowOrder
+                    mover.target = o.getOrNull(mover.lastAt.coerceAtMost(o.size - 1)) ?: break
+                    continue
+                }
                 val slots = RowRegistry[key]
                 val req = slots?.let { it.reqs[it.target] ?: it.reqs[0] }
                 if (slots != null && req != null) {
@@ -462,20 +475,46 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             if (at >= 0) keys.drop(at + 1).take(5).forEach { vm.prefetch(it) }
         }
     }
-    // Vision / Haven: Home opens once its rows are in (the first screens' worth), not row by row in front of you.
-    // Once per hub per app start; never longer than 8 s.
+    // Vision's rule (user 2026-11-26, again): Home opens fully ready, so the first press can race up, down, left and
+    // right with no row still loading or vanishing under you. Every row is asked at once and Home waits for all of
+    // them (12 s at most), then for the pictures of each row's first cards (in memory, the size the cards draw).
+    // Once per hub per app start. Cost: the rows' first pages come at start instead of as you scroll (the same
+    // requests, earlier); ~8 posters per row decoded at card size (~0.2 MB each, Coil's memory cache, LRU).
     var ready by remember { mutableStateOf(hub in HomeReady.done) }
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         if (ready) return@LaunchedEffect
         val started = System.currentTimeMillis()
-        while (System.currentTimeMillis() - started < 8_000) {
-            val keys = visibleKeys.take(8)
+        while (System.currentTimeMillis() - started < 12_000) {
+            val keys = visibleKeys
             keys.forEach { vm.prefetch(it) }
             val byKey = vm.rows.value.associateBy { it.key }
-            if (keys.isNotEmpty() && keys.all { k -> byKey[k]?.let { it.done || it.items.isNotEmpty() } != false }) break
-            delay(150)
+            // Picks rows can take a while to think: they don't hold Home (they show "thinking…" in place).
+            if (keys.isNotEmpty() && keys.all { k -> VisionRows.isPicks(k) || byKey[k]?.let { it.done || it.items.isNotEmpty() } != false }) break
+            delay(120)
         }
-        delay(400) // the first posters' images
+        val px = with(density) { dims.posterWidth.roundToPx() to dims.posterHeight.roundToPx() }
+        val wide = with(density) { dims.cwWidth.roundToPx() to dims.cwHeight.roundToPx() }
+        val hi = with(density) { dims.highlightWidth.roundToPx() to dims.highlightHeight.roundToPx() }
+        val urls = vm.rows.value.filter { it.key in visibleKeys }.flatMap { r ->
+            val isWide = r.kind == RowKind.COMING || r.kind == RowKind.SERVICES || r.kind == RowKind.TILES || r.kind == RowKind.RANKED
+            val size = if (r.kind == RowKind.RANKED) hi else if (isWide) wide else px
+            r.items.take(8).mapNotNull { m ->
+                (if (isWide) com.lekathedon.visionlite.poster.Posters.wideNow(m.id, m.type, m.wide()) else com.lekathedon.visionlite.poster.Posters.posterNow(m.id, m.type, m.poster))
+                    ?.takeIf { it.isNotBlank() }?.let { it to size }
+            }
+        } + cw.take(8).mapNotNull { r -> backdropOf(r.imdb)?.let { it to wide } }
+        withTimeoutOrNull((12_000L - (System.currentTimeMillis() - started)).coerceIn(1_500L, 4_000L)) {
+            withContext(Dispatchers.IO) {
+                val loader = context.imageLoader
+                urls.distinctBy { it.first }.chunked(12).forEach { batch ->
+                    batch.map { (u, size) -> async {
+                        val k = minOf(1f, 1920f / size.first.coerceAtLeast(1), 1080f / size.second.coerceAtLeast(1))
+                        runCatching { loader.execute(ImageRequest.Builder(context).data(u).size((size.first * k).toInt().coerceAtLeast(1), (size.second * k).toInt().coerceAtLeast(1)).build()) }
+                    } }.awaitAll()
+                }
+            }
+        }
         HomeReady.done += hub; ready = true
     }
     val heroPx = with(density) { 470.dp.toPx() }
@@ -839,7 +878,9 @@ fun BoxScope.TopPill(
     Row(
         Modifier.align(Alignment.TopCenter).padding(top = 11.dp).height(36.dp)
             .graphicsLayer { alpha = pillAlpha; translationY = (1f - pillAlpha) * -40f }
-            .onFocusChanged { onFocus(it.hasFocus) }
+            // Focus gone from the pill: it no longer "is" on any item. A stale key made Left on the clock do nothing
+            // (it thought it was already on your account: the clock → account step broke).
+            .onFocusChanged { onFocus(it.hasFocus); if (!it.hasFocus) focusedKey = null }
             .onPreviewKeyEvent { e ->
                 if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.key) {

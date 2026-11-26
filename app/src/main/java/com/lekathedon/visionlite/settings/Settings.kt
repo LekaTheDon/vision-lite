@@ -127,15 +127,26 @@ private val Glass = Color(0x12FFFFFF)
 private val GlassEdge = Color(0x1FFFFFFF)
 private val GlassFocus = Color(0x40FFFFFF)
 
-private class PageBuilder {
+/**
+ * Basic / Advanced (user 2026-11-26, like Nuvio): rows set after `more = true` show only in Advanced; Basic keeps the
+ * essentials and This TV's own choices do the rest. A heading left with nothing under it in Basic is dropped.
+ */
+private class PageBuilder(val basic: Boolean) {
     val items = mutableListOf<Item>()
-    fun head(t: String) { items += Head(t) }
-    fun row(c: @Composable (Modifier) -> Unit) { items += Line(c) }
-    fun block(c: @Composable () -> Unit) { items += Block(c) }
+    var more = false
+    fun head(t: String) { if (!(basic && more)) items += Head(t) }
+    fun row(c: @Composable (Modifier) -> Unit) { if (!(basic && more)) items += Line(c) }
+    fun block(c: @Composable () -> Unit) { if (!(basic && more)) items += Block(c) }
 }
 
-private fun page(name: String, about: String, summary: @Composable () -> String, build: PageBuilder.() -> Unit) =
-    Page(name, about, summary, PageBuilder().apply(build).items)
+/** Set per Settings screen from Settings › Overview › Settings shown. */
+private var basicNow = false
+
+private fun page(name: String, about: String, summary: @Composable () -> String, build: PageBuilder.() -> Unit): Page {
+    val all = PageBuilder(basicNow).apply(build).items
+    val kept = all.filterIndexed { i, it -> it !is Head || all.getOrNull(i + 1).let { n -> n != null && n !is Head } }
+    return Page(name, about, summary, kept)
+}
 
 private fun label(options: List<Pair<String, String>>, v: String) = options.firstOrNull { it.first == v }?.second ?: options.first().second
 
@@ -189,6 +200,9 @@ fun Settings(nav: Nav, start: String? = null) {
     var picked by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(-1) }
     var jumpPane by remember { mutableStateOf(false) }
 
+    val level by p.settingsLevel.flow.collectAsState()
+    val basic = level == "basic"
+    basicNow = basic
     val pages = mutableListOf<Page>()
     pages += page("Overview", "What needs doing, and how everything is set", {
         watchServices()
@@ -196,6 +210,9 @@ fun Settings(nav: Nav, start: String? = null) {
         if (n == 0) "All set" else "$n to do"
     }) {
         block { Welcome(p, nav) }
+        head("Settings shown")
+        row { m -> ChoiceOf("Settings shown", if (basic) "Basic: the essentials; This TV picks the rest for this box" else "Advanced: every setting the app has",
+            if (basic) "basic" else "advanced", listOf("basic" to "Basic", "advanced" to "Advanced"), m) { p.settingsLevel.value = it; picked = 0 } }
         head("To do")
         row { m ->
             watchServices()
@@ -235,14 +252,17 @@ fun Settings(nav: Nav, start: String? = null) {
                 value = if (p.visionTb.flow.collectAsState().value) "On" else "Off") { nav.push(Screen.VisionTb) } }
         head("Add-ons")
         row { m -> Link("Add-ons", "Add by phone, turn on or off, change the order", m, value = "${addonsOn()} on") { nav.push(Screen.Addons) } }
+        more = true
         head("Which links you see")
         row { m -> Choice("Sort links", "", p.streamSort, SortOpts, m) }
         row { m -> Choice("Highest quality", "Links above this are hidden", p.maxQuality, QualityOpts, m) }
         row { m -> Choice("File size limit", "Bigger links are hidden", p.sizeLimit, SizeOpts, m) }
         row { m -> Toggle("Hide torrent-only links", "Links that need a debrid account or add-on to play", p.hideTorrents, m) }
         row { m -> Toggle("Hide cinema recordings", "CAM and TS copies", p.hideCam, m) }
+        more = false
         head("Autoplay")
         row { m -> Toggle("Smart autoplay", "Plays the right episode, 4K first, then the biggest file. Off until Vision TB is autoplay safe", p.autoplay, m) }
+        more = true
         row { m -> Toggle("IPTV VOD also in Vision TB", "Off (default): VOD stays separate, on the title page's Play with VOD button. On: VOD copies also join Vision TB's links", p.vodInTb, m) }
         head("Debrid accounts (torrent links from your add-ons)")
         row { m -> ServiceRow("realdebrid", nav, m) }
@@ -251,6 +271,7 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Your media servers")
         row { m -> ServiceRow("plex", nav, m) }
         row { m -> ServiceRow("jellyfin", nav, m) }
+        more = false
     }
     pages += page("Tracking and lists", "Where Continue watching, Library and watched marks come from", {
         watchServices()
@@ -259,14 +280,18 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Accounts")
         row { m -> ServiceRow("trakt", nav, m) }
         row { m -> ServiceRow("nuvio", nav, m) }
+        more = true
         row { m -> DriverRow(Integrations.Group.TRACKING, "Continue watching from", m) }
+        more = false
         head("Watching")
         row { m -> Toggle("Resume", "Start where you stopped", p.resume, m) }
+        more = true
         row { m -> Choice("Watched titles on Home", "Not Continue watching; needs Trakt", p.watchedOnHome, WatchedOpts, m) }
         head("Not in Lite yet")
         row { m -> ServiceRow("simkl", nav, m) }
         row { m -> ServiceRow("anilist", nav, m) }
         row { m -> ServiceRow("mal", nav, m) }
+        more = false
     }
     pages += page("Player", "Next episode, skips, resume", {
         val next = p.nextEpisode.flow.collectAsState().value
@@ -274,8 +299,11 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Episodes")
         row { m -> Toggle("Next episode", "When an episode ends, open the next one's links", p.nextEpisode, m) }
+        more = true
         row { m -> Toggle("Next episode card", "A card at the outro; OK plays the next one", p.nextPopup, m) }
+        more = false
         row { m -> Choice("Skip intro and outro", "IntroDB, AniSkip for anime", p.skipIntro, SkipOpts, m) }
+        more = true
         head("Pausing")
         row { m -> Choice("Step back after pause", "Replays a few seconds when you press play again", p.rewindOnResume, RewindOpts, m) }
         head("While playing")
@@ -284,6 +312,7 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Picture, sound and engine")
         row { m -> Choice("Controls size", "How big the player's buttons, bars and panels are (films, shows and Live TV)", p.controlsSize, ControlsSizeOpts, m) }
         row { m -> Toggle("True black bars", "Bars around the film are the TV's own black, not the app's grey-ish black in HDR/DV (Vision)", p.blackBars, m) }
+        more = false
         row { m -> Link("This TV", "Dolby Vision, frame rate, passthrough, engine and buffer are set for this TV", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }
     }
     pages += page("Audio and subtitles", "Languages, when subtitles show, how they look", {
@@ -291,22 +320,30 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Audio")
         row { m -> Choice("Audio language", "Original = the title's own language, never the dub", p.audioLang, AudioLangs, m) }
+        more = true
         row { m -> Choice("If that's missing", "Second audio language", p.audioLang2, AudioLangs, m) }
+        more = false
         row { m -> Choice("Preferred dub", "A copy dubbed in this language plays first, even over 4K (your VOD's dubbed films and series count)", p.dubLang, DubLangs, m) }
+        more = true
         head("Sound for TV speakers and headphones")
         row { m -> Choice("Night mode", "Quiet speech comes up, explosions are held down (decoded sound only, not a soundbar bitstream)", p.nightMode, NightOpts, m) }
         row { m -> Choice("Dialogue boost", "Voices louder: the centre channel goes up (5.1 / 7.1, or when mixed to stereo)", p.dialogueBoost, DialogueOpts, m) }
         row { m -> Choice("Volume boost", "For quiet films on small speakers; a limiter stops it clipping", p.volumeBoost, VolumeOpts, m) }
         row { m -> Link("Sound system", "Soundbar, TV speakers or headphones: This TV › Sound (headphones plugged in always get stereo)", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }
+        more = false
         head("Subtitles")
         row { m -> Choice("Show subtitles", "Foreign only = none when the audio is already your language", p.subsWhen, SubsWhenOpts, m) }
         row { m -> Choice("Subtitle language", "", p.subLang, Langs, m) }
+        more = true
         row { m -> Choice("If that's missing", "Second subtitle language", p.subLang2, Langs, m) }
         row { m -> Toggle("Autoplay picks links with these subtitles", "A link that says it has subtitles in your language wins, even over 4K (like Preferred dub does for audio)", p.autoplaySubs, m) }
         row { m -> Toggle("Remove hearing-impaired tags", "Add-on subtitles: [sighs], (door creaks), JOHN: and lone ♪ taken out", p.subsStripSdh, m) }
+        row { m -> Toggle("Subtitles from OpenSubtitles", "When the file has none in your languages: OpenSubtitles' copies, the one made for the same release first (no account needed)", p.openSubtitles, m) }
         row { m -> Toggle("Auto-sync add-on subtitles", "Lined up with the file's own subtitles while it plays, section by section", p.subsAutoSync, m) }
+        more = false
         head("How they look")
         row { m -> Choice("Size", "", p.subSize, SubSizeOpts, m) }
+        more = true
         row { m -> Choice("Colour", "", p.subColor, com.lekathedon.visionlite.player.SubStyle.TextColors, m) }
         row { m -> Choice("Edge", "Shadow = old Vision's soft shadow", p.subEdge, com.lekathedon.visionlite.player.SubStyle.Edges, m) }
         row { m -> Choice("Outline colour", "For the Outline edge", p.subOutlineColor, com.lekathedon.visionlite.player.SubStyle.OutlineColors, m) }
@@ -319,6 +356,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Seek thumbnails for", "", p.seekThumbsMode, SeekThumbOpts, m) }
         row { m -> Toggle("Content warnings at the start", "IMDb's parents guide top left for 15 s, as old Vision", p.ageRating, m) }
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
+        more = false
     }
     pages += page("Home and look", "Rows, posters, clock, background", {
         "${com.lekathedon.visionlite.ui.Style.of(p.style.flow.collectAsState().value).label} · ${com.lekathedon.visionlite.ui.Skin.of(p.skin.flow.collectAsState().value).label}"
@@ -331,9 +369,11 @@ fun Settings(nav: Nav, start: String? = null) {
                 com.lekathedon.visionlite.ui.Skin.TINT -> "Tinted · colours from the title's art"
                 com.lekathedon.visionlite.ui.Skin.OLED -> "OLED black · pure black pages"
                 else -> it.label } }, m) }
+        more = true
         row { m -> Toggle("Home follows the look", "Home's fonts, colours, pills and focus in the look and skin (sizes stay); off = Home's own look", p.homeLook, m) }
         row { m -> Choice("Button size", "Buttons, icons and switches past Home", p.uiSize,
             com.lekathedon.visionlite.ui.Theme.sizes.map { (k, l) -> k to if (k == "small") "$l · default" else l }, m) }
+        more = false
         head("Home hubs")
         row { m -> HubToggle("Films & TV", "Films and series: Discover, Search, Library, Calendar, Cloud", "NUVIO", p.hubFilms, m) }
         row { m -> HubToggle("Anime", "Its own hub (Settings › Anime: Separate hub)", "ANIME", p.hubAnime, m) }
@@ -341,8 +381,11 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Rows")
         row { m -> Link("Arrange rows", "Turn rows on or off, change the order, refresh", m) { nav.push(Screen.Rows) } }
         row { m -> Link("Your interests", "The genres you watch most (learned) and the ones you like: each gets a \"Because you like\" row", m) { nav.push(Screen.Interests) } }
+        more = true
         row { m -> AnimeModeRow(p, m) }
+        more = false
         row { m -> Link("Taste questions", "The first-start questions again: titles, genres, people and anime you like", m) { nav.push(Screen.TasteStart) } }
+        more = true
         row { m ->
             var n by remember { mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }
             Link("Dropped from Coming up", if (n == 0) "Hold OK on a Coming up card to drop a show" else "OK brings them all back", m,
@@ -352,18 +395,23 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Custom posters", "Your poster source with ratings on the art; off = add-on art", p.customPosters, m) }
         row { m -> Choice("Poster size", "", p.posterSize, PosterOpts, m) }
         row { m -> Toggle("Ratings on posters", "IMDb rating when the catalog gives it", p.ratings, m) }
+        more = false
         head("Look")
+        more = true
         row { m ->
             val rows by com.lekathedon.visionlite.home.BillboardRows.rows.collectAsState()
             Choice("Billboard titles", "Which row feeds the big billboard on Home", p.billboardSource,
                 listOf("" to "Continue watching, then first row", "random" to "A random row each visit") + rows, m)
         }
+        more = false
         // Shown only while a translation is bundled (Arabic parked 2026-11-26 in parked/lang/; move it back to assets/lang/ to bring it back).
         if (com.lekathedon.visionlite.ui.Lang.bundled.isNotEmpty()) row { m -> Choice("App language", "Menus and buttons; titles and plots keep their own language", p.appLang,
             listOf("" to "This TV's language", "en" to "English") + com.lekathedon.visionlite.ui.Lang.bundled, m) }
+        more = true
         row { m -> Toggle("Clock", "Time in the top bar", p.clock, m) }
         row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
             listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"), m) }
+        more = false
     }
     pages += page("Spoilers and trailers", "What stays hidden, when trailers play", {
         val blur = p.blurUnwatched.flow.collectAsState().value
@@ -376,13 +424,17 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Spoilers")
         row { m -> Toggle("Hide episode pictures", "Unwatched episodes' pictures stay blurred until watched, here and in Continue watching", p.blurUnwatched, m) }
         row { m -> Toggle("Hide episode plots", "Unwatched episodes' plots stay hidden until watched, here and in Continue watching", p.hidePlots, m) }
+        more = true
         row { m -> Choice("Episode ratings", "IMDb rating on each episode", p.epRatings, EpRatingOpts, m) }
+        more = false
         head("Trailers")
         row { m -> Toggle("Trailers", "When you rest on the billboard or an opened poster", p.trailers, m) }
+        more = true
         row { m -> Choice("Trailers wait", "", p.trailerDelay, DelayOpts, m) }
         row { m -> Toggle("Trailer sound", "", p.trailerSound, m) }
+        more = false
     }
-    pages += page("Title pages", "Where details and ratings come from, what the page shows", {
+    if (!basic) pages += page("Title pages", "Where details and ratings come from, what the page shows", {
         watchServices()
         "${Integrations.driver(Integrations.Group.DATA)?.name ?: "IMDb"} · ${label(ReviewOpts, p.reviewsSource.flow.collectAsState().value)} reviews"
     }) {
@@ -403,6 +455,7 @@ fun Settings(nav: Nav, start: String? = null) {
         val ai = Integrations.driver(Integrations.Group.AI)?.name
         listOfNotNull(if (min == "0") "Any rating" else "IMDb $min+", ai?.let { "AI: $it" }).joinToString(" · ")
     }) {
+        more = true
         head("Picks")
         row { m -> Choice("IMDb minimum", "Nothing rated lower is recommended", p.recMinImdb, ImdbMinOpts, m) }
         com.lekathedon.visionlite.anime.Hub.entries.forEach { hub -> row { m ->
@@ -421,6 +474,7 @@ fun Settings(nav: Nav, start: String? = null) {
             val n = com.lekathedon.visionlite.recs.Recs.changed.collectAsState().value.let { com.lekathedon.visionlite.recs.Recs.feedback() }
             Link("Your Love / Like / Not for me / Watched", "${n.count { it.love }} loved · ${n.count { it.like && !it.love && !it.watched }} liked · ${n.count { !it.like }} not for me · ${n.count { it.watched }} watched · hold OK on any title to change", m, value = "") {}
         }
+        more = false
         head("Leave out")
         row { m ->
             val lo by p.leaveOut.flow.collectAsState()
@@ -431,12 +485,14 @@ fun Settings(nav: Nav, start: String? = null) {
         }
         head("Hide adult titles")
         row { m -> Toggle("Hide adult titles", "Explicit films (9 Songs, softcore, porn) leave every row, page, search and pick; R-rated stays. Each title is checked once", p.hideAdult, m) }
+        more = true
         head("AI (free tiers): helps every recommendation, no row of its own")
         row { m -> ServiceRow("gemini", nav, m) }
         row { m -> ServiceRow("groq", nav, m) }
         row { m -> ServiceRow("mistral", nav, m) }
         row { m -> DriverRow(Integrations.Group.AI, "Asked first", m) }
         row { m -> AiModeRow(m) }
+        more = false
     }
     pages += page("Live TV and more", "IPTV playlists and sports", {
         Iptv.version.collectAsState().value
@@ -449,6 +505,7 @@ fun Settings(nav: Nav, start: String? = null) {
             val n = Iptv.playlists().size
             Link("Playlists", "M3U or Xtream; add, refresh or remove on the Live TV page", m, value = if (n == 0) "Add" else "$n") { nav.push(Screen.LiveTv) }
         }
+        more = true
         row { m -> Choice("Update channels, VOD and guide", "Downloaded once in full; after that a quiet update at 05:00 changes only what the provider changed",
             p.iptvUpdateHours, listOf("12" to "Every 12 hours", "24" to "Every day", "48" to "Every 2 days"), m) }
         row { m -> Toggle("Switch to another version", "A channel that won't play moves to another copy of it in your playlists (4K, FHD, HD, SD; same country)", p.iptvAutoSwitch, m) }
@@ -466,8 +523,10 @@ fun Settings(nav: Nav, start: String? = null) {
             }
         }
         row { m -> Link("Reset all buttons", "Back to the defaults (TiviMate's layout, Left / Right rewind)", m, value = "Reset") { com.lekathedon.visionlite.player.LiveKeys.reset() } }
+        more = false
         head("Sports")
         row { m -> Link("My teams", "Follow teams and leagues", m) { nav.push(Screen.SportsTeams) } }
+        more = true
         row { m -> SportsSwitch("Remind me of my teams' games", "A card a few minutes before they start", m, { it.remindMyTeams }) { s, v -> s.copy(remindMyTeams = v) } }
         row { m ->
             var v by remember { mutableStateOf(com.lekathedon.visionlite.sports.Sports.settings.remindMinutes.toString()) }
@@ -478,6 +537,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> SportsSwitch("Scoring alerts", "A card when a team you follow scores (waits 30 s so it never beats your stream)", m, { it.scoringAlerts }) { s, v -> s.copy(scoringAlerts = v) } }
         row { m -> SportsSwitch("Hide scores", "No spoilers: scores stay hidden until you open a game", m, { it.hideScores }) { s, v -> s.copy(hideScores = v) } }
         row { m -> SportsSwitch("Only games on my channels", "Leave out games none of your channels show (your teams always show)", m, { it.onlyOnMyChannels }) { s, v -> s.copy(onlyOnMyChannels = v) } }
+        more = false
     }
     pages += page("This TV", "What this TV, box and soundbar can do; settings made for them", {
         tvWatch()
@@ -490,7 +550,7 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         row { m -> ThisTvPane(m, nav) }
     }
-    pages += page("Speed and network", "Set for this TV and internet: DNS, scrolling, how the app closes; tests and cache", {
+    if (!basic) pages += page("Speed and network", "Set for this TV and internet: DNS, scrolling, how the app closes; tests and cache", {
         tvWatch()
         val f = DeviceCheck.saved()
         val mine = f?.let { DeviceCheck.choices(it).filter { c -> c.section == "Speed and network" && DeviceCheck.current(c.key) != c.recommended } }
@@ -645,16 +705,16 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Link("Run the first-start setup again", "One page per service, then back to Home", m) { Integrations.setupDone.value = false; nav.pop() } }
     }
 
-    val sel = if (picked >= 0) picked else pages.indexOfFirst { it.name == start }.coerceAtLeast(0)
-    val groupReq = remember { List(pages.size) { FocusRequester() } }
+    val sel = (if (picked >= 0) picked else pages.indexOfFirst { it.name == start }.coerceAtLeast(0)).coerceIn(0, pages.size - 1)
+    val groupReq = remember(pages.size) { List(pages.size) { FocusRequester() } }
     var inPane by remember { mutableStateOf(false) }
     // Entering a page (Right / OK on the rail): its row you were last on, else its first. The page is scrolled to that
     // row first: a row scrolled out of the list isn't there to take focus, which locked Right out (user 2026-11-25:
     // after going deep into a page and back to the rail, Right did nothing until Settings was reopened).
     val paneState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val rowReq = remember { HashMap<String, FocusRequester>() }
+    val rowReq = remember(basic) { HashMap<String, FocusRequester>() }
     fun rowReqOf(page: Int, i: Int) = rowReq.getOrPut("$page:$i") { FocusRequester() }
-    val lastRow = remember { HashMap<Int, Int>() }
+    val lastRow = remember(basic) { HashMap<Int, Int>() }
     val enterScope = androidx.compose.runtime.rememberCoroutineScope()
     fun enterPane() {
         val page = sel

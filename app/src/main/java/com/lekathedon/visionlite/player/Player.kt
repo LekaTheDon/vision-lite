@@ -253,7 +253,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                             kotlinx.coroutines.delay(250)
                         }
                     }
-                    if (addonSubs) com.lekathedon.visionlite.addons.Subs.forId(s.id).forEach { sub -> view.addSubtitle(sub.url, "${sub.lang} · add-on", sub.lang) }
+                    if (addonSubs) com.lekathedon.visionlite.addons.Subs.ranked(s.id, s.name).forEach { sub -> view.addSubtitle(sub.url, "${sub.lang} · add-on", sub.lang) }
                     if (afr || resMatch) DisplayMatch.apply(context, view.prop("container-fps")?.toFloatOrNull() ?: 0f,
                         view.prop("width")?.toIntOrNull() ?: 0, view.prop("height")?.toIntOrNull() ?: 0, afr, resMatch)
                     // Smart Auto: a Dolby Vision file that started on MPV goes to ExoPlayer's video layer (one look, before it plays).
@@ -516,7 +516,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (!subsChecked && tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }) { subsChecked = true; pickSubtitle(player, tracks); foreignOnly(player, tracks) }
                 felNow.set(felAllowed && current == Engine.EXO && selectedVideo(tracks)?.let { AmlFelSupport.isProfile7(it) } == true)
                 // Vision's HDR subtitle style: white and dimmed on HDR/Dolby Vision films, the normal style otherwise.
-                if (current == Engine.EXO) selectedVideo(tracks)?.let { v -> hdrVideo = EngineRules.isHdr(v) }
+                if (current == Engine.EXO) selectedVideo(tracks)?.let { v -> hdrVideo = EngineRules.isHdr(v) || namedHdr(s.name) }
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)
                 if (!(afr || resMatch) || current != Engine.EXO) return
                 val v = selectedVideo(tracks) ?: return
@@ -730,7 +730,7 @@ private fun selectedVideo(tracks: Tracks): androidx.media3.common.Format? =
 
 /** The file plus the add-on subtitles found for this title (side-loaded; picked by the language settings). */
 private fun withSubs(s: Screen.Player): MediaItem {
-    val subs = com.lekathedon.visionlite.addons.Subs.forId(s.id)
+    val subs = com.lekathedon.visionlite.addons.Subs.ranked(s.id, s.name)
     if (subs.isEmpty()) return MediaItem.fromUri(s.url)
     return MediaItem.Builder().setUri(s.url).setSubtitleConfigurations(subs.mapIndexed { n, sub ->
         val u = sub.url.substringBefore('?').lowercase()
@@ -829,6 +829,10 @@ private fun styleSubtitles(v: androidx.media3.ui.SubtitleView, hdr: Boolean = fa
     SubStyle.apply(v, hdr && App.instance.prefs.subHdr.value)
 
 /** Vision's HDR dimming: setting 0-100 maps onto 30-100 % brightness (58 = white at ~180/255). */
+/** The link's own text says HDR / Dolby Vision (last resort when neither the container nor the SPS tells). */
+private val HdrName = Regex("""(?i)(^|[^a-z0-9])(hdr|hdr10|hdr10\+|hdr10plus|dv|dovi|dolby[ ._-]?vision|hlg)([^a-z0-9]|$)""")
+internal fun namedHdr(text: String) = HdrName.containsMatchIn(text)
+
 internal fun hdrSubColor(color: Int): Int {
     val b = App.instance.prefs.subHdrBright.value.toIntOrNull()?.coerceIn(0, 100) ?: 58
     val f = (0.7f * b + 30f) / 100f

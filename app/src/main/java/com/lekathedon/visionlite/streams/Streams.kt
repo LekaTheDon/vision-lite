@@ -135,6 +135,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         if (auto && ResumeLinks.has(s.id)) {
             getting = "Resuming on the same link…"
             val back = ResumeLinks.screen(s)
+            if (back != null) com.lekathedon.visionlite.addons.Subs.await(s.type, s.id)
             if (back != null) { LinkFallback.set(s, emptyList()); nav.replace(back); return@LaunchedEffect }
             getting = ""
         }
@@ -148,6 +149,9 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         // here is in, the rest get a short grace (AutoPick.settleMs), then it plays. Sources still answering keep
         // filling the list in case autoplay finds nothing safe.
         val started = android.os.SystemClock.elapsedRealtime()
+        // Vision TB still searching: autoplay never settles without its answer (user 2026-11-26: Next episode from the
+        // phone played an add-on's 1080p because TorBox's 4K came in after the grace; 15 s at most, its own budget).
+        var tbOut = tbOn
         val decider = if (auto) launch {
             var seen = -1; var top: Link? = null; var topAt = 0L
             while (pending > 0) {
@@ -160,7 +164,8 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                 }
                 val t = top ?: continue
                 val waited = android.os.SystemClock.elapsedRealtime() - topAt
-                if (waited >= AutoPick.settleMs(t)) {
+                val tbWait = tbOut && android.os.SystemClock.elapsedRealtime() - started < 15_000
+                if (!tbWait && waited >= AutoPick.settleMs(t)) {
                     android.util.Log.i("AutoPick", "settled after ${android.os.SystemClock.elapsedRealtime() - started} ms, $pending source(s) still out")
                     break
                 }
@@ -183,6 +188,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
                         }
                     }
                 }
+                tbOut = false
                 pending--
             }
             if (vodOn) launch {
@@ -288,6 +294,8 @@ private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean,
         say("Getting the ${Debrid.names()} link…")
         Debrid.resolve(h, l.stream.fileIdx, l.stream.behaviorHints?.filename, EpisodeCheck.targetOf(s.id)).fold({ say(""); it }, { say(it.message ?: "Debrid failed"); null })
     } ?: return false
+    // The player opens with the outside subtitles in (OpenSubtitles / add-ons), not before they land (2.5 s at most).
+    com.lekathedon.visionlite.addons.Subs.await(s.type, s.id)
     ResumeLinks.remember(s.id, l)
     // Vision TB's report: the sources that had the link you (or autoplay) played get the credit.
     l.tb?.let { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.tb.TbSources.played(s.id, it.hash) } } }

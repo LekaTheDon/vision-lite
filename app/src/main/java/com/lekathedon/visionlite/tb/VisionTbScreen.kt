@@ -1,5 +1,6 @@
 package com.lekathedon.visionlite.tb
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -198,6 +199,7 @@ fun TbAlertHost(inPlayer: Boolean) {
     LaunchedEffect(a) { kotlinx.coroutines.delay(12_000); TbSources.alertSeen() }
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = androidx.compose.ui.Alignment.TopEnd) {
         Text(a, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(0.42f)
-            .background(Color(0xE6222226), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(16.dp))
+            .background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.95f), androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
+            .border(1.dp, com.lekathedon.visionlite.ui.Kit.line, androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(16.dp))
     }
 }
