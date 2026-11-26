@@ -315,34 +315,67 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         // Play with VOD: your IPTV VOD's copies of this title / episode, each named (dub or subtitled,
                         // 4K / 1080p, Atmos, HDR, playlist); OK plays it straight away. Separate from Vision TB.
                         if (vodHere) KitButton("Play with VOD", I.LiveTv, {
-                            val (id, title) = playTarget() ?: return@KitButton
-                            val vid = if (isSeries) id else imdbId ?: id
-                            hint = "Looking in your VOD…"
-                            scope.launch {
-                                val V = com.lekathedon.visionlite.streams.VodLinks
-                                val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid, withTech = true, names = listOf(name, s.name).distinct(), showYear = t?.year) }.getOrDefault(emptyList())).take(12)
-                                hint = null
-                                sheet = if (opts.isEmpty()) Sheet.Menu("Not in your VOD" + (if (isSeries) " for this episode" else ""), listOf(Triple("OK", null) {}))
-                                else {
-                                    // Each copy's file is opened (bounded Range reads, 6 at once) and its line updated in place.
-                                    val P = com.lekathedon.visionlite.probe.VodProbe
-                                    val live = androidx.compose.runtime.mutableStateMapOf<Int, String>()
-                                    val shownOpts = opts.map { l -> l.stream.url?.let(P::cached)?.let { l.copy(probe = it) } ?: l }
-                                    shownOpts.forEachIndexed { i, l ->
-                                        val u = l.stream.url.orEmpty()
-                                        if (l.probe == null && u.startsWith("http")) {
-                                            live[i] = V.label(l).let { if ('\n' in it) "$it · checking the file…" else it }
-                                            scope.launch { live[i] = V.label(P.probe(u)?.let { l.copy(probe = it) } ?: l) }
-                                        }
+                            val V = com.lekathedon.visionlite.streams.VodLinks
+                            val kindS = if (isSeries) "series" else "movie"
+                            val names = listOf(name, s.name).distinct()
+                            val why = { com.lekathedon.visionlite.iptv.Vod.lastError?.let { "Your IPTV server refused ($it)" } }
+                            // One copy list (dub / subtitled · 4K / 1080p · HDR / DV · playlist); each file is opened in the
+                            // background (bounded Range reads, 2 at once) and its line updated in place.
+                            fun copies(heading: String, id: String, title: String, opts0: List<com.lekathedon.visionlite.streams.Link>) {
+                                val opts = V.sorted(opts0).take(12)
+                                if (opts.isEmpty()) { sheet = Sheet.Menu(why() ?: "Not in your VOD", listOf(Triple("OK", null) {})); return }
+                                val P = com.lekathedon.visionlite.probe.VodProbe
+                                val live = androidx.compose.runtime.mutableStateMapOf<Int, String>()
+                                val shownOpts = opts.map { l -> l.stream.url?.let(P::cached)?.let { l.copy(probe = it) } ?: l }
+                                shownOpts.forEachIndexed { i, l ->
+                                    val u = l.stream.url.orEmpty()
+                                    if (l.probe == null && u.startsWith("http")) {
+                                        live[i] = V.label(l).let { if ('\n' in it) "$it · checking the file…" else it }
+                                        scope.launch { live[i] = V.label(P.probe(u)?.let { l.copy(probe = it) } ?: l) }
                                     }
-                                    Sheet.Menu("Play with VOD · $title", shownOpts.map { l ->
+                                }
+                                sheet = Sheet.Menu(heading, shownOpts.map { l ->
                                     Triple(V.label(l), I.Play as androidx.compose.ui.graphics.vector.ImageVector?) {
                                         // Its own source name: never normal Play's resume link, link memory or fallback.
                                         nav.push(Screen.Player(l.stream.url.orEmpty(), title, emptyMap(), if (isSeries) "series" else s.type, id,
                                             listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.title).joinToString("\n"), V.ADDON, l.bytes))
                                     }
                                 }, live)
+                            }
+                            hint = "Looking in your VOD…"
+                            if (!isSeries) scope.launch {
+                                val (id, title) = playTarget() ?: (s.id to name)
+                                val opts = runCatching { V.links("movie", imdbId ?: id, withTech = true, names = names, showYear = t?.year) }.getOrDefault(emptyList())
+                                hint = null
+                                copies("Play with VOD · $title", id, title, opts)
+                            } else scope.launch {
+                                // Shows (user 2026-11-26): what your VOD has, by season and episode, not just the episode you'd watch next.
+                                val eps = runCatching { V.seriesEpisodes(kindS, imdbId ?: s.id, names, t?.year) }.getOrNull()
+                                hint = null
+                                if (eps.isNullOrEmpty()) { sheet = Sheet.Menu(why() ?: "Not in your VOD", listOf(Triple("OK", null) {})); return@launch }
+                                val next = playTarget()?.first?.let(com.lekathedon.visionlite.streams.EpisodeCheck::targetOf)
+                                fun episodeMenu(season: Int) {
+                                    val list = eps.filter { it.season == season }
+                                    sheet = Sheet.Menu("$name · Season $season in your VOD", list.map { e ->
+                                        val best = e.links.maxOfOrNull { V.heightOf(it) } ?: 0
+                                        val pic = when { best >= 2160 -> "4K"; best >= 1080 -> "1080p"; best >= 720 -> "720p"; else -> null }
+                                        val mark = if (next != null && next.season == e.season && next.episode == e.number) " · next for you" else ""
+                                        Triple("Episode ${e.number}${e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}\n" +
+                                            listOfNotNull("${e.links.size} ${if (e.links.size == 1) "copy" else "copies"}", pic?.let { "best $it" }).joinToString(" · ") + mark,
+                                            I.Play as androidx.compose.ui.graphics.vector.ImageVector?) {
+                                            val id = "${imdbId ?: s.id}:${e.season}:${e.number}"
+                                            val title = "$name S${e.season}E${e.number}"
+                                            scope.launch { copies("Play with VOD · $title", id, title, e.links) }
+                                        }
+                                    })
                                 }
+                                val seasons = eps.map { it.season }.distinct()
+                                if (seasons.size == 1) episodeMenu(seasons[0])
+                                else sheet = Sheet.Menu("$name in your VOD", seasons.map { sn ->
+                                    val n = eps.count { it.season == sn }
+                                    Triple("Season $sn\n$n ${if (n == 1) "episode" else "episodes"}" + (if (next?.season == sn) " · next for you" else ""),
+                                        I.LiveTv as androidx.compose.ui.graphics.vector.ImageVector?) { scope.launch { episodeMenu(sn) } }
+                                })
                             }
                         }, Modifier.hint("Play with VOD"))
                         // Trailer: a choice, so it can also play full screen instead of behind the page.

@@ -49,8 +49,8 @@ import kotlin.math.roundToInt
  */
 
 private val ROW_HEIGHT = 18.dp
-/** The start overlays' red (user 2026-11-26): the bars and the names are red, the values white. */
-internal val OverlayRed = Color(0xFFB3191E)
+/** The start overlays' blood-dark red (user 2026-11-26: dark red, not brown, not the old bright red); values stay white. */
+internal val OverlayRed = Color(0xFF8A0303)
 private val ROW_GAP = 2.dp
 internal const val STAGGERED_OVERLAY_HOLD_MS = 15_000L
 
@@ -276,8 +276,6 @@ internal fun mediaFacts(src: StatsSource, release: String): List<Pair<String, St
         "remux" in r -> "Remux"; Regex("""blu-?ray|bdrip|brrip""").containsMatchIn(r) -> "Blu-ray"
         Regex("""web-?dl""").containsMatchIn(r) -> "WEB-DL"; Regex("""webrip""").containsMatchIn(r) -> "WEBRip"; Regex("""hdtv""").containsMatchIn(r) -> "HDTV"; else -> null
     }?.let { out += "Source" to it }
-    val dur = src.player.duration
-    val size = (if (src.engine == Engine.MPV) src.mpv?.prop("file-size")?.toLongOrNull() else null)?.takeIf { it > 0 } ?: src.linkBytes
-    if (size > 0 && dur > 0) out += "Bitrate" to "%.0f Mbps".format(size * 8.0 / 1000.0 / dur)
+    // No bitrate here (user 2026-11-26); Stats still has it.
     return out
 }

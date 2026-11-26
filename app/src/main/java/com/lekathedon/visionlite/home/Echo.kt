@@ -618,7 +618,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             else old?.let { runCatching { it.requestFocus() } }
         } }
         cwHold?.let { r -> CwMenu(r, nav, onDrop = { vm.dropContinue(r) }) { cwHold = null; LastFocus?.let { runCatching { it.requestFocus() } } } }
-        if (!ready) HomeLoading(look.page)
+        if (!ready) HomeLoading(hub)
         if (askExit) ExitAsk(onLeave = { leaveApp(activity) }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
@@ -629,15 +629,10 @@ private val NotTitles = setOf("service", "person", "genre", "decade", "mood")
 /** Hubs whose Home has shown its first screens this app start (the loading cover shows only before that). */
 internal object HomeReady { val done = HashSet<com.lekathedon.visionlite.anime.Hub>() }
 
-/** The cover while Home's first rows load: the page colour, the name, a small spinner. */
+/** The cover while Home's first rows load (user 2026-11-26): the hub's own loading screen, like opening a title. */
 @Composable
-private fun HomeLoading(page: Color) {
-    Box(Modifier.fillMaxSize().background(page), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            com.lekathedon.visionlite.ui.VisionWordmark(64.dp)
-            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 24.dp).size(28.dp), color = (if (com.lekathedon.visionlite.ui.Theme.homeLook) com.lekathedon.visionlite.ui.Kit.accent else Color.White), strokeWidth = 2.dp)
-        }
-    }
+private fun HomeLoading(hub: com.lekathedon.visionlite.anime.Hub) {
+    com.lekathedon.visionlite.ui.HubLoading(hub.key, "Loading ${hub.label}")
 }
 
 /** Trailer settings for the page, read once by Home. */

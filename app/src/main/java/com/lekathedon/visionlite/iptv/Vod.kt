@@ -102,10 +102,17 @@ object Vod {
                         eachObject("$api&action=$action") { o -> m[o["category_id"].orEmpty()] = o["category_name"].orEmpty() }
                         if (m.isNotEmpty()) metaPut("${pl.id}|$kind|cats", m.values.distinct().joinToString("\n"))
                     }
+                    // The panel's own TMDB id per film / show, when it gives one (user 2026-11-26: titles must match by id, not name only).
+                    val tmdbIds = HashMap<String, StringBuilder>()
+                    fun noteTmdb(kind: String, o: Map<String, String?>, id: String) {
+                        val t = o["tmdb"]?.trim()?.takeIf { it.isNotEmpty() && it != "0" && it.all(Char::isDigit) } ?: o["tmdb_id"]?.trim()?.takeIf { it.isNotEmpty() && it != "0" && it.all(Char::isDigit) } ?: return
+                        tmdbIds.getOrPut("tx|$kind|$t") { StringBuilder() }.append(pl.id).append('|').append(id).append('\n')
+                    }
                     val movieCats = names("get_vod_categories", "movie")
                     writeStream(pl.id, "movie") { add ->
                         eachObject("$api&action=get_vod_streams") { o ->
                             val id = o["stream_id"]?.ifBlank { null } ?: return@eachObject
+                            noteTmdb("movie", o, id)
                             add(VodItem(pl.id, "movie", id, o["name"].orEmpty(), movieCats[o["category_id"].orEmpty()] ?: "Films", o["stream_icon"]?.takeIf { it.startsWith("http") },
                                 "$base/movie/${Iptv.encode(pl.user)}/${Iptv.encode(pl.pass)}/$id.${o["container_extension"]?.ifBlank { null } ?: "mp4"}", o["rating"]?.takeIf { it.isNotBlank() && it != "0" }))
                         }
@@ -114,9 +121,18 @@ object Vod {
                     writeStream(pl.id, "series") { add ->
                         eachObject("$api&action=get_series") { o ->
                             val id = o["series_id"]?.ifBlank { null } ?: return@eachObject
+                            noteTmdb("series", o, id)
                             add(VodItem(pl.id, "series", id, o["name"].orEmpty(), seriesCats[o["category_id"].orEmpty()] ?: "Series", o["cover"]?.takeIf { it.startsWith("http") }, null,
                                 o["rating"]?.takeIf { it.isNotBlank() && it != "0" }))
                         }
+                    }
+                    db.writableDatabase.run {
+                        beginTransaction()
+                        try {
+                            execSQL("DELETE FROM meta WHERE k LIKE 'tx|%' AND v LIKE ?", arrayOf("${pl.id}|%"))
+                            for ((k, v) in tmdbIds) execSQL("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", arrayOf(k, v.toString()))
+                            setTransactionSuccessful()
+                        } finally { endTransaction() }
                     }
                     db.writableDatabase.execSQL("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", arrayOf("${pl.id}|loaded", System.currentTimeMillis().toString()))
                     _status.value = ""
@@ -263,8 +279,19 @@ object Vod {
         }.getOrNull()
     }
 
-    /** A series' episodes (Xtream get_series_info). */
-    suspend fun episodes(item: VodItem): List<VodEpisode> = withContext(Dispatchers.IO) {
+    /** The last refusal from a panel ("HTTP 403" …) while asking for episodes, so Play with VOD can say why instead of "not in your VOD". */
+    @Volatile var lastError: String? = null
+
+    /** A series' episodes (Xtream get_series_info); kept 10 minutes per series, so the season / episode / copy menus ask once. */
+    private val epCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<VodEpisode>>>()
+
+    suspend fun episodes(item: VodItem): List<VodEpisode> {
+        val k = item.pl + "|" + item.id
+        epCache[k]?.takeIf { System.currentTimeMillis() - it.first < 600_000 }?.let { return it.second }
+        return episodes0(item).also { if (it.isNotEmpty()) epCache[k] = System.currentTimeMillis() to it }
+    }
+
+    private suspend fun episodes0(item: VodItem): List<VodEpisode> = withContext(Dispatchers.IO) {
         val pl = Iptv.playlists().firstOrNull { it.id == item.pl && it.xtream } ?: return@withContext emptyList()
         val base = Iptv.xtreamBase(pl)
         runCatching {
@@ -281,7 +308,7 @@ object Vod {
                         info?.optString("plot")?.takeIf { it.isNotBlank() }, info?.optString("movie_image")?.takeIf { it.startsWith("http") }, info)
                 }.asSequence()
             }.sortedWith(compareBy({ it.season }, { it.number })).toList()
-        }.getOrDefault(emptyList())
+        }.onFailure { lastError = it.message ?: it.javaClass.simpleName }.getOrDefault(emptyList())
     }
 
     /** Categories in the provider's order (its category list), then any it didn't list; see [arranged] for yours. */
@@ -324,6 +351,16 @@ object Vod {
     }
 
     /** Small saved facts (VOD → TMDB matches); kept across refreshes. */
+    /** VOD items the panel itself tied to this TMDB id ([kind] movie / series). */
+    fun byTmdb(kind: String, tmdb: String): List<VodItem> {
+        val refs = runCatching { metaGet("tx|$kind|$tmdb") }.getOrNull()?.lines()?.filter { '|' in it }.orEmpty()
+        return refs.mapNotNull { r ->
+            db.readableDatabase.rawQuery("SELECT pl,kind,id,name,grp,poster,url,rating FROM items WHERE pl=? AND kind=? AND id=?", arrayOf(r.substringBefore('|'), kind, r.substringAfter('|'))).use { c ->
+                if (c.moveToFirst()) VodItem(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), c.getString(7)) else null
+            }
+        }
+    }
+
     fun metaGet(k: String): String? = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k=?", arrayOf(k)).use { if (it.moveToFirst()) it.getString(0) else null }
     fun metaPut(k: String, v: String) { db.writableDatabase.execSQL("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", arrayOf(k, v)) }
 

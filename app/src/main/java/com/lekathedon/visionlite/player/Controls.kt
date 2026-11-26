@@ -421,14 +421,13 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
     }
 }
 
-/** The play button: a small disc in the look's accent; focused, a ring in the skin's focus colour. */
+/** The play button (user 2026-11-26): just the play / pause icon, no disc; focused, only the skin's ring, like the other buttons. */
 @Composable
 private fun PlayButton(playing: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val accent = com.lekathedon.visionlite.ui.KitInk.accent
-    // Inside(true): the focus ring is the skin's own (Kit.ringColor), not the white one or a fill.
     com.lekathedon.visionlite.ui.Inside(true) { Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape) { f ->
-        Box(Modifier.size(42.dp).padding(3.dp).background(accent.copy(alpha = 0.9f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.size(20.dp), tint = Color.White)
+        Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.size(24.dp),
+                tint = if (f) Color.White else Color.White.copy(alpha = 0.85f))
         }
     } }
 }

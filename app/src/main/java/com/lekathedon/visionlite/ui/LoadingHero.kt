@@ -88,3 +88,36 @@ private fun Comet(modifier: Modifier = Modifier) {
         drawCircle(Color.White, radius = 3f, center = androidx.compose.ui.geometry.Offset(start + len / 2, y))
     }
 }
+
+/** Random backdrops per hub for [HubLoading] (well-known titles with good metahub backdrops; no network but the one picture). */
+private val HUB_BACKDROPS = mapOf(
+    "ANIME" to listOf("tt2560140", "tt9335498", "tt12343534", "tt0388629", "tt22248376", "tt13616990", "tt13706018", "tt21209876", "tt0877057", "tt0213338", "tt1355642", "tt0988824"),
+    "NUVIO" to listOf("tt15239678", "tt15398776", "tt0903747", "tt3581920", "tt0816692", "tt1856101", "tt11198330", "tt1877830", "tt2788316", "tt1392190", "tt7660850", "tt0944947"),
+)
+
+/**
+ * A hub's loading screen (user 2026-11-26), the same kind as opening a title: a random backdrop of the hub's kind,
+ * "Nuvio Vision" with the hub's word small beside it (as "Vision" sits by "Nuvio"), the comet and one short word.
+ * [hub] = "NUVIO" (Films & TV), "ANIME" or "IPTV" (Live TV). Cost: one picture + one infinite animation while it shows.
+ */
+@Composable
+fun HubLoading(hub: String, status: String = "Loading", modifier: Modifier = Modifier) {
+    val pick = remember(hub) { (HUB_BACKDROPS[hub] ?: HUB_BACKDROPS.getValue("NUVIO")).random() }
+    val word = when (hub) { "ANIME" -> "Anime"; "IPTV" -> "Live TV"; else -> "Films & TV" }
+    Box(modifier.fillMaxSize().background(Palette.Base)) {
+        Img("https://images.metahub.space/background/large/$pick/img", 1280.dp, 720.dp, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xF0000000), 0.5f to Color(0x99000000), 0.85f to Color(0x22000000))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xE6000000))))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 64.dp, bottom = 56.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                VisionWordmark(56.dp)
+                Text(word, color = Kit.accent, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    modifier = Modifier.padding(start = 10.dp, bottom = 4.dp))
+            }
+            Spacer(Modifier.height(26.dp))
+            Comet(Modifier.width(300.dp))
+            Text(status.removeSuffix("…").removeSuffix("...").uppercase(), color = Palette.Text.copy(alpha = 0.85f), fontSize = 11.sp, letterSpacing = 2.5.sp,
+                modifier = Modifier.padding(top = 12.dp))
+        }
+    }
+}

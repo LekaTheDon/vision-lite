@@ -96,6 +96,9 @@ fun LiveTv(nav: Nav) {
     val first = remember { FocusRequester() }
     LaunchedEffect(channels.isNotEmpty()) { if (channels.isNotEmpty()) runCatching { first.requestFocus() } }
 
+    // Nothing to show yet while the channels load the first time: the hub's own loading screen (user 2026-11-26).
+    if (groups.isEmpty() && channels.isEmpty() && status.isNotEmpty()) { com.lekathedon.visionlite.ui.HubLoading("IPTV", status); return }
+
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(start = 36.dp, end = 36.dp, top = 24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Live TV", color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)

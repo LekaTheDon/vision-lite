@@ -12,12 +12,12 @@ data class ProbeTrack(val kind: Char, val codec: String, val lang: String?, val 
 /**
  * The real file behind a VOD link (Play with VOD, user 2026-11-26): picture size, Dolby Vision / HDR (Vision's
  * DvProfileProbe), sound and subtitle tracks. Bounded Range reads only (head, Tracks / moov, one keyframe for HEVC);
- * at most 6 at once, 20 s each; results kept per URL for the run (200 max). Nothing runs until the list is opened.
+ * at most 2 at once (panels count connections), 20 s each; results kept per URL for the run (200 max). Nothing runs until the list is opened.
  */
 object VodProbe {
     data class Result(val width: Int, val height: Int, val hdr: String, val tracks: List<ProbeTrack>)
 
-    private val gate = Semaphore(6)
+    private val gate = Semaphore(2)
     private val cache = object : LinkedHashMap<String, Result?>(64, 0.75f, true) {
         override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Result?>) = size > 200
     }
