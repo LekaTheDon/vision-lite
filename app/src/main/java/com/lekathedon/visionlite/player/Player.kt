@@ -598,7 +598,14 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             com.lekathedon.visionlite.ui.LoadingHero(s.id, s.title, "Starting…")
         }
         // Old Vision's start-of-play overlays (15 s): content warnings top left, refresh rate + resolution top right.
-        if (s.type != "live" && s.type != "catchup") MaturityBadge(s.id, firstFrame, Modifier.align(androidx.compose.ui.Alignment.TopStart))
+        if (s.type != "live" && s.type != "catchup") androidx.compose.foundation.layout.Row(Modifier.align(androidx.compose.ui.Alignment.TopStart)) {
+            MaturityBadge(s.id, firstFrame)
+            // Lite's own: 4K · Dolby Vision · Atmos · Remux … beside the warnings, same 15 s.
+            MediaBadge(firstFrame, s.name, {
+                StatsSource(player, current, null, exoStats.takeIf { current == Engine.EXO }, mpvView, s.addon, s.url,
+                    s.name.lineSequence().firstOrNull { it.isNotBlank() }, s.bytes)
+            })
+        }
         DisplayModeBadge(firstFrame, Modifier.align(androidx.compose.ui.Alignment.TopEnd))
         // Vision's buttons, drawn by Lite (Controls.kt); keys go there, not to the video view.
         val skipMode = prefs.skipIntro.value

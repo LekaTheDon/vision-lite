@@ -49,6 +49,8 @@ import kotlin.math.roundToInt
  */
 
 private val ROW_HEIGHT = 18.dp
+/** The start overlays' red (user 2026-11-26): the bars and the names are red, the values white. */
+internal val OverlayRed = Color(0xFFE53935)
 private val ROW_GAP = 2.dp
 internal const val STAGGERED_OVERLAY_HOLD_MS = 15_000L
 
@@ -153,13 +155,12 @@ fun MaturityBadge(id: String, started: Boolean, modifier: Modifier = Modifier) {
     if (frame.containerAlpha <= 0f) return
     Row(modifier.alpha(frame.containerAlpha).padding(start = 32.dp, top = 24.dp), verticalAlignment = Alignment.Top) {
         Box(Modifier.width(3.dp).height((totalLineHeight * frame.lineFraction).dp).clip(RoundedCornerShape(1.dp))
-            .background(com.lekathedon.visionlite.ui.Kit.accent))
+            .background(OverlayRed))
         Column(Modifier.padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(ROW_GAP)) {
             warnings.forEachIndexed { index, w ->
                 Row(Modifier.height(ROW_HEIGHT).alpha(frame.itemAlphas.getOrNull(index) ?: 0f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(w.label, fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold)
-                    Text(" · ", fontSize = 11.sp, color = Color.White.copy(alpha = 0.4f))
-                    Text(w.severity, fontSize = 11.sp, color = Color.White.copy(alpha = 0.5f))
+                    Text(w.label + ":", fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold)
+                    Text(" " + w.severity, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -214,14 +215,13 @@ fun DisplayModeBadge(started: Boolean, modifier: Modifier = Modifier) {
             Column(Modifier.padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(ROW_GAP), horizontalAlignment = Alignment.End) {
                 items.forEachIndexed { index, item ->
                     Row(Modifier.height(ROW_HEIGHT).alpha(frame.itemAlphas.getOrNull(index) ?: 0f), verticalAlignment = Alignment.CenterVertically) {
-                        Text(item.first, fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
-                        Text(" - ", fontSize = 11.sp, color = Color.White.copy(alpha = 0.4f))
-                        Text(item.second, fontSize = 11.sp, color = Color.White.copy(alpha = 0.6f), textAlign = TextAlign.End)
+                        Text(item.first + ":", fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+                        Text(" " + item.second, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
                     }
                 }
             }
             Box(Modifier.width(3.dp).height((totalLineHeight * frame.lineFraction).dp).clip(RoundedCornerShape(1.dp))
-                .background(com.lekathedon.visionlite.ui.KitInk.accent))
+                .background(OverlayRed))
         }
     }
 }
@@ -231,4 +231,59 @@ private fun formatHz(rate: Float): String {
     val whole = rounded.roundToInt()
     val display = if (abs(rounded - whole.toFloat()) < 0.01f) whole.toString() else String.format("%.3f", rounded)
     return "$display Hz"
+}
+
+
+/**
+ * Lite's own third overlay (user 2026-11-26): what this file is (picture, HDR / Dolby Vision, sound, source, bitrate),
+ * beside the content warnings, on the same timeline (in, 15 s, rolls up with them). Picture and sound come from the
+ * player; Atmos, Remux / BluRay / WEB-DL and the size from the release name and the link. Cost: one read of the
+ * playing formats ~1.5 s after the first picture; nothing after it leaves.
+ */
+@Composable
+internal fun MediaBadge(started: Boolean, release: String, stats: () -> StatsSource, modifier: Modifier = Modifier) {
+    var items by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    LaunchedEffect(started) {
+        if (!started || items.isNotEmpty()) return@LaunchedEffect
+        delay(1_500)
+        items = runCatching { mediaFacts(stats(), release) }.getOrDefault(emptyList())
+    }
+    val count = items.size
+    if (count == 0) return
+    val totalLineHeight = (ROW_HEIGHT.value * count) + (ROW_GAP.value * (count - 1))
+    var frame by remember { mutableStateOf(StaggeredOverlayFrame.hidden(count)) }
+    LaunchedEffect(count) { runStaggeredOverlay(count) { frame = it } }
+    if (frame.containerAlpha <= 0f) return
+    Row(modifier.alpha(frame.containerAlpha).padding(start = 32.dp, top = 24.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.width(3.dp).height((totalLineHeight * frame.lineFraction).dp).clip(RoundedCornerShape(1.dp)).background(OverlayRed))
+        Column(Modifier.padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(ROW_GAP)) {
+            items.forEachIndexed { index, (k, v) ->
+                Row(Modifier.height(ROW_HEIGHT).alpha(frame.itemAlphas.getOrNull(index) ?: 0f), verticalAlignment = Alignment.CenterVertically) {
+                    Text("$k:", fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold)
+                    Text(" $v", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+internal fun mediaFacts(src: StatsSource, release: String): List<Pair<String, String>> {
+    val p = playing(src) ?: return emptyList()
+    val r = release.lowercase()
+    val out = mutableListOf<Pair<String, String>>()
+    when { p.width >= 3200 || p.height >= 2000 -> "4K"; p.width >= 1800 || p.height >= 1000 -> "1080p"; p.width >= 1200 || p.height >= 700 -> "720p"; p.height > 0 -> "${p.height}p"; else -> null }
+        ?.let { out += "Video" to it }
+    when (p.hdr) { "DV" -> "Dolby Vision"; "HDR10" -> if (Regex("""hdr10\+|hdr10plus""").containsMatchIn(r)) "HDR10+" else "HDR10"; "HLG" -> "HLG"; else -> null }?.let { out += "HDR" to it }
+    val atmos = p.audioCodec == "E-AC-3-JOC" || (p.audioCodec in setOf("TRUEHD", "E-AC-3") && "atmos" in r)
+    val codec = when (p.audioCodec) { "TRUEHD" -> "TrueHD"; "E-AC-3-JOC", "E-AC-3" -> "Dolby Digital+"; "AC-3" -> "Dolby Digital"; "DTS-HD" -> if ("ma" in r.split('.', ' ', '-')) "DTS-HD MA" else "DTS-HD"; "DTS" -> "DTS"; else -> null }
+    val ch = when (p.channels) { 0 -> null; 1 -> "Mono"; 2 -> "Stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "${p.channels} ch" }
+    listOfNotNull(if (atmos) "Atmos" else null, codec, ch).joinToString(" · ").ifBlank { null }?.let { out += "Audio" to it }
+    when {
+        "remux" in r -> "Remux"; Regex("""blu-?ray|bdrip|brrip""").containsMatchIn(r) -> "Blu-ray"
+        Regex("""web-?dl""").containsMatchIn(r) -> "WEB-DL"; Regex("""webrip""").containsMatchIn(r) -> "WEBRip"; Regex("""hdtv""").containsMatchIn(r) -> "HDTV"; else -> null
+    }?.let { out += "Source" to it }
+    val dur = src.player.duration
+    val size = (if (src.engine == Engine.MPV) src.mpv?.prop("file-size")?.toLongOrNull() else null)?.takeIf { it > 0 } ?: src.linkBytes
+    if (size > 0 && dur > 0) out += "Bitrate" to "%.0f Mbps".format(size * 8.0 / 1000.0 / dur)
+    return out
 }

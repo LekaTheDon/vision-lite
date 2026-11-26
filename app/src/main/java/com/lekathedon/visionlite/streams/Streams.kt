@@ -242,8 +242,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         LaunchedEffect(Unit) { runCatching { pick.requestFocus() } }
         // The title's big backdrop while autoplay looks (user 2026-11-22: never a black page).
         com.lekathedon.visionlite.ui.LoadingHero(s.metaId.ifBlank { s.id }.let { if (s.id.startsWith("tt")) s.id else it }, s.title,
-            getting.ifEmpty { "Finding the best link…" },
-            if (pending > 0) "${links.size} links · waiting for $pending source(s)" else "${links.size} links · choosing") {
+            getting.ifEmpty { if (pending > 0) "Finding the best link…" else "Picking the best one…" }) {
             // The look's own button (same as every page), not a washed bubble.
             com.lekathedon.visionlite.ui.KitButton("Choose a link myself", com.lekathedon.visionlite.ui.Icons.Sources, { auto = false },
                 Modifier.padding(top = 22.dp).focusRequester(pick))
