@@ -71,8 +71,8 @@ import java.util.Locale
 
 private val hm = SimpleDateFormat("HH:mm", Locale.getDefault())
 private fun t(ms: Long) = hm.format(Date(ms))
-private val Gold = Color(0xFFD9DC8E)
-private val Glass = Color(0xEE0E0F12)
+private val Gold: Color get() = com.lekathedon.visionlite.ui.KitInk.accent
+private val Glass: Color get() = com.lekathedon.visionlite.ui.KitInk.panel.copy(alpha = 0.94f)
 
 private enum class LivePanel { LIST, GROUPS, GUIDE, OPTIONS, AUDIO, SUBS, STATS, SLEEP }
 
@@ -278,13 +278,13 @@ internal fun LiveControls(
         }
         true
     }) {
-        if (note.isNotEmpty()) Text(note, color = Color.White, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
-            .background(Color(0xCC000000), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
-        if (digits.isNotEmpty()) Text(digits, color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 32.dp, end = 48.dp).background(Color(0xCC000000), RoundedCornerShape(10.dp))
+        if (note.isNotEmpty()) Text(note, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+            .background(com.lekathedon.visionlite.ui.KitInk.panel.copy(alpha = 0.92f), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
+        if (digits.isNotEmpty()) Text(digits, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 44.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 32.dp, end = 48.dp).background(com.lekathedon.visionlite.ui.KitInk.panel.copy(alpha = 0.92f), RoundedCornerShape(10.dp))
                 .padding(horizontal = 22.dp, vertical = 6.dp))
-        if (paused) Text("❚❚  Paused" + (if (ts.ring) " · ${span(behind())} behind live" else "") + " · Play to go on", color = Color.White, fontSize = 15.sp,
-            modifier = Modifier.align(Alignment.TopStart).padding(top = 32.dp, start = 48.dp).background(Color(0xCC000000), RoundedCornerShape(8.dp))
+        if (paused) Text("❚❚  Paused" + (if (ts.ring) " · ${span(behind())} behind live" else "") + " · Play to go on", color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp,
+            modifier = Modifier.align(Alignment.TopStart).padding(top = 32.dp, start = 48.dp).background(com.lekathedon.visionlite.ui.KitInk.panel.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 14.dp, vertical = 6.dp))
 
         val listOpen = panel == LivePanel.LIST || panel == LivePanel.GROUPS || panel == LivePanel.GUIDE
@@ -368,13 +368,13 @@ private fun ControlBar(items: List<LiveBtn>, active: Boolean, modifier: Modifier
             itemsIndexed(items) { i, b ->
                 Focusable(b.act, (if (i == focusedAt.coerceAtMost(items.lastIndex)) Modifier.focusRequester(first) else Modifier), androidx.compose.foundation.shape.CircleShape,
                     onFocus = { focusedAt = i }) { f ->
-                    Box(Modifier.size(52.dp).background(if (f) Color.White else Color.Transparent), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.Icon(b.icon, b.label, Modifier.size(28.dp), tint = when { f && b.tint != null -> b.tint; f -> Color.Black; else -> b.tint ?: Color.White })
+                    Box(Modifier.size(52.dp).background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.Icon(b.icon, b.label, Modifier.size(28.dp), tint = when { f && b.tint != null -> b.tint; f -> com.lekathedon.visionlite.ui.KitInk.ink; else -> b.tint ?: com.lekathedon.visionlite.ui.KitInk.text })
                     }
                 }
             }
         }
-        Text(items.getOrNull(focusedAt)?.label.orEmpty(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+        Text(items.getOrNull(focusedAt)?.label.orEmpty(), color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1,
             modifier = Modifier.padding(top = 8.dp))
     }
 }
@@ -395,7 +395,7 @@ private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: E
         Column(Modifier.padding(start = 20.dp).weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 c?.let { Text("${it.n}", color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 12.dp)) }
-                Text(c?.name ?: title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(c?.name ?: title, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false))
                 val h = player.videoSize.height
                 val tags = listOfNotNull(
@@ -403,31 +403,31 @@ private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: E
                     when { h >= 2000 -> "4K"; h >= 1000 -> "FHD"; h >= 700 -> "HD"; h > 0 -> "SD"; else -> null },
                     c?.catchup?.let { "CATCH-UP" }, if (rec) "● REC" else null, sleepAt?.let { "SLEEP ${t(it)}" })
                 tags.forEach { tag ->
-                    Text(tag, color = if (tag == "● REC") Color(0xFFFF6B6B) else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    Text(tag, color = if (tag == "● REC") Color(0xFFFF6B6B) else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(start = 8.dp).background(Color(0x33FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
                 }
                 Spacer(Modifier.weight(1f))
-                Text(t(System.currentTimeMillis()), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(t(System.currentTimeMillis()), color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             }
-            c?.group?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color(0xFFB0B0B0), fontSize = 13.sp, maxLines = 1) }
+            c?.group?.takeIf { it.isNotBlank() }?.let { Text(it, color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp, maxLines = 1) }
             if (now != null) {
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${t(now.startMs)}–${t(now.stopMs)}", color = Gold, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(110.dp))
-                    Text(now.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text("${((now.stopMs - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)} min left", color = Color(0xFFB0B0B0), fontSize = 13.sp)
+                    Text(now.title, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text("${((now.stopMs - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)} min left", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp)
                 }
                 Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).background(Color(0x33FFFFFF), RoundedCornerShape(50))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(now.progress(maxOf(nowMs, System.currentTimeMillis()))).background(Gold, RoundedCornerShape(50)))
                 }
                 now.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = Color(0xFFCFCFCF), fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                    Text(it, color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                 }
-            } else Text(if (c?.tvg == null) "No guide for this channel" else "Nothing in the guide right now", color = Color(0xFFB0B0B0), fontSize = 14.sp,
+            } else Text(if (c?.tvg == null) "No guide for this channel" else "Nothing in the guide right now", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 14.sp,
                 modifier = Modifier.padding(top = 8.dp))
             next?.let {
                 Row(Modifier.padding(top = 6.dp)) {
-                    Text("Next ${t(it.startMs)}", color = Color(0xFFB0B0B0), fontSize = 14.sp, modifier = Modifier.width(110.dp))
-                    Text(it.title, color = Color(0xFFDDDDDD), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Next ${t(it.startMs)}", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 14.sp, modifier = Modifier.width(110.dp))
+                    Text(it.title, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             // Live rewind: where you are between the oldest kept minute and live.
@@ -439,9 +439,9 @@ private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: E
                         val kept = shift.keptMs.coerceAtLeast(1)
                         Box(Modifier.fillMaxHeight().fillMaxWidth((1f - shift.behindMs.toFloat() / kept).coerceIn(0f, 1f)).background(Color(0xFFFF6B6B), RoundedCornerShape(50)))
                     }
-                    Text("  ${span(shift.keptMs)} kept", color = Color(0xFFB0B0B0), fontSize = 12.sp)
+                    Text("  ${span(shift.keptMs)} kept", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp)
                 }
-            } else if (shift.on && shift.keptMs > 0) Text("●  LIVE · rewind up to ${span(shift.keptMs)}", color = Color(0xFFB0B0B0), fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            } else if (shift.on && shift.keptMs > 0) Text("●  LIVE · rewind up to ${span(shift.keptMs)}", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             fun k(b: LiveKeys.Button) = LiveKeys.get(b).label.lowercase()
             Text("OK ${k(LiveKeys.Button.OK)} · ◀ ${k(LiveKeys.Button.LEFT)} · ▶ ${k(LiveKeys.Button.RIGHT)} · hold OK ${k(LiveKeys.Button.LONG_OK)}",
                 color = Color(0x99FFFFFF), fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
@@ -497,9 +497,9 @@ private fun ChannelList(current: String, minute: Long, startGroups: Boolean, gui
                     // Held Left: back to the top (Favourites), as TiviMate.
                     Focusable({ group = g; picking = false; focusAt = 0 }, (if (i == 0) Modifier.focusRequester(gFocus) else Modifier).then(gFast.mod(i))
                         .onPreviewKeyEvent { gFast.onKey(it, i, all.size, leftTop = true) }.padding(bottom = 4.dp).fillMaxWidth()) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color.Transparent).padding(10.dp)) {
-                            Text(name, color = if (f) Color.Black else Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Text("$n", color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent).padding(10.dp)) {
+                            Text(name, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text("$n", color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp)
                         }
                     }
                 }
@@ -507,9 +507,9 @@ private fun ChannelList(current: String, minute: Long, startGroups: Boolean, gui
         }
         Column(Modifier.width(520.dp).fillMaxHeight().background(Glass).padding(top = 28.dp, start = 16.dp, end = 16.dp)) {
             Text(when (group) { null -> "Channels"; "★" -> "★ Favourites"; Iptv.RECENT -> "⟲ Recent"; "" -> "All channels"; else -> group!! },
-                color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("${channels.size} channels · Left: groups · Right: programmes · hold OK: favourite", color = Color(0xFFAAAAAA), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
-            if (channels.isEmpty()) Text(if (group == "★") "No favourites yet: hold OK on a channel." else "No channels here.", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+                color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("${channels.size} channels · Left: groups · Right: programmes · hold OK: favourite", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+            if (channels.isEmpty()) Text(if (group == "★") "No favourites yet: hold OK on a channel." else "No channels here.", color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 14.sp)
             LazyColumn(state = list, contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 itemsIndexed(channels, key = { _, c -> c.key }) { i, c ->
                     var favTick by remember { mutableIntStateOf(0) }
@@ -531,18 +531,18 @@ private fun ChannelList(current: String, minute: Long, startGroups: Boolean, gui
                     }, onFocus = { focusAt = i }) { f ->
                         val playing = c.url == current
                         val shown = progFor?.key == c.key
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (shown) Color(0x55FFFFFF) else if (playing) Color(0x33D9DC8E) else Color(0x0DFFFFFF))
+                        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else if (shown) Color(0x55FFFFFF) else if (playing) com.lekathedon.visionlite.ui.KitInk.accent.copy(alpha = 0.2f) else Color(0x0DFFFFFF))
                             .padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("${c.n}", color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 13.sp, modifier = Modifier.width(46.dp))
+                            Text("${c.n}", color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 13.sp, modifier = Modifier.width(46.dp))
                             Box(Modifier.size(54.dp, 30.dp), contentAlignment = Alignment.Center) { Img(c.logo, 54.dp, 30.dp, Modifier.size(54.dp, 30.dp), ContentScale.Fit) }
                             Column(Modifier.padding(start = 10.dp).weight(1f)) {
                                 val fav = remember(favTick, c) { Iptv.isFavourite(c) }
-                                Text((if (playing) "▶ " else "") + (if (fav) "★ " else "") + c.name, color = if (f) Color.Black else Color.White, fontSize = 15.sp,
+                                Text((if (playing) "▶ " else "") + (if (fav) "★ " else "") + c.name, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 nowP?.let { pr ->
-                                    Text(pr.title, color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(pr.title, color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Box(Modifier.padding(top = 3.dp).fillMaxWidth().height(3.dp).background(Color(0x33808080))) {
-                                        Box(Modifier.fillMaxHeight().fillMaxWidth(pr.progress(System.currentTimeMillis())).background(if (f) Color.Black else Gold))
+                                        Box(Modifier.fillMaxHeight().fillMaxWidth(pr.progress(System.currentTimeMillis())).background(if (f) com.lekathedon.visionlite.ui.KitInk.ink else Gold))
                                     }
                                 }
                             }
@@ -572,14 +572,14 @@ private fun Programmes(c: Channel, minute: Long, onLive: () -> Unit, onArchive: 
     val focus = remember { FocusRequester() }
     LaunchedEffect(c, all.size) { if (all.isNotEmpty()) { list.scrollToItem((nowIndex - 2).coerceAtLeast(0)); delay(40); runCatching { focus.requestFocus() } } }
     val recs by Recorder.list.collectAsState()
-    Column(Modifier.width(500.dp).fillMaxHeight().background(Color(0xF2141519)).padding(top = 28.dp, start = 18.dp, end = 18.dp)
+    Column(Modifier.width(500.dp).fillMaxHeight().background(com.lekathedon.visionlite.ui.KitInk.panel.copy(alpha = 0.96f)).padding(top = 28.dp, start = 18.dp, end = 18.dp)
         .onPreviewKeyEvent { e -> if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { onBack(); true } else false }) {
-        Text(c.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(c.name, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(c.catchup?.let { "Catch-up ${it.days} days: OK on an aired show plays it" } ?: "OK on a later show records it",
-            color = Color(0xFFAAAAAA), fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+            color = com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
         if (all.isEmpty()) {
-            Focusable(onBack, Modifier.focusRequester(focus)) { f -> Text("No guide for this channel", color = if (f) Color.Black else Color(0xFFAAAAAA), fontSize = 14.sp,
-                modifier = Modifier.background(if (f) Color.White else Color.Transparent).padding(8.dp)) }
+            Focusable(onBack, Modifier.focusRequester(focus)) { f -> Text("No guide for this channel", color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 14.sp,
+                modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent).padding(8.dp)) }
             LaunchedEffect(Unit) { delay(40); runCatching { focus.requestFocus() } }
             return@Column
         }
@@ -598,13 +598,13 @@ private fun Programmes(c: Channel, minute: Long, onLive: () -> Unit, onArchive: 
                         else -> { Recorder.schedule(c, pr); onNote("Will record \"${pr.title}\" at ${t(pr.startMs)}") }
                     }
                 }, (if (i == nowIndex) Modifier.focusRequester(focus) else Modifier).fillMaxWidth()) { f ->
-                    Column(Modifier.fillMaxWidth().background(if (f) Color.White else if (live) Color(0x22D9DC8E) else Color.Transparent).padding(8.dp)) {
+                    Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else if (live) com.lekathedon.visionlite.ui.KitInk.accent.copy(alpha = 0.13f) else Color.Transparent).padding(8.dp)) {
                         val tag = when { live -> "NOW"; archive != null -> "▶ CATCH-UP"; past -> "AIRED"; set -> "● REC SET"; else -> "" }
-                        Text("${t(pr.startMs)}–${t(pr.stopMs)}  $tag", color = if (f) Color.DarkGray else if (live || archive != null) Gold else Color(0xFFAAAAAA),
+                        Text("${t(pr.startMs)}–${t(pr.stopMs)}  $tag", color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else if (live || archive != null) Gold else com.lekathedon.visionlite.ui.KitInk.dim,
                             fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text(pr.title, color = if (f) Color.Black else if (past && archive == null) Color(0xFF999999) else Color.White, fontSize = 15.sp,
+                        Text(pr.title, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else if (past && archive == null) com.lekathedon.visionlite.ui.KitInk.dim else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (f || live) pr.description?.let { Text(it, color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                        if (f || live) pr.description?.let { Text(it, color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else com.lekathedon.visionlite.ui.KitInk.dim, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }

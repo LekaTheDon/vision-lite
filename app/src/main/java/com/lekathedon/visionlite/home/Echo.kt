@@ -782,6 +782,8 @@ fun BoxScope.TopPill(
     val shape = homeShape()
     val prefs = App.instance.prefs
     val section by prefs.appSection.flow.collectAsStateWithLifecycle()
+    // A hub switched off in Settings › Home hubs: Home moves to the first one still on.
+    LaunchedEffect(section) { if (Sections.all.none { it.first == section }) Sections.all.firstOrNull()?.let { com.lekathedon.visionlite.anime.Hubs.setSection(it.first) } }
     var choosing by remember { mutableStateOf(false) }
     LaunchedEffect(open) { if (!open) choosing = false }
     fun midOf(ch: Boolean) = if (ch) Sections.all.map { "s:" + it.first to it.second } else Sections.pages(section).map { "p:" + it.first to it.first }
@@ -1592,7 +1594,7 @@ private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal
 private object Sections {
     /** Anime has no section of its own when Settings › Anime is Merged or Off. */
     val all get() = listOf("NUVIO" to "Films & TV", "ANIME" to "Anime", "IPTV" to "IPTV")
-        .filter { it.first != "ANIME" || com.lekathedon.visionlite.anime.Hubs.separate() }
+        .filter { com.lekathedon.visionlite.anime.Hubs.on(it.first) }   // Settings › Home hubs (Anime also needs its own hub)
     fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Films & TV"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)

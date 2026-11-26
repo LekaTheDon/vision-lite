@@ -291,8 +291,8 @@ private fun Drop(label: String, options: List<Pair<String, String>>, current: St
     var open by remember { mutableStateOf(false) }
     val shown = options.firstOrNull { it.first == current }?.second ?: options.firstOrNull()?.second ?: "—"
     Focusable({ if (options.isNotEmpty()) open = true }, modifier, shape = RoundedCornerShape(50)) { f ->
-        Text("$shown  ▾", color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.background(if (f) Color.White else Color(0x26FFFFFF)).padding(horizontal = 18.dp, vertical = 8.dp))
+        Text("$shown  ▾", color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x26FFFFFF)).padding(horizontal = 18.dp, vertical = 8.dp))
     }
     if (open) Dialog(onDismissRequest = { open = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val reqs = remember(options) { List(options.size) { FocusRequester() } }
@@ -305,10 +305,10 @@ private fun Drop(label: String, options: List<Pair<String, String>>, current: St
                 items(options.size) { i ->
                     val (id, name) = options[i]
                     Focusable({ onPick(id); open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
+                        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, color = if (f) Color.Black else Palette.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                            if (id == current) Text("✓", color = if (f) Color.Black else Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(name, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Palette.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            if (id == current) Text("✓", color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

@@ -150,7 +150,7 @@ private fun Sources() {
             if (r.avgDelayMs >= 500) "+%.1f s autoplay".format(r.avgDelayMs / 1000.0) else null
         ).joinToString(" · ")
         Focusable({ open = if (open == r.key) null else r.key }, Modifier.padding(top = 10.dp).fillMaxWidth(0.7f)) { f ->
-            Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(14.dp)) {
+            Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.Kit.card2 else Palette.Card).padding(14.dp)) {
                 Text((if (mine) "" else "Built-in · ") + r.label, color = if (on) Palette.Text else Palette.TextDim, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(r.verdict, color = color, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
                 Text(facts, color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
@@ -177,7 +177,7 @@ private suspend fun works(key: String): Boolean = runCatching {
 @Composable
 private fun Row(title: String, sub: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Focusable(onClick, modifier.padding(top = 12.dp).fillMaxWidth(0.6f)) { f ->
-        Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.Kit.card2 else Palette.Card).padding(14.dp)) {
             Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(sub, color = Palette.TextDim, fontSize = 13.sp)
         }

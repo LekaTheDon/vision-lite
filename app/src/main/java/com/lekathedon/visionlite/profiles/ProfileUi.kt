@@ -110,7 +110,7 @@ private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Pro
                     Box(Modifier.size(124.dp).then(if (focused) Modifier.border(3.dp, Color.White, CircleShape) else Modifier).padding(6.dp)) {
                         ProfileFace(p.name, p.pic, p.color, 112.dp)
                     }
-                    Text(p.name, color = if (focused) Color.White else Color(0xB3FFFFFF), fontSize = 16.sp,
+                    Text(p.name, color = if (focused) com.lekathedon.visionlite.ui.KitInk.text else Color(0xB3FFFFFF), fontSize = 16.sp,
                         fontWeight = if (p.id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
                     Text(if (p.locked) "🔒 PIN" else " ", color = Color(0x99FFFFFF), fontSize = 12.sp)
                 }
@@ -167,8 +167,8 @@ fun PinPad(title: String, face: Profile? = null, check: ((String) -> Boolean)?, 
                 Focusable({
                     when (k) { "Clear" -> { pin = "" }; "⌫" -> { pin = pin.dropLast(1) }; else -> type(k) }
                 }, if (i == 0) Modifier.focusRequester(first) else Modifier, shape = RoundedCornerShape(12.dp)) { f ->
-                    Box(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x22FFFFFF)).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-                        Text(k, color = if (f) Color.Black else Color.White, fontSize = if (k.length > 1) 15.sp else 22.sp)
+                    Box(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x22FFFFFF)).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+                        Text(k, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = if (k.length > 1) 15.sp else 22.sp)
                     }
                 }
             }
@@ -245,15 +245,15 @@ fun ProfileEdit(nav: Nav, id: Int) {
 @Composable
 private fun Line(title: String, sub: String, modifier: Modifier = Modifier, swatch: String? = null, onClick: () -> Unit) {
     Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
-        Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color(0x1AFFFFFF)).padding(horizontal = 18.dp, vertical = 12.dp),
+        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x1AFFFFFF)).padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, color = if (f) Color.Black else Color.White, fontSize = 16.sp)
+                Text(title, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 16.sp)
                 if (sub.isNotBlank()) Text(sub, color = if (f) Color(0x99000000) else Palette.TextDim, fontSize = 12.sp)
             }
             swatch?.let { c ->
                 Box(Modifier.size(22.dp).clip(CircleShape).background(runCatching { Color(android.graphics.Color.parseColor(c)) }.getOrDefault(Color.Gray)))
-            } ?: Text("›", color = if (f) Color.Black else Palette.TextDim, fontSize = 18.sp)
+            } ?: Text("›", color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Palette.TextDim, fontSize = 18.sp)
         }
     }
 }

@@ -280,3 +280,17 @@ val kitFocus: Pair<Color, Color> get() = when (Kit.style) {
 @Composable
 fun KitMenuItem(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) =
     KitButton(label, icon, onClick, modifier.fillMaxWidth(), wide = true)
+
+/**
+ * The look's colours as plain names, for screens drawn over video or art (player, Live TV, VOD, link list) so they
+ * follow the skin and look like every other page: [bg]/[ink] = the focused row, [accent] = the skin's accent.
+ */
+object KitInk {
+    val bg: Color get() = kitFocus.first
+    val ink: Color get() = kitFocus.second
+    val inkDim: Color get() = kitFocus.second.copy(alpha = 0.72f)
+    val accent: Color get() = Kit.accent
+    val panel: Color get() = Kit.panel
+    val text: Color get() = Palette.Text
+    val dim: Color get() = Palette.TextDim
+}

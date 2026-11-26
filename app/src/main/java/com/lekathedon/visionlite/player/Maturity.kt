@@ -221,7 +221,7 @@ fun DisplayModeBadge(started: Boolean, modifier: Modifier = Modifier) {
                 }
             }
             Box(Modifier.width(3.dp).height((totalLineHeight * frame.lineFraction).dp).clip(RoundedCornerShape(1.dp))
-                .background(Color(0xFFD9DC8E)))
+                .background(com.lekathedon.visionlite.ui.KitInk.accent))
         }
     }
 }

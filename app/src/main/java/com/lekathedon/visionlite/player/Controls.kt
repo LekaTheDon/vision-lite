@@ -248,7 +248,7 @@ internal fun Controls(
                 .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, 0f), radius = 900f)))
             Column(Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 48.dp), horizontalAlignment = Alignment.End) {
                 val shade = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
-                Text(fmt.format(java.util.Date(now)), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, style = shade)
+                Text(fmt.format(java.util.Date(now)), color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, style = shade)
                 Text("Ends at ${endsAt((dur - (seekTo ?: pos)).coerceAtLeast(0), speed)}", color = Color.White.copy(alpha = 0.9f), fontSize = 16.sp, style = shade)
             }
         }
@@ -266,7 +266,7 @@ internal fun Controls(
             var logoFailed by remember(logo) { mutableStateOf(logo.isNullOrBlank()) }
             if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 300.dp, maxHeight = 64.dp),
                 alignment = Alignment.CenterStart, contentScale = androidx.compose.ui.layout.ContentScale.Fit, onError = { logoFailed = true })
-            else Text(name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            else Text(name, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             ep?.let { m ->
                 val rest = title.substring(m.range.last + 1).trim().trimStart('-', '·', '–').trim()
                 Text("S${m.groupValues[1].toInt()} E${m.groupValues[2].toInt()}" + (if (rest.isNotEmpty()) "  •  $rest" else ""),
@@ -426,8 +426,8 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
 private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, big: Boolean = false,
                           onFocus: () -> Unit = {}, onClick: () -> Unit) {
     Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape, onFocus = onFocus) { focused ->
-        Box(Modifier.size(if (big) 68.dp else 52.dp).background(if (focused) Color.White else Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(icon, label, Modifier.size(if (big) 38.dp else 26.dp), tint = if (focused) Color.Black else Color.White)
+        Box(Modifier.size(if (big) 68.dp else 52.dp).background(if (focused) com.lekathedon.visionlite.ui.KitInk.bg else Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(icon, label, Modifier.size(if (big) 38.dp else 26.dp), tint = if (focused) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text)
         }
     }
 }
@@ -435,8 +435,8 @@ private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector,
 @Composable
 private fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Focusable(onClick, modifier, RoundedCornerShape(20.dp)) { f ->
-        Text(text, color = if (f) Color.Black else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium,
-            modifier = Modifier.background(if (f) Color.White else Color(0x33FFFFFF)).padding(horizontal = 18.dp, vertical = 9.dp))
+        Text(text, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x33FFFFFF)).padding(horizontal = 18.dp, vertical = 9.dp))
     }
 }
 

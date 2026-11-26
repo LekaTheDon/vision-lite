@@ -69,7 +69,7 @@ internal object NuvioTheme {
     object colors {
         val Background = Palette.Base
         val BackgroundElevated = Color(0xFF16171A)
-        val Secondary = Color(0xFFD9DC8E)
+        val Secondary = com.lekathedon.visionlite.ui.KitInk.accent
         val OnSecondary = Color.Black
         val TextPrimary = Palette.Text
         val TextSecondary = Color(0xB3FFFFFF)

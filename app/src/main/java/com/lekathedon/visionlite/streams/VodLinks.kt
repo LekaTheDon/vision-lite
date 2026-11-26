@@ -21,6 +21,38 @@ object VodLinks {
 
     fun available(): Boolean = runCatching { Vod.count() > 0 }.getOrDefault(false)
 
+    /**
+     * The title page's "Play with VOD" (user 2026-11-26): true when your VOD lists this film / show, by name (+ year for
+     * films) in vod.db only: no network, so it is cheap enough to ask on every title page. Episodes are checked on press.
+     */
+    suspend fun present(type: String, imdb: String, names: List<String>, year: Int?): Boolean = withContext(Dispatchers.IO) {
+        if (!available()) return@withContext false
+        val kind = if (type == "movie") "movie" else "series"
+        if (com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb)?.kind == kind) return@withContext true
+        val wanted = names.map(::clean).filter { it.length >= 2 }.toSet()
+        wanted.any { w ->
+            runCatching { Vod.search(kind, w.split(' ').maxBy { it.length }) }.getOrDefault(emptyList())
+                .any { clean(it.name) in wanted && (kind != "movie" || yearOk(it.name, year)) }
+        }
+    }
+
+    /** One VOD copy as the "Play with VOD" list names it: audio (dub / subtitled / original), quality, Atmos, HDR, playlist. */
+    fun label(l: Link): String {
+        val shown = l.stream.title.orEmpty().substringBefore('\n')
+        val t = shown.lowercase()
+        val parts = mutableListOf<String>()
+        parts += l.dub?.let { java.util.Locale(it).getDisplayLanguage(java.util.Locale.ENGLISH) + " dub" }
+            ?: if (Regex("""\b(sub|subbed|subs|vostfr)\b|مترجم""").containsMatchIn(t)) "Subtitled" else "Original audio"
+        when (height(shown)) { 2160 -> "4K"; 1080 -> "1080p"; 720 -> "720p"; else -> null }?.let(parts::add)
+        if ("atmos" in t) parts += "Atmos"
+        if (Regex("""\b(dv|dolby vision)\b""").containsMatchIn(t)) parts += "Dolby Vision" else if (Regex("""\bhdr(10)?\b""").containsMatchIn(t)) parts += "HDR"
+        l.stream.title.orEmpty().substringAfter("📺 ", "").substringBefore(" VOD").takeIf { it.isNotBlank() }?.let(parts::add)
+        return parts.joinToString(" · ")
+    }
+
+    /** Best first: the quality, then original audio before dubs. */
+    fun sorted(links: List<Link>): List<Link> = links.sortedWith(compareByDescending<Link> { height(it.stream.title.orEmpty()) }.thenBy { if (it.dub == null) 0 else 1 })
+
     /** "EN - Dune: Part Two (2024) 4K" → "dune part two". */
     internal fun clean(name: String): String =
         name.replace(PREFIX, "").replace(TAGS, " ").replace(YEAR, " ").lowercase()

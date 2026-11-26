@@ -125,7 +125,7 @@ fun GroupArrange(title: String, kind: String, all: List<String>, onChanged: () -
                         } else if (!mine) false
                         else when (e.key) { Key.DirectionUp -> move(-1); Key.DirectionDown -> move(1); else -> false }
                     }) { f ->
-                    Row(Modifier.fillMaxWidth().background(if (mine) Color(0xFFD9DC8E) else if (f) Color.White else Color(0x12FFFFFF)).padding(horizontal = 14.dp, vertical = 10.dp),
+                    Row(Modifier.fillMaxWidth().background(if (mine) com.lekathedon.visionlite.ui.KitInk.accent else if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x12FFFFFF)).padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text((if (mine) "↕  " else "") + g.ifEmpty { "(no group)" }, color = when { f || mine -> Color.Black; off -> Palette.TextDim; else -> Palette.Text },
                             fontSize = 16.sp, fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,

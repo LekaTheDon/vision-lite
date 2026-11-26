@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -143,6 +144,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     val logo = m?.logo ?: imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
     val isSeries = if (m != null && t == null && AnimeMeta.isAnimeId(s.id)) m.type == "series" else s.type == "series" || t?.type == "series"
     var sheet by remember(s.id) { mutableStateOf<Sheet?>(null) }
+    // "Play with VOD" (user 2026-11-26): only when your IPTV VOD lists this title (vod.db, no network) and IPTV is on.
+    val vodHere by androidx.compose.runtime.produceState(false, s.id, name, isSeries, t?.year) {
+        value = imdbId != null && com.lekathedon.visionlite.anime.Hubs.on("IPTV") &&
+            com.lekathedon.visionlite.streams.VodLinks.present(if (isSeries) "series" else "movie", imdbId, listOf(name, s.name).distinct(), t?.year)
+    }
 
     val style = Kit.style
     Box(Modifier.fillMaxSize().skinPage(look.skin)) {
@@ -289,21 +295,40 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             next != null -> "Play S${next.season} E${next.number}"
                             else -> eps.firstOrNull { it.season == seasons.firstOrNull() }?.let { "Play S${it.season} E${it.episode}" } ?: "Play"
                         }
+                        /** What Play plays: (video id, title); null = nothing aired yet. */
+                        fun playTarget(): Pair<String, String>? {
+                            if (!isSeries) return (if (AnimeMeta.isAnimeId(s.id)) m?.id ?: s.id else s.id) to name
+                            val listed = next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
+                            // Trakt's next episode is missing from the list (a season IMDb hasn't added yet, user
+                            // 2026-11-26 JoJo S6E6 played S1E1): play that episode anyway, never the first one.
+                            if (next != null && listed == null && imdbId != null) return "$imdbId:${next.season}:${next.number}" to "$name S${next.season}E${next.number}"
+                            val e = (listed ?: eps.firstOrNull { it.season == seasons.firstOrNull() })
+                                ?.takeIf { it.airedMs == null || it.airedMs <= System.currentTimeMillis() } ?: return null
+                            return e.videoId to "$name S${e.season}E${e.episode}"
+                        }
                         KitButton(playLabel, I.Play, {
-                            if (!isSeries) nav.push(Screen.Streams(s.type, if (AnimeMeta.isAnimeId(s.id)) m?.id ?: s.id else s.id, name, s.id))
-                            else {
-                                val listed = next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
-                                // Trakt's next episode is missing from the list (a season IMDb hasn't added yet, user
-                                // 2026-11-26 JoJo S6E6 played S1E1): play that episode anyway, never the first one.
-                                if (next != null && listed == null && imdbId != null) {
-                                    nav.push(Screen.Streams("series", "$imdbId:${next.season}:${next.number}", "$name S${next.season}E${next.number}", s.id))
-                                    return@KitButton
-                                }
-                                val e = (listed ?: eps.firstOrNull { it.season == seasons.firstOrNull() })
-                                    ?.takeIf { it.airedMs == null || it.airedMs <= System.currentTimeMillis() }
-                                e?.let { nav.push(Screen.Streams("series", it.videoId, "$name S${it.season}E${it.episode}", s.id)) }
-                            }
+                            playTarget()?.let { (id, title) -> nav.push(Screen.Streams(if (isSeries) "series" else s.type, id, title, s.id)) }
                         }, Modifier.focusRequester(play).onFocusChanged { if (it.isFocused) { hint = null; heroMoves++ } }, primary = true)
+                        // Play with VOD: your IPTV VOD's copies of this title / episode, each named (dub or subtitled,
+                        // 4K / 1080p, Atmos, HDR, playlist); OK plays it straight away. Separate from Vision TB.
+                        if (vodHere) KitButton("Play with VOD", I.LiveTv, {
+                            val (id, title) = playTarget() ?: return@KitButton
+                            val vid = if (isSeries) id else imdbId ?: id
+                            hint = "Looking in your VOD…"
+                            scope.launch {
+                                val V = com.lekathedon.visionlite.streams.VodLinks
+                                val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid) }.getOrDefault(emptyList())).take(12)
+                                hint = null
+                                sheet = if (opts.isEmpty()) Sheet.Menu("Not in your VOD" + (if (isSeries) " for this episode" else ""), listOf(Triple("OK", null) {}))
+                                else Sheet.Menu("Play with VOD · $title", opts.map { l ->
+                                    Triple(V.label(l), I.Play as androidx.compose.ui.graphics.vector.ImageVector?) {
+                                        com.lekathedon.visionlite.streams.ResumeLinks.remember(id, l)
+                                        nav.push(Screen.Player(l.stream.url.orEmpty(), title, emptyMap(), if (isSeries) "series" else s.type, id,
+                                            listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.title).joinToString("\n"), l.source, l.bytes))
+                                    }
+                                })
+                            }
+                        }, Modifier.hint("Play with VOD"))
                         // Trailer: a choice, so it can also play full screen instead of behind the page.
                         if (imdbId != null) KitIcon(if (trailer != null) "Trailer playing" else "Trailer", I.Theaters, {
                             sheet = Sheet.Menu("Trailer", listOf(
@@ -977,7 +1002,7 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                 }
                 is Sheet.Menu -> {
                     com.lekathedon.visionlite.ui.Eyebrow(sh.title, Modifier.padding(bottom = 14.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.heightIn(max = 470.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         sh.items.forEachIndexed { i, (label, icon, act) ->
                             KitButton(label, icon, { act(); onClose() }, if (i == 0) Modifier.focusRequester(first) else Modifier, primary = i == 0)
                         }

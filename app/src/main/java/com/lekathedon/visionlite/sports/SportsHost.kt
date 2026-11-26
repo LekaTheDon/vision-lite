@@ -214,14 +214,14 @@ private fun Card(title: String, sub: String, buttons: List<Pair<String, () -> Un
     val first = remember { FocusRequester() }
     LaunchedEffect(title) { delay(50); runCatching { first.requestFocus() } }
     Column(Modifier.widthIn(max = 460.dp).background(Color(0xF2101114), RoundedCornerShape(14.dp)).padding(18.dp)) {
-        Text("Sports", color = Color(0xFFD9DC8E), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text("Sports", color = com.lekathedon.visionlite.ui.KitInk.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
         Text(sub, color = Color(0xB3FFFFFF), fontSize = 14.sp)
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             buttons.forEachIndexed { i, (label, act) ->
                 Focusable(act, if (i == 0) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(50)) { f ->
-                    Text(label, color = if (f) Color.Black else Color.White, fontSize = 14.sp,
-                        modifier = Modifier.background(if (f) Color.White else Color(0x26FFFFFF)).padding(horizontal = 14.dp, vertical = 7.dp))
+                    Text(label, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 14.sp,
+                        modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x26FFFFFF)).padding(horizontal = 14.dp, vertical = 7.dp))
                 }
             }
         }
@@ -239,7 +239,7 @@ private fun ScoringCard() {
     Row(Modifier.width(420.dp).background(Color(0xF2101114), RoundedCornerShape(14.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Img(alert.team.logo, 44.dp, 44.dp, Modifier.size(44.dp), ContentScale.Fit)
         Column(Modifier.padding(start = 12.dp)) {
-            Text("$word · ${alert.team.name}", color = Color(0xFFD9DC8E), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("$word · ${alert.team.name}", color = com.lekathedon.visionlite.ui.KitInk.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text(listOfNotNull(ev.home, ev.away).joinToString("  –  ") { "${it.team.name} ${it.score.orEmpty()}" }.ifBlank { ev.title },
                 color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             ev.status?.let { Text(it, color = Color(0x99FFFFFF), fontSize = 12.sp) }

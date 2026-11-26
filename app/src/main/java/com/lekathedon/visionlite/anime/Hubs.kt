@@ -39,6 +39,29 @@ object Hubs {
         _content.value = Hub.FILMS; p.contentHub.value = Hub.FILMS.key
         if (p.appSection.value == Hub.ANIME.key) p.appSection.value = Hub.FILMS.key
     }
+    /** Settings › Home hubs: [key] ("NUVIO" / "ANIME" / "IPTV") switched on (Anime also needs its own hub). */
+    fun on(key: String): Boolean = when (key) {
+        Hub.FILMS.key -> p.hubFilms.value
+        Hub.ANIME.key -> p.hubAnime.value && separate()
+        "IPTV" -> p.hubIptv.value
+        else -> true
+    }
+    private fun flagOf(key: String) = when (key) { Hub.FILMS.key -> p.hubFilms; Hub.ANIME.key -> p.hubAnime; else -> p.hubIptv }
+    private val order = listOf(Hub.FILMS.key, Hub.ANIME.key, "IPTV")
+
+    /** Switches a hub; false = refused (the last hub on stays on). Home moves off a hub that was switched off. */
+    fun setOn(key: String, want: Boolean): Boolean {
+        if (!want && order.none { it != key && on(it) }) return false
+        flagOf(key).value = want
+        if (!want) {
+            val next = order.first { on(it) }
+            if (p.appSection.value == key) setSection(next)
+            // Home's rows come from a content hub that is on (Anime when Films & TV is off, and the other way round).
+            Hub.of(key)?.let { h -> if (_content.value == h) order.mapNotNull { Hub.of(it) }.firstOrNull { on(it.key) }?.let { c -> _content.value = c; p.contentHub.value = c.key } }
+        }
+        return true
+    }
+
     /** The content hub shown on Home (the last of Films & TV / Anime picked; IPTV, YouTube and Music leave it as it was). */
     val content: StateFlow<Hub> get() = _content
     fun now(): Hub = _content.value

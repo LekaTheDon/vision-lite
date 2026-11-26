@@ -61,7 +61,7 @@ import java.util.Locale
 
 private val Muted get() = Palette.TextDim
 private val LiveRed = Color(0xFFE5484D)
-private val Gold = Color(0xFFD9DC8E)
+private val Gold = com.lekathedon.visionlite.ui.KitInk.accent
 private val hm = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 /** Keeps Sports fetching while the caller is on screen (scores, states and channels stay fresh). */

@@ -200,6 +200,10 @@ class Prefs(context: Context) {
     /** The Anime hub's own Home row order and hidden rows. */
     val rowOrderAnime = Text("row_order_anime", "")
     val rowsHiddenAnime = Text("rows_hidden_anime", "")
+    /** Settings › Home hubs: each of Home's hubs (Films & TV, Anime, IPTV) on or off; one always stays on. */
+    val hubFilms = Flag("hub_on_films", true)
+    val hubAnime = Flag("hub_on_anime", true)
+    val hubIptv = Flag("hub_on_iptv", true)
     /** Home's content hub: "NUVIO" (Films & TV) or "ANIME". */
     val contentHub = Text("content_hub", "NUVIO")
     /** Anime: "separate" (its own hub, default), "merged" (its own rows on Films & TV's Home) or "off" (gone from the whole app). */
@@ -263,7 +267,8 @@ class Prefs(context: Context) {
     val resumeLinks = Text("resume_links", "")
     val visionTb = Flag("vision_tb", false)
     /** Your IPTV VOD films and series join Vision TB's links (autoplay can pick them). */
-    val vodInTb = Flag("vod_in_tb", true)
+    // VOD has its own "Play with VOD" button on the title page (user 2026-11-26: separate from Vision TB); new key, off.
+    val vodInTb = Flag("vod_in_tb2", false)
     /** Preferred dub (user 2026-11-24): "" = off (original audio); a language code = a link dubbed in it wins autoplay. */
     val dubLang = Text("dub_lang", "")
     /** Fast horizontal navigation (Vision's Advanced): held Left/Right repeats every 48 ms instead of 80 ms. */

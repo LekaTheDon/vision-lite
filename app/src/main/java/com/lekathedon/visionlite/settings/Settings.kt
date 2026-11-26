@@ -243,7 +243,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Hide cinema recordings", "CAM and TS copies", p.hideCam, m) }
         head("Autoplay")
         row { m -> Toggle("Smart autoplay", "Plays the right episode, 4K first, then the biggest file. Off until Vision TB is autoplay safe", p.autoplay, m) }
-        row { m -> Toggle("IPTV VOD in Vision TB", "Your playlists' films and series join the links; autoplay picks them when they're best or the only one", p.vodInTb, m) }
+        row { m -> Toggle("IPTV VOD also in Vision TB", "Off (default): VOD stays separate, on the title page's Play with VOD button. On: VOD copies also join Vision TB's links", p.vodInTb, m) }
         head("Debrid accounts (torrent links from your add-ons)")
         row { m -> ServiceRow("realdebrid", nav, m) }
         row { m -> ServiceRow("alldebrid", nav, m) }
@@ -333,6 +333,10 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Home follows the look", "Home's fonts, colours, pills and focus in the look and skin (sizes stay); off = Home's own look", p.homeLook, m) }
         row { m -> Choice("Button size", "Buttons, icons and switches past Home", p.uiSize,
             com.lekathedon.visionlite.ui.Theme.sizes.map { (k, l) -> k to if (k == "small") "$l · default" else l }, m) }
+        head("Home hubs")
+        row { m -> HubToggle("Films & TV", "Films and series: Discover, Search, Library, Calendar, Cloud", "NUVIO", p.hubFilms, m) }
+        row { m -> HubToggle("Anime", "Its own hub (Settings › Anime: Separate hub)", "ANIME", p.hubAnime, m) }
+        row { m -> HubToggle("IPTV", "Live TV, Sports, VOD and Recordings", "IPTV", p.hubIptv, m) }
         head("Rows")
         row { m -> Link("Arrange rows", "Turn rows on or off, change the order, refresh", m) { nav.push(Screen.Rows) } }
         row { m -> Link("Your interests", "The genres you watch most (learned) and the ones you like: each gets a \"Because you like\" row", m) { nav.push(Screen.Interests) } }
@@ -1008,6 +1012,19 @@ private fun SportsSwitch(title: String, sub: String, modifier: Modifier, get: (c
 @Composable
 private fun Link(title: String, sub: String, modifier: Modifier = Modifier, value: String = "›", onClick: () -> Unit) {
     Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f -> RowText(title, sub, value.ifEmpty { "›" }, f) }
+}
+
+/** One of Home's hubs on or off; the last one on can't be switched off (says so). */
+@Composable
+private fun HubToggle(title: String, sub: String, key: String, flag: Prefs.Flag, modifier: Modifier = Modifier) {
+    val on by flag.flow.collectAsState()
+    var badge by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(badge) { if (badge != null) { kotlinx.coroutines.delay(3_000); badge = null } }
+    Focusable({
+        badge = if (com.lekathedon.visionlite.anime.Hubs.setOn(key, !on)) "✓ Saved: ${if (!on) "On" else "Off"}" else "One hub has to stay on"
+    }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
+        RowText(title, sub, null, f, switch = on, badge = badge)
+    }
 }
 
 @Composable

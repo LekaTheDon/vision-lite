@@ -242,10 +242,9 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         com.lekathedon.visionlite.ui.LoadingHero(s.metaId.ifBlank { s.id }.let { if (s.id.startsWith("tt")) s.id else it }, s.title,
             getting.ifEmpty { "Finding the best link…" },
             if (pending > 0) "${links.size} links · waiting for $pending source(s)" else "${links.size} links · choosing") {
-            Focusable({ auto = false }, Modifier.padding(top = 22.dp).focusRequester(pick), shape = androidx.compose.foundation.shape.RoundedCornerShape(50)) { f ->
-                Text("Choose a link myself", color = if (f) Color.Black else Palette.Text, fontSize = 15.sp,
-                    modifier = Modifier.background(if (f) Color.White else Color(0x33FFFFFF)).padding(horizontal = 20.dp, vertical = 10.dp))
-            }
+            // The look's own button (same as every page), not a washed bubble.
+            com.lekathedon.visionlite.ui.KitButton("Choose a link myself", com.lekathedon.visionlite.ui.Icons.Sources, { auto = false },
+                Modifier.padding(top = 22.dp).focusRequester(pick))
         }
         return
     }
@@ -264,12 +263,12 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             items(shown) { l ->
                 val mod = if (l === firstPlayable) Modifier.focusRequester(first) else Modifier
                 Focusable({ if (l.playable) scope.launch { play(nav, s, l, replace = false, shown) { getting = it } } }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
-                    Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(12.dp)) {
+                    Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.Kit.card2 else Palette.Card).padding(12.dp)) {
                         Text((if (l.tb != null) "" else "${l.source} · ") + l.stream.name.orEmpty().replace('\n', ' '), color = if (l.playable) Palette.Text else Palette.TextDim,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         Text(if (l.stream.url == null && l.tb == null && l.playable) "Torrent · plays through ${Debrid.names()} · " + l.stream.details
                             else if (l.playable) l.stream.details else "Torrent link: sign in to a debrid service (Settings › links) or use a debrid add-on", color = Palette.TextDim, fontSize = 13.sp, maxLines = 3)
-                        if (l.playable && LinkMemory.pickMatch(s.id, l) == 2) Text("★ Same release you watched before", color = Color(0xFFD9DC8E), fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                        if (l.playable && LinkMemory.pickMatch(s.id, l) == 2) Text("★ Same release you watched before", color = com.lekathedon.visionlite.ui.KitInk.accent, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
                         LinkMemory.warning(l, minutes)?.let { Text("⚠ $it", color = Color(0xFFFFB454), fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp)) }
                     }
                 }

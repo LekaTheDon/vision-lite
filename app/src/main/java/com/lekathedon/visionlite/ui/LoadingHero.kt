@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun LoadingHero(id: String, title: String, status: String, sub: String = "", modifier: Modifier = Modifier, extra: @Composable () -> Unit = {}) {
     val imdb = id.substringBefore(':').takeIf { it.startsWith("tt") }
-    Box(modifier.fillMaxSize().background(Color.Black)) {
+    Box(modifier.fillMaxSize().background(Palette.Base)) {
         if (imdb != null) Img("https://images.metahub.space/background/large/$imdb/img", 1280.dp, 720.dp, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xE6000000), 0.45f to Color(0x80000000), 0.8f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color(0xCC000000))))
@@ -41,16 +41,16 @@ fun LoadingHero(id: String, title: String, status: String, sub: String = "", mod
             if (!logoFailed) coil3.compose.AsyncImage("https://images.metahub.space/logo/medium/$imdb/img", name,
                 Modifier.sizeIn(maxWidth = 420.dp, maxHeight = 130.dp), contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
                 onError = { logoFailed = true })
-            else Text(name, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            else DisplayText(if (Kit.style == Style.MARQUEE) name.uppercase() else name, 34.sp, maxLines = 2)
             Regex("""S(\d+)E(\d+)$""").find(title)?.let { m ->
-                Text("Season ${m.groupValues[1].toInt()} · Episode ${m.groupValues[2].toInt()}", color = Color(0xE6FFFFFF), fontSize = 16.sp,
+                Text("Season ${m.groupValues[1].toInt()} · Episode ${m.groupValues[2].toInt()}", color = Palette.Text.copy(alpha = 0.9f), fontSize = 16.sp,
                     modifier = Modifier.padding(top = 10.dp))
             }
             Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                Text(status, color = Color.White, fontSize = 16.sp, modifier = Modifier.padding(start = 12.dp))
+                CircularProgressIndicator(Modifier.size(18.dp), color = Kit.accent, strokeWidth = 2.dp)
+                Text(status, color = Palette.Text, fontSize = 16.sp, modifier = Modifier.padding(start = 12.dp))
             }
-            if (sub.isNotEmpty()) Text(sub, color = Color(0xB3FFFFFF), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+            if (sub.isNotEmpty()) Text(sub, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
             extra()
         }
     }
