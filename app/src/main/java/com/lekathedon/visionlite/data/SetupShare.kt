@@ -18,7 +18,7 @@ import java.util.zip.GZIPOutputStream
  * Cost: nothing until used.
  */
 object SetupShare {
-    private val STRINGS = listOf("addons", "tb_addons", "max_quality", "size_limit", "leave_out")
+    private val STRINGS = listOf("addons", "tb_addons", "max_quality", "size_limit")
     private val SETS = listOf("addons_off", "tb_off", "addon_no_rows", "addon_no_meta", "addon_no_links")
     private val FLAGS = listOf("vision_tb", "hide_torrents", "hide_cam")
 
