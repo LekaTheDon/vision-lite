@@ -127,6 +127,8 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             pending = 0
             return@LaunchedEffect
         }
+        // Hand fixes for titles (TitleFixes): a newer signed copy, at most every 12 h, only when FIXES_URL is set.
+        launch { com.lekathedon.visionlite.tb.TitleFixes.refresh() }
         // Resume on the exact link: a title stopped part-way plays the same file again, no search (falls through if it won't come).
         if (auto && ResumeLinks.has(s.id)) {
             getting = "Resuming on the same link…"

@@ -107,7 +107,7 @@ object VisionTb {
                     }
                 }
             }
-            val idTarget = DiscoveryTarget(imdb, series, listOfNotNull(facts?.name?.takeIf { it.isNotBlank() }), facts?.year, season, episode,
+            val idTarget = DiscoveryTarget(imdb, series, listOfNotNull(facts?.name?.takeIf { it.isNotBlank() }) + TitleFixes.aka(imdb), facts?.year, season, episode,
                 isAnime = series && (facts?.kind == TitleFacts.Kind.ANIME || zip != null), endYear = facts?.endYear)
             val claimed = HashSet<String>()
             var budget = DiscoveryPipeline.MAX_CACHE_CHECKS

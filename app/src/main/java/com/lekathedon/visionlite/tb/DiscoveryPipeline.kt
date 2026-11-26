@@ -159,6 +159,8 @@ object DiscoveryPipeline {
      * Null = no clash. Text only.
      */
     internal fun clash(name: String, target: DiscoveryTarget): String? {
+        // A hand fix (TitleFixes) says this release is never the title.
+        if (TitleFixes.rejects(target.imdbId, name)) return "fix_reject"
         val y0 = target.year ?: return null
         val tokens = ReleaseMatcher.tokens(name)
         val titleTokens = target.titles.flatMap { ReleaseMatcher.tokens(it) }.toSet()

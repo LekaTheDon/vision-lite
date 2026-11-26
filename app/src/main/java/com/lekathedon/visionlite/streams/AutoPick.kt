@@ -399,7 +399,10 @@ object AutoPick {
      * whichever source it came from (user 2026-11-26). Null = fine or facts unknown.
      */
     fun clashOf(l: Link, videoId: String, t: EpisodeCheck.Target?): String? {
-        val f = com.lekathedon.visionlite.tb.TitleFacts.get(videoId.substringBefore(':').takeIf { it.startsWith("tt") }) ?: return null
+        val imdb = videoId.substringBefore(':').takeIf { it.startsWith("tt") }
+        // A hand fix's reject list works even before IMDb's facts are known.
+        if (imdb != null && listOfNotNull(l.fileName, l.stream.behaviorHints?.filename, l.stream.name, l.stream.title).any { com.lekathedon.visionlite.tb.TitleFixes.rejects(imdb, it) }) return "fix_reject"
+        val f = com.lekathedon.visionlite.tb.TitleFacts.get(imdb) ?: return null
         val target = com.lekathedon.visionlite.tb.DiscoveryTarget(videoId.substringBefore(':'), t != null, listOf(f.name), f.year, t?.season, t?.episode,
             isAnime = t != null && f.kind == com.lekathedon.visionlite.tb.TitleFacts.Kind.ANIME, endYear = f.endYear)
         return listOfNotNull(l.fileName, l.stream.behaviorHints?.filename, l.stream.title?.lineSequence()?.firstOrNull()).firstNotNullOfOrNull { com.lekathedon.visionlite.tb.DiscoveryPipeline.clash(it, target) }

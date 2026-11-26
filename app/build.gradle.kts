@@ -22,7 +22,7 @@ android {
         // Simkl / AniList / MyAnimeList app IDs (repo secrets too): with them, signing in is just approving on the phone.
         // Problem reports: an issues-only key for the app's repo (REPORT_TOKEN); without it reports go by phone only.
         buildConfigField("String", "REPORT_REPO", "\"${System.getenv("REPORT_REPO") ?: "LekaTheDon/vision-lite"}\"")
-        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET", "NUVIO_KEY", "REPORT_TOKEN", "META_URL", "META_KEY"))
+        for (k in listOf("SIMKL_CLIENT_ID", "ANILIST_CLIENT_ID", "MAL_CLIENT_ID", "MAL_CLIENT_SECRET", "NUVIO_KEY", "REPORT_TOKEN", "META_URL", "META_KEY", "FIXES_URL"))
             buildConfigField("String", k, "\"${System.getenv(k) ?: ""}\"")
     }
 

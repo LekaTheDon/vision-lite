@@ -18,6 +18,9 @@ object TitleFacts {
 
     fun get(imdb: String?): Facts? = imdb?.substringBefore(':')?.let { map[it] ?: Imdb.cachedTitle(it)?.let(::from)?.also { f -> map[it] = f } }
 
+    /** New hand fixes arrived (TitleFixes): facts are worked out again. */
+    fun forget() = map.clear()
+
     /** The details page's title, as it is drawn. */
     fun put(t: Imdb.Title) { map[t.id] = from(t) }
 
@@ -34,7 +37,7 @@ object TitleFacts {
             (t.genres.any { it.equals("Animation", true) || it.equals("Anime", true) } &&
                 com.lekathedon.visionlite.player.OriginalLang.cached(t.id) == "ja")
         val kind = when { anime -> Kind.ANIME; series || t.seasons.isNotEmpty() -> Kind.SHOW; else -> Kind.MOVIE }
-        return Facts(kind, t.name, t.year, t.endYear, t.runtimeMin)
+        return TitleFixes.apply(t.id, Facts(kind, t.name, t.year, t.endYear, t.runtimeMin))
     }
 
     /**

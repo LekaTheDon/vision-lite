@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "about": "Vision Lite hand fixes per IMDb id (tb/TitleFixes.kt). kind/year/end/runtime override IMDb; aka = extra release names; reject = regex never this title.",
+  "titles": {
+    "tt0434706": {
+      "kind": "anime", "year": 2004, "end": 2005, "runtime": 24,
+      "aka": ["Naoki Urasawa's Monster", "Naoki Urasawas Monster"],
+      "reject": ["(?i)\\b(dahmer|ed[ ._-]?gein|menendez|lyle[ ._-]+and[ ._-]+erik)\\b", "(?i)\\bmonster[ ._-]+(19[0-9]{2}|20(0[6-9]|[1-9][0-9]))\\b"]
+    }
+  }
+}
