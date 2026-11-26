@@ -124,7 +124,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     var resolving by remember(s.id) { mutableStateOf(s.type == "series" && AnimeMeta.isAnimeId(s.id)) }
     LaunchedEffect(s.id) {
         if (s.type == "series" && AnimeMeta.isAnimeId(s.id)) {
-            kotlinx.coroutines.withTimeoutOrNull(10_000) { AnimeMeta.parentOf(s.id) }
+            kotlinx.coroutines.withTimeoutOrNull(10_000) { AnimeMeta.parentOf(s.id, s.name) }
                 ?.let { (tt, season) -> nav.replace(Screen.Detail("series", tt, s.name, season)); return@LaunchedEffect }
             resolving = false
         }
