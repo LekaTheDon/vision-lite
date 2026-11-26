@@ -316,8 +316,8 @@ internal fun LiveControls(
                         add(if (recording != null) LiveBtn(I.Stop, "Stop recording", Color(0xFFE53935)) { perform(LiveKeys.Action.RECORD, 0) }
                             else LiveBtn(I.Record, "Record", Color(0xFFE53935)) { perform(LiveKeys.Action.RECORD, 0) })
                     }
-                    add(LiveBtn(I.Audio, "Audio") { panel = LivePanel.AUDIO })
-                    add(LiveBtn(I.Subtitles, "Subtitles") { panel = LivePanel.SUBS })
+                    add(LiveBtn(I.Audio, "Audio" + (currentTrack(player, C.TRACK_TYPE_AUDIO)?.let { ": $it" } ?: "")) { panel = LivePanel.AUDIO })
+                    add(LiveBtn(I.Subtitles, "Subtitles: " + currentTrack(player, C.TRACK_TYPE_TEXT)) { panel = LivePanel.SUBS })
                     add(LiveBtn(I.Aspect, "Picture: ${listOf("Fit", "Zoom", "Stretch")[aspect]}") { perform(LiveKeys.Action.PICTURE, 0) })
                     add(LiveBtn(I.Sleep, sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: "Sleep timer", if (sleepAt != null) Color(0xFF64B5F6) else null) { panel = LivePanel.SLEEP })
                     add(LiveBtn(I.History, "Last channel") { panel = null; perform(LiveKeys.Action.LAST_CHANNEL, 0) })
@@ -468,6 +468,7 @@ private fun ChannelList(current: String, minute: Long, startGroups: Boolean, gui
     }
     val groups by produceState(emptyList<Pair<String, Int>>(), picking, grev) { if (picking) value = withContext(Dispatchers.IO) { Iptv.groups() } }
     val list = rememberLazyListState()
+    val fast = com.lekathedon.visionlite.ui.rememberFastList(list)
     val focus = remember { FocusRequester() }
     var focusAt by remember { mutableIntStateOf(-1) }
     val start = if (focusAt >= 0) focusAt.coerceAtMost((channels.size - 1).coerceAtLeast(0)) else channels.indexOfFirst { it.url == current }.coerceAtLeast(0)
@@ -489,10 +490,13 @@ private fun ChannelList(current: String, minute: Long, startGroups: Boolean, gui
             val gFocus = remember { FocusRequester() }
             LaunchedEffect(groups) { if (groups.isNotEmpty()) { delay(40); runCatching { gFocus.requestFocus() } } }
             val all = listOf("★" to Iptv.favourites().size, Iptv.RECENT to Iptv.recents().size, "" to groups.sumOf { it.second }) + groups
-            LazyColumn(Modifier.width(300.dp).fillMaxHeight().background(Glass), contentPadding = PaddingValues(vertical = 32.dp, horizontal = 12.dp)) {
+            val gFast = com.lekathedon.visionlite.ui.rememberFastList()
+            LazyColumn(Modifier.width(300.dp).fillMaxHeight().background(Glass), state = gFast.state, contentPadding = PaddingValues(vertical = 32.dp, horizontal = 12.dp)) {
                 itemsIndexed(all, key = { _, it -> it.first }) { i, (g, n) ->
                     val name = when (g) { "★" -> "★ Favourites"; Iptv.RECENT -> "⟲ Recent"; "" -> "All channels"; else -> g }
-                    Focusable({ group = g; picking = false; focusAt = 0 }, (if (i == 0) Modifier.focusRequester(gFocus) else Modifier).padding(bottom = 4.dp).fillMaxWidth()) { f ->
+                    // Held Left: back to the top (Favourites), as TiviMate.
+                    Focusable({ group = g; picking = false; focusAt = 0 }, (if (i == 0) Modifier.focusRequester(gFocus) else Modifier).then(gFast.mod(i))
+                        .onPreviewKeyEvent { gFast.onKey(it, i, all.size, leftTop = true) }.padding(bottom = 4.dp).fillMaxWidth()) { f ->
                         Row(Modifier.fillMaxWidth().background(if (f) Color.White else Color.Transparent).padding(10.dp)) {
                             Text(name, color = if (f) Color.Black else Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             Text("$n", color = if (f) Color.DarkGray else Color(0xFFAAAAAA), fontSize = 12.sp)
@@ -512,10 +516,12 @@ private fun ChannelList(current: String, minute: Long, startGroups: Boolean, gui
                     val nowP by produceState<EpgProgram?>(null, c, minute) {
                         value = withContext(Dispatchers.IO) { runCatching { Iptv.nowNext(c).firstOrNull { it.isLive(System.currentTimeMillis()) } }.getOrNull() }
                     }
-                    Focusable({ onPick(c, channels) }, (if (i == start) Modifier.focusRequester(focus) else Modifier).fillMaxWidth().onPreviewKeyEvent { e ->
+                    Focusable({ onPick(c, channels) }, (if (i == start) Modifier.focusRequester(focus) else Modifier).then(fast.mod(i)).fillMaxWidth().onPreviewKeyEvent { e ->
                         val ok = e.key == Key.DirectionCenter || e.key == Key.Enter
                         when {
+                            fast.onKey(e, i, channels.size) -> true
                             e.type != KeyEventType.KeyDown -> false
+                            e.key == Key.DirectionLeft && e.nativeKeyEvent.repeatCount > 0 -> { picking = true; true }
                             e.key == Key.DirectionLeft -> { picking = true; true }
                             e.key == Key.DirectionRight -> { focusAt = i; progFor = c; true }
                             ok && e.nativeKeyEvent.repeatCount == 1 -> { HoldGuard.held(); Iptv.toggleFavourite(c); favTick++; true }

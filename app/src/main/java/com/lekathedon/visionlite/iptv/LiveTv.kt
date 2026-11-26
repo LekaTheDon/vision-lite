@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -105,12 +106,15 @@ fun LiveTv(nav: Nav) {
         }
         Row(Modifier.fillMaxSize().padding(top = 14.dp)) {
             // Groups
-            LazyColumn(Modifier.width(230.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                val all = listOf("★" to Iptv.favourites().size, Iptv.RECENT to Iptv.recents().size, "" to groups.sumOf { it.second }) + groups
-                items(all, key = { it.first }) { (g, n) ->
+            val gFast = com.lekathedon.visionlite.ui.rememberFastList()
+            val all = listOf("★" to Iptv.favourites().size, Iptv.RECENT to Iptv.recents().size, "" to groups.sumOf { it.second }) + groups
+            LazyColumn(Modifier.width(230.dp).fillMaxHeight(), state = gFast.state, contentPadding = PaddingValues(bottom = 24.dp)) {
+                itemsIndexed(all, key = { _, it -> it.first }) { i, (g, n) ->
                     val name = when (g) { "★" -> "★ Favourites"; Iptv.RECENT -> "⟲ Recent"; "" -> "All channels"; else -> g }
                     val selected = (group ?: "") == g
-                    Focusable({ group = g.ifEmpty { null } }, Modifier.padding(bottom = 4.dp).fillMaxWidth()) { f ->
+                    // Held Up / Down: fast; held Left: back to the top (Favourites), as TiviMate.
+                    Focusable({ group = g.ifEmpty { null } }, gFast.mod(i).onPreviewKeyEvent { gFast.onKey(it, i, all.size, leftTop = true) }
+                        .padding(bottom = 4.dp).fillMaxWidth()) { f ->
                         Row(Modifier.fillMaxWidth().background(if (f) Color.White else if (selected) Color(0x33FFFFFF) else Color.Transparent).padding(10.dp)) {
                             Text(name, color = if (f) Color.Black else Palette.Text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             Text("$n", color = if (f) Color.DarkGray else Palette.TextDim, fontSize = 12.sp)
@@ -119,14 +123,15 @@ fun LiveTv(nav: Nav) {
                 }
             }
             // Channels
-            val list = rememberLazyListState()
-            LazyColumn(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 14.dp), state = list, contentPadding = PaddingValues(bottom = 24.dp)) {
+            val fast = com.lekathedon.visionlite.ui.rememberFastList()
+            LazyColumn(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 14.dp), state = fast.state, contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (channels.isEmpty()) item {
                     Text(if (group == "★") "No favourites yet: hold OK on a channel." else if (status.isNotEmpty()) "Loading…" else "No channels here.",
                         color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(12.dp))
                 }
-                items(channels, key = { it.key }) { c ->
-                    ChannelRow(c, minute, if (c == channels.first()) Modifier.focusRequester(first) else Modifier,
+                itemsIndexed(channels, key = { _, it -> it.key }) { i, c ->
+                    ChannelRow(c, minute, (if (i == 0) Modifier.focusRequester(first) else Modifier).then(fast.mod(i))
+                        .onPreviewKeyEvent { fast.onKey(it, i, channels.size) },
                         onFocus = { focused = c },
                         onPlay = { Iptv.zapList = channels; Iptv.played(c); nav.push(Screen.Player(c.url, c.name, c.headers, type = "live")) },
                         onHold = { Iptv.toggleFavourite(c) })

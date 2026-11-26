@@ -78,8 +78,9 @@ private val Aspects = listOf(
 private val Speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
 /**
- * The player's own controls (Vision's button set, drawn light): title and end time on top; seek bar and labelled
- * buttons below; side panels for audio, subtitles, speed and stats. Hidden: OK = pause/play, Left/Right = seek,
+ * The player's own controls, DebridStream's layout: title, episode and badges top left, clock and end time top right;
+ * one timeline line and five round buttons centred at the bottom; one right-hand panel for audio, subtitles and More
+ * (the choice in use ticked). Hidden: OK = pause/play, Left/Right = seek,
  * Up/Down = show. Shown: Back hides. Updates only while shown (once a second otherwise, for the auto-hide).
  */
 @OptIn(UnstableApi::class)
@@ -238,8 +239,8 @@ internal fun Controls(
         } } else if (seg != null && skipMode == "button") com.lekathedon.visionlite.ui.Inside(true) { Text("${seg.label}   OK", color = K.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
                 .background(K.accent, K.buttonShape).padding(horizontal = 22.dp, vertical = 11.dp)) }
-        // Paused: the time now and when this ends, top right (as Nuvio Arc); not for live TV.
-        if (!playing && onZap == null && dur > 0) {
+        // The time now and when this ends, top right (DebridStream / Nuvio Arc): with the controls, or paused; not live TV.
+        if ((visible || !playing) && onZap == null && dur > 0) {
             var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
             LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(5_000) } }
             val fmt = remember { java.text.SimpleDateFormat(if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm", Locale.getDefault()) }
@@ -253,20 +254,24 @@ internal fun Controls(
         }
         if (!visible) return@Box
 
-        // Vision's control chrome (old Vision, "Previous" style): everything bottom-left over a 260 dp shade — logo,
-        // episode line, badges just above the timeline, the time row, then small round icon-only buttons.
-        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(260.dp)
+        // DebridStream-style chrome: title, episode and badges top left (clock top right, above); one timeline line
+        // at the bottom with the times at its ends; five round buttons centred under it, Play the big one.
+        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(190.dp)
+            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent))))
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(230.dp)
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 36.dp, end = 380.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val ep = remember(title) { EPISODE.find(title) }
             val name = ep?.let { title.substring(0, it.range.first).trim() } ?: title
             var logoFailed by remember(logo) { mutableStateOf(logo.isNullOrBlank()) }
             if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 300.dp, maxHeight = 64.dp),
                 alignment = Alignment.CenterStart, contentScale = androidx.compose.ui.layout.ContentScale.Fit, onError = { logoFailed = true })
-            else Text(name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            val line = listOfNotNull(ep?.let { "S${it.groupValues[1].toInt()} E${it.groupValues[2].toInt()}" }, if (dur > 0) "Ends at ${endsAt(dur - pos, speed)}" else null)
-            if (line.isNotEmpty()) Text(line.joinToString("  •  "), color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, maxLines = 1)
+            else Text(name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            ep?.let { m ->
+                val rest = title.substring(m.range.last + 1).trim().trimStart('-', '·', '–').trim()
+                Text("S${m.groupValues[1].toInt()} E${m.groupValues[2].toInt()}" + (if (rest.isNotEmpty()) "  •  $rest" else ""),
+                    color = Color.White.copy(alpha = 0.9f), fontSize = 15.sp, maxLines = 1)
+            }
             var badges by remember { mutableStateOf(emptyList<Int>()) }
             LaunchedEffect(release) {
                 while (true) {
@@ -275,60 +280,54 @@ internal fun Controls(
                 }
             }
             if (badges.isNotEmpty()) BadgeRow(badges)
+        }
 
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 34.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
             val shown = seekTo ?: pos
             var barFocused by remember { mutableStateOf(false) }
-            if (thumbs && seekTo != null) ArcThumbPane(shown, dur, Modifier.padding(bottom = 10.dp))
-            // Vision's timeline: 20 dp box, pill track 4 dp (8 focused), white played + buffered, a round marker.
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(20.dp)
-                .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
-                .onKeyEvent { e ->
-                    if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
-                    when (e.key) {
-                        Key.DirectionLeft -> { step(false); true }
-                        Key.DirectionRight -> { step(true); true }
-                        Key.DirectionCenter, Key.Enter -> { toggle(); true }
-                        else -> false
-                    }
-                }, contentAlignment = Alignment.CenterStart) {
-                val track = if (barFocused) 8.dp else 4.dp
-                val frac = if (dur > 0) (shown.toFloat() / dur).coerceIn(0f, 1f) else 0f
-                Box(Modifier.fillMaxWidth().height(track).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if (barFocused) 0.24f else 0.18f))) {
-                    if (dur > 0) {
-                        Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color.White.copy(alpha = 0.35f)))
-                        Box(Modifier.fillMaxHeight().fillMaxWidth(frac).background(Color.White))
-                    }
-                }
-                val dot = if (barFocused) 12.dp else 8.dp
-                if (dur > 0) Box(Modifier.padding(start = ((maxWidth - dot) * frac)).size(dot).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
-            }
-            Row(Modifier.fillMaxWidth()) {
-                Text(clock(shown), color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
-                Spacer(Modifier.weight(1f))
-                Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
-            }
-            // The deck: playback on the left, tracks and tools on the right; the rest under More.
+            if (thumbs && seekTo != null) ArcThumbPane(shown, dur)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ControlButton(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton)) { toggle() }
-                    ControlButton(Icons.Restart, "Restart") { player.seekTo(0); player.play() }
-                    if (canNext) ControlButton(Icons.Next, "Next episode") { onNext() }
-                }
-                Spacer(Modifier.weight(1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ControlButton(Icons.Info, "Stats") { panel = if (panel == Panel.STATS) null else Panel.STATS }
-                    ControlButton(Icons.Audio, "Audio") { panel = Panel.AUDIO }
-                    ControlButton(Icons.Subtitles, "Subtitles") { panel = Panel.SUBS }
-                    // Audio and subtitle delay, one press away (as Nuvio Arc / old Vision), remembered per title.
-                    ControlButton(Icons.Sync, "Sync") { syncSubsFirst = false; panel = Panel.SYNC }
-                    ControlButton(Icons.Sources, "Sources") { onSources() }
-                    if (vs10) ControlButton(Icons.Hdr, "VS10") {
-                        note = "VS10…"
-                        scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
+                Text(clock(shown), color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, modifier = Modifier.width(72.dp))
+                // The timeline: pill track 4 dp (8 focused), white played + buffered, a round marker.
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).height(20.dp)
+                    .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
+                    .onKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when (e.key) {
+                            Key.DirectionLeft -> { step(false); true }
+                            Key.DirectionRight -> { step(true); true }
+                            Key.DirectionCenter, Key.Enter -> { toggle(); true }
+                            else -> false
+                        }
+                    }, contentAlignment = Alignment.CenterStart) {
+                    val track = if (barFocused) 8.dp else 4.dp
+                    val frac = if (dur > 0) (shown.toFloat() / dur).coerceIn(0f, 1f) else 0f
+                    Box(Modifier.fillMaxWidth().height(track).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if (barFocused) 0.24f else 0.18f))) {
+                        if (dur > 0) {
+                            Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color.White.copy(alpha = 0.35f)))
+                            Box(Modifier.fillMaxHeight().fillMaxWidth(frac).background(Color.White))
+                        }
                     }
-                    ControlButton(Icons.More, "More") { panel = Panel.MORE }
+                    val dot = if (barFocused) 14.dp else 8.dp
+                    if (dur > 0) Box(Modifier.padding(start = ((maxWidth - dot) * frac)).size(dot).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
                 }
+                Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp,
+                    modifier = Modifier.width(72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
             }
+            // Five round buttons, centred; the focused one's name under the row. Everything else is under More.
+            var label by remember { mutableStateOf("") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                ControlButton(Icons.Subtitles, "Subtitles", onFocus = { label = "Subtitles" }) { panel = Panel.SUBS }
+                ControlButton(Icons.Audio, "Audio", onFocus = { label = "Audio" }) { panel = Panel.AUDIO }
+                ControlButton(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton), big = true,
+                    onFocus = { label = if (player.playWhenReady) "Pause" else "Play" }) { toggle() }
+                if (canNext) ControlButton(Icons.Next, "Next episode", onFocus = { label = "Next episode" }) { onNext() }
+                else ControlButton(Icons.Sources, "Sources", onFocus = { label = "Sources" }) { onSources() }
+                ControlButton(Icons.More, "More", onFocus = { label = "More" }) { panel = Panel.MORE }
+            }
+            Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, maxLines = 1,
+                modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
 
         when (panel) {
@@ -354,6 +353,13 @@ internal fun Controls(
             }
             Panel.MORE -> {
                 val items = buildList<Pair<String, () -> Unit>> {
+                    if (canNext) add("Sources" to { panel = null; onSources() })
+                    add("Restart from the beginning" to { panel = null; player.seekTo(0); player.play() })
+                    add("Stats" to { panel = Panel.STATS })
+                    if (vs10) add("VS10 · switch" to {
+                        panel = null; note = "VS10…"
+                        scope.launch { note = withContext(Dispatchers.IO) { Vs10Engine.cycle() }?.let(::vs10Text) ?: "VS10 didn't answer (root?)" }
+                    })
                     add("Speed · ${fmtSpeed(speed)}" to { panel = Panel.SPEED })
                     if (onZap == null) add("Sync · audio ${Sync.label(Sync.audioMs)} · subs ${Sync.label(Sync.subMs)}" to { panel = Panel.SYNC })
                     add((sleepAt?.let { "Sleep in ${((it - System.currentTimeMillis()) / 60_000) + 1} min" } ?: if (sleepEnd) "Sleep at the end" else "Sleep timer") to { panel = Panel.SLEEP })
@@ -417,10 +423,11 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
 
 /** Vision's ControlButton: round, icon only (28 dp), clear until focused, then a white circle with a black icon. */
 @Composable
-private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape) { focused ->
-        Box(Modifier.size(48.dp).background(if (focused) Color.White else Color.Transparent), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(icon, label, Modifier.size(28.dp), tint = if (focused) Color.Black else Color.White)
+private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, big: Boolean = false,
+                          onFocus: () -> Unit = {}, onClick: () -> Unit) {
+    Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape, onFocus = onFocus) { focused ->
+        Box(Modifier.size(if (big) 68.dp else 52.dp).background(if (focused) Color.White else Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(icon, label, Modifier.size(if (big) 38.dp else 26.dp), tint = if (focused) Color.Black else Color.White)
         }
     }
 }
@@ -448,7 +455,7 @@ internal fun SidePanel(title: String, items: List<String>, selected: Int, bottom
                     Focusable({ onPick(i) }, (if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier).padding(top = 6.dp).fillMaxWidth(), RoundedCornerShape(K.rowR)) { f ->
                         val ink = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text
                         Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.kitFocus.first else K.rowFill).padding(12.dp)) {
-                            Text(if (i == selected) "● " else "   ", color = if (f) ink else K.accent, fontSize = 15.sp)
+                            Text(if (i == selected) "✓  " else "    ", color = if (f) ink else K.accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                             Text(label, color = ink, fontSize = 15.sp)
                         }
                     }
@@ -485,6 +492,13 @@ internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Bool
         player.trackSelectionParameters = b.build()
         close()
     }
+}
+
+/** The track of [type] playing now, as the panels name it; "Off" / null. */
+internal fun currentTrack(player: Player, type: Int): String? {
+    if (player.trackSelectionParameters.disabledTrackTypes.contains(type)) return "Off"
+    player.currentTracks.groups.filter { it.type == type }.forEach { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { return trackLabel(g.getTrackFormat(it), type) } }
+    return if (type == C.TRACK_TYPE_TEXT) "Off" else null
 }
 
 private fun trackLabel(f: Format, type: Int): String {
