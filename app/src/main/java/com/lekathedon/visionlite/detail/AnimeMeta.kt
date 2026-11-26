@@ -32,7 +32,7 @@ object AnimeMeta {
     private val zips = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()
 
     /** ani.zip's mapping for an anime id (ids, titles, episodes), kept for the run. */
-    private fun zip(id: String): JSONObject? {
+    private suspend fun zip(id: String): JSONObject? {
         zips[id]?.let { return it }
         val num = id.substringAfter(':')
         val q = when {
