@@ -103,7 +103,3 @@ internal class ThumbAu(val data: ByteBuffer, val length: Int, private val buffer
         fun of(bytes: ByteArray) = ThumbAu(ByteBuffer.wrap(bytes), bytes.size)
     }
 }
-
-/**
- * Keyframe buffers of one session: at most [limit] exist, lent or idle, and a lent one is freed when it comes back
- * after [close]. Thread-safe.
