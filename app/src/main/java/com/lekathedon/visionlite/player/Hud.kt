@@ -83,6 +83,22 @@ object Hud {
         return m.groupValues[1].toInt() to m.groupValues[2].toIntOrNull()
     }
 
+    /** What the 8.1 converter really did this play (frames rewritten), so Stats never claims a conversion that didn't run. */
+    private fun converterRow(): String? {
+        val p = com.lekathedon.visionlite.App.instance.prefs
+        if (p.dv7.value != "dv81" && !p.dv5To81.value) return null
+        val st = com.lekathedon.visionlite.player.dv.DolbyVisionConversionStats
+        val n = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionSuccessCount()
+        val tried = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionCallCount()
+        val from = st.getLastSourceProfile()
+        return "8.1 converter  " + when {
+            !com.lekathedon.visionlite.player.dv.DvRoute.converterAvailable() -> "not loaded on this box"
+            n > 0 -> "converting" + (from?.let { " profile $it" } ?: "") + " → 8.1 · $n of $tried frames" + (st.getLastSelectedConversionMode()?.let { " · mode $it" } ?: "")
+            tried > 0 -> "FAILED · 0 of $tried frames converted"
+            else -> "not used for this file"
+        }
+    }
+
     /** The rows: Dolby Vision (profile and route), FEL, HDR in → out with who converts, and the HDMI signal. */
     fun rows(v: Format?, decoderName: String?): List<String> {
         refresh()
@@ -100,6 +116,7 @@ object Hud {
                 dv?.first == 7 -> "$name · base layer + RPU (no enhancement layer)"
                 else -> "$name · native"
             }
+            converterRow()?.let { out += it }
             if (dv?.first == 7) out += "FEL  " + when {
                 elRunning && b.dvInput.equals("DOVI", true) -> "running · EL ${hevc.drop(1).firstOrNull()?.second.orEmpty()} into the DV core"
                 elRunning -> "EL decoding, DV core sees ${b.dvInput ?: "?"}"

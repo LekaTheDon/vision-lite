@@ -1141,6 +1141,7 @@ fun Addons() {
     var url by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf("") }
     var byPhone by remember { mutableStateOf(false) }
+    var byCode by remember { mutableStateOf(false) }
     var prompt by remember { mutableStateOf<com.lekathedon.visionlite.addons.Addon?>(null) }
     fun install(u: String) { scope.launch {
         msg = "Installing…"
@@ -1163,6 +1164,23 @@ fun Addons() {
                 Button("Install", { install(url) })
                 Button("Add by phone", { byPhone = true })
             }
+            // Setup code (user 2026-11-26): a friend's box takes this profile's add-ons, sources and indexers, no keys.
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button("Use a setup code", { byCode = true })
+                Button("Share this setup", {
+                    val c = com.lekathedon.visionlite.data.SetupShare.export()
+                    msg = "Setup code ready (${c.length} characters): saved in the app's folder as setup-code.txt; the phone link can send it. No keys or sign-ins are in it."
+                })
+            }
+            if (byCode) com.lekathedon.visionlite.phone.PhoneBox("Use a setup code",
+                listOf(com.lekathedon.visionlite.phone.PhoneForm.Field("Setup code", "VL1:…", note = "Paste the code you were sent. Your keys and sign-ins stay yours; the add-ons, sources and indexers become the sender's.")),
+                onSave = { v -> byCode = false; v.firstOrNull()?.takeIf { it.isNotBlank() }?.let { code ->
+                    msg = runCatching { com.lekathedon.visionlite.data.SetupShare.import(code) }.fold(
+                        { "Got $it. Restarting…" }, { "That code didn't work: ${it.message}" })
+                    if (msg.startsWith("Got")) scope.launch { kotlinx.coroutines.delay(1500); com.lekathedon.visionlite.integrations.CloudSetup.restart(ctx) }
+                } },
+                onCancel = { byCode = false })
             if (byPhone) com.lekathedon.visionlite.phone.PhoneBox("Add an add-on",
                 listOf(com.lekathedon.visionlite.phone.PhoneForm.Field("Add-on URL", "https://…/manifest.json", note = "Any Stremio add-on or catalog list (IMDb, Trakt, MDBList…); stremio:// links work too")),
                 onSave = { v -> byPhone = false; v.firstOrNull()?.takeIf { it.isNotBlank() }?.let { install(it) } },

@@ -36,7 +36,7 @@ class DvRoute private constructor(internal val config: DolbyVisionConversionConf
         fun namedDv(name: String) = dvName.containsMatchIn(name)
 
         fun factory(base: ExtractorsFactory, r: DvRoute): ExtractorsFactory {
-            DolbyVisionConversionStats.reset()
+            DolbyVisionConversionStats.reset(); DoviBridge.resetRuntimeCounters()
             return DolbyVisionExtractorsFactory(base, r.config, stripDvRpu = r.strip, stripHdr10PlusSei = r.stripHdr10Plus)
         }
 

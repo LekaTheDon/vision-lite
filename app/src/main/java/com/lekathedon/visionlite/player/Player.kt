@@ -274,7 +274,12 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
             // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
             val dv = DvRoute.of(prefs, felAllowed)
-            val useDv = dv != null && (forceDv || !prefs.libass.value || DvRoute.namedDv(s.name.ifBlank { s.title }))
+            // The converter is chosen up front for every film/show that isn't anime (user 2026-11-26: a Xiaomi Box S set to
+            // Convert 8.1 never converted, the remux's name didn't say DV and the plain reader didn't flag profile 7).
+            // Anime keeps libass's styled subtitles and joins the converter only when its file turns out to be DV.
+            val anime = com.lekathedon.visionlite.tb.TitleFacts.get(s.id)?.kind == com.lekathedon.visionlite.tb.TitleFacts.Kind.ANIME
+            val useDv = dv != null && (forceDv || !prefs.libass.value || !anime || s.type == "live" || DvRoute.namedDv(s.name.ifBlank { s.title }))
+            if (dv != null) android.util.Log.i("DvRoute", "open: converter ${if (useDv) "on" else "off (anime, libass)"}")
             dvOn[0] = useDv
             val ass = if (prefs.libass.value && s.type != "live" && !useDv) io.github.peerless2012.ass.media.AssHandler(
                 // CUES (user 2026-11-26, anime stuttered on every file, 4K and 90s alike): libass draws each subtitle line

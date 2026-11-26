@@ -38,6 +38,10 @@ class Commands(private val ctx: Context) {
         "sync" -> sync()
         "addons" -> addons()
         "addAddon" -> addAddon(a)
+        // Setup code (user 2026-11-26): the phone shares this profile's add-ons/sources, or applies a friend's.
+        "setupCode" -> ok().put("code", com.lekathedon.visionlite.data.SetupShare.export())
+        "useSetupCode" -> runCatching { com.lekathedon.visionlite.data.SetupShare.import(a.optString("code")) }
+            .fold({ ok().put("got", it) }, { JSONObject().put("ok", false).put("error", it.message ?: "bad code") })
         "settings" -> if (a.has("stores")) ok().put("profile", a.optInt("profile", 1))
             .put("sealed", phone.seal(phone.settings(a.optJSONArray("stores") ?: JSONArray()).toString(), "vision-link-settings")) else settings(a)
         // The companion's Vision tab (see Phone).
@@ -211,7 +215,7 @@ class Commands(private val ctx: Context) {
         const val DAY = 86_400_000L
         /** Settings the phone may change: the plain choices on the Settings page. */
         val SAFE = setOf(
-            "autoplay", "player_engine", "engine_backup", "libass", "next_episode", "next_popup", "skip_intro", "resume", "rewind_on_resume", "audio_lang", "audio_lang2", "sub_lang", "sub_lang2", "subs_when", "sub_size", "sub_style", "sub_hdr", "sub_hdr_bright", "black_bars", "stream_sort", "max_quality", "size_limit", "hide_torrents", "hide_cam", "skin", "style", "ui_size", "home_follows", "poster_size", "ratings", "clock", "watched_home", "trailers", "trailer_delay", "trailer_sound", "detail_ep_ratings", "detail_reviews", "detail_sequel_prequel", "detail_connections", "rec_min_imdb", "exit_confirm", "vod_in_tb", "screensaver_min", "billboard_source", "fast_horizontal", "sound_out", "night_mode", "dialogue_boost", "volume_boost"
+            "autoplay", "player_engine", "engine_backup", "libass", "next_episode", "next_popup", "skip_intro", "resume", "rewind_on_resume", "audio_lang", "audio_lang2", "sub_lang", "sub_lang2", "subs_when", "sub_size", "sub_style", "sub_hdr", "sub_hdr_bright", "black_bars", "stream_sort", "max_quality", "size_limit", "hide_torrents", "hide_cam", "skin", "style", "ui_size", "home_follows", "poster_size", "ratings", "clock", "watched_home", "trailers", "trailer_delay", "trailer_sound", "detail_ep_ratings", "detail_reviews", "detail_sequel_prequel", "detail_connections", "rec_min_imdb", "exit_confirm", "vod_in_tb2", "dub_lang", "autoplay_subs", "app_lang", "arabp2p_browse", "screensaver_min", "billboard_source", "fast_horizontal", "sound_out", "night_mode", "dialogue_boost", "volume_boost"
         )
     }
 }
