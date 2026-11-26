@@ -120,9 +120,14 @@ fun Detail(nav: Nav, s: Screen.Detail) {
 
     // An anime season opened by its MAL / AniList / Kitsu id: its IMDb show instead, on that season (IMDb-style
     // grouping, user 2026-11-26), so every season sits under one show.
+    // Until that answer is in, the anime page isn't drawn (no flash of an "unwatched new show").
+    var resolving by remember(s.id) { mutableStateOf(s.type == "series" && AnimeMeta.isAnimeId(s.id)) }
     LaunchedEffect(s.id) {
-        if (s.type == "series" && AnimeMeta.isAnimeId(s.id))
-            AnimeMeta.parentOf(s.id)?.let { (tt, season) -> nav.replace(Screen.Detail("series", tt, s.name, season)); return@LaunchedEffect }
+        if (s.type == "series" && AnimeMeta.isAnimeId(s.id)) {
+            kotlinx.coroutines.withTimeoutOrNull(10_000) { AnimeMeta.parentOf(s.id) }
+                ?.let { (tt, season) -> nav.replace(Screen.Detail("series", tt, s.name, season)); return@LaunchedEffect }
+            resolving = false
+        }
     }
     LaunchedEffect(s.id) {
         coroutineScope {
@@ -156,8 +161,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     val style = Kit.style
     Box(Modifier.fillMaxSize().skinPage(look.skin)) {
         if (!look.oled) ArtTint(backdrop ?: m?.poster)
-        if (m == null && t == null) {
-            Text(if (loaded) "No details for ${s.name}" else s.name, color = Palette.Text, fontSize = 24.sp, modifier = Modifier.padding(48.dp))
+        if (resolving || (m == null && t == null)) {
+            Text(if (loaded && !resolving) "No details for ${s.name}" else s.name, color = Palette.Text, fontSize = 24.sp, modifier = Modifier.padding(48.dp))
             return@Box
         }
         val watched = remember(progress) {
@@ -405,10 +410,10 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         fun toggle(v: String, set: () -> Unit) { if (verdict == v) R.forget(s.id) else set() }
                         KitIcon("Watched", I.Visibility, { toggle("watched") { com.lekathedon.visionlite.home.Ticks.watched(mp) } },
                             Modifier.hint(if (verdict == "watched") "Watched · press to undo" else "Mark as watched"), on = verdict == "watched")
-                        KitIcon("Love it", I.Favorite, { toggle("love") { R.love(s.id, isSeries, name) } },
-                            Modifier.hint(if (verdict == "love") "Loved · press to undo" else "Love it"), on = verdict == "love")
-                        KitIcon("More like this", I.ThumbUp, { toggle("like") { R.moreLikeThis(s.id, isSeries, name) } },
-                            Modifier.hint(if (verdict == "like") "Liked · press to undo" else "More like this"), on = verdict == "like")
+                        // Love = "more like this" too (user 2026-11-26: no separate Like). Old Likes show as loved.
+                        val loved = verdict == "love" || verdict == "like"
+                        KitIcon("Love it", I.Favorite, { if (loved) R.forget(s.id) else R.love(s.id, isSeries, name) },
+                            Modifier.hint(if (loved) "Loved · press to undo" else "Love it · more like this"), on = loved)
                         KitIcon("Not for me", I.ThumbDown, { toggle("nope") { R.notForMe(s.id, isSeries, name) } },
                             Modifier.hint(if (verdict == "nope") "Not for me · press to undo" else "Not for me"), on = verdict == "nope")
                         if (imdbId != null && com.lekathedon.visionlite.home.Rate.available()) {

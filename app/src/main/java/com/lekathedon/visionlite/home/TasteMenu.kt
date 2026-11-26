@@ -90,14 +90,12 @@ fun TasteMenuHost() {
                     if (!ok || armed) false
                     else { if (k.action == KeyEvent.ACTION_DOWN && k.repeatCount == 0) { armed = true; false } else true }
                 },
-            sub = "Love and Like steer every recommendation; Not for me and Watched are never recommended again."
+            sub = "Love steers every recommendation (more like it); Not for me and Watched are never recommended again."
         ) {
-            com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "love") "Loved ✓ (undo)" else "Love it", {
-                if (verdict == "love") Recs.forget(cur.id) else Recs.love(cur.id, tv, cur.name); close()
+            val loved = verdict == "love" || verdict == "like"
+            com.lekathedon.visionlite.ui.KitMenuItem(if (loved) "Loved ✓ (undo)" else "Love it", {
+                if (loved) Recs.forget(cur.id) else Recs.love(cur.id, tv, cur.name); close()
             }, Modifier.fillMaxWidth().focusRequester(first))
-            com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "like") "Liked ✓ (undo)" else "Like · more like this", {
-                if (verdict == "like") Recs.forget(cur.id) else Recs.moreLikeThis(cur.id, tv, cur.name); close()
-            }, Modifier.fillMaxWidth())
             com.lekathedon.visionlite.ui.KitMenuItem(if (verdict == "nope") "Not for me ✓ (undo)" else "Not for me", {
                 if (verdict == "nope") Recs.forget(cur.id) else Recs.notForMe(cur.id, tv, cur.name); close()
             }, Modifier.fillMaxWidth())

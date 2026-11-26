@@ -53,11 +53,101 @@ object AnimeMeta {
         val z = zip(base) ?: return@withContext null
         val maps = z.optJSONObject("mappings") ?: return@withContext null
         if (maps.optString("type").equals("MOVIE", true)) return@withContext null
-        val imdb = maps.optString("imdb_id").takeIf { it.startsWith("tt") } ?: return@withContext null
         val eps = z.optJSONObject("episodes")
         val season = eps?.optJSONObject("1")?.optInt("seasonNumber", 0)?.takeIf { it > 0 }
-        imdb to season
+        val imdb = imdbFor(base, z, maps) ?: return@withContext null
+        imdb to (season ?: z.optJSONObject("titles")?.optString("en")?.let { Regex("(?i)season\\s*(\\d+)|(\\d+)(st|nd|rd|th)\\s*season").find(it) }
+            ?.let { (it.groupValues[1].ifEmpty { it.groupValues[2] }).toIntOrNull() })
     }
+
+    /** Found show per anime id, kept across runs (prefs "anime_parent"): one lookup per anime, ever. */
+    private fun saved(): MutableMap<String, String> = runCatching {
+        JSONObject(com.lekathedon.visionlite.App.instance.prefs.sp.getString("anime_parent", "{}")!!).let { o -> o.keys().asSequence().associateWith { o.getString(it) }.toMutableMap() }
+    }.getOrDefault(HashMap())
+    private fun remember(id: String, imdb: String) {
+        val m = saved(); m[id] = imdb
+        com.lekathedon.visionlite.App.instance.prefs.sp.edit().putString("anime_parent", JSONObject(m as Map<*, *>).toString()).apply()
+    }
+
+    /**
+     * The IMDb show of ANY anime entry, from any list (AniList, MAL, Kitsu, Simkl, charts...), never "a new show"
+     * (user 2026-11-26: every season / list entry opens the one IMDb-style show with all its seasons). In order:
+     * 1) this entry's ids: ani.zip's IMDb id, then its TVDB / TMDB id (your Trakt shows, Trakt's id lookup, TMDB);
+     * 2) the same for each earlier season (AniList PREQUEL chain up to season 1);
+     * 3) IMDb's own search for season 1's name (season words stripped), a series of that year (±1).
+     * Each answer is kept for good, so a title is looked up once.
+     */
+    private suspend fun imdbFor(base: String, z: JSONObject, maps: JSONObject): String? {
+        saved()[base]?.let { return it }
+        val watched = Mine()
+        idsToImdb(maps, watched)?.let { remember(base, it); return it }
+        // Earlier seasons: their mappings often carry the ids a new season doesn't have yet.
+        var root = z
+        var al = maps.optInt("anilist_id").takeIf { it > 0 }
+        for (hop in 0 until 8) {
+            val prev = al?.let { prequel(it) } ?: break
+            val pz = zip("anilist:$prev") ?: break
+            root = pz; al = prev
+            pz.optJSONObject("mappings")?.let { m -> idsToImdb(m, watched)?.let { remember(base, it); return it } }
+        }
+        return imdbSearch(root, watched)?.also { remember(base, it) }
+    }
+
+    private suspend fun idsToImdb(maps: JSONObject, watched: Mine): String? {
+        maps.optString("imdb_id").takeIf { it.startsWith("tt") }?.let { return it }
+        val tvdb = maps.optInt("thetvdb_id").takeIf { it > 0 }
+        val tmdb = maps.optString("themoviedb_id").toIntOrNull()?.takeIf { it > 0 }
+        if (tvdb == null && tmdb == null) return null
+        val trakt = com.lekathedon.visionlite.App.instance.trakt
+        return (watched.get().firstOrNull { s -> (tvdb != null && s.ids.tvdb == tvdb.toLong()) || (tmdb != null && s.ids.tmdb == tmdb.toLong()) }?.ids?.imdb
+            ?: tvdb?.let { trakt.imdbByExternal("tvdb", "$it") }
+            ?: tmdb?.let { trakt.imdbByExternal("tmdb", "$it") }
+            ?: tmdb?.let { com.lekathedon.visionlite.home.Tmdb.imdbOf("tmdb:tv:$it") })?.takeIf { it.startsWith("tt") }
+    }
+
+    /** Your Trakt watched shows, read once per lookup and only if needed. */
+    private class Mine {
+        private var v: List<com.lekathedon.visionlite.trakt.TShow>? = null
+        suspend fun get() = v ?: runCatching { com.lekathedon.visionlite.App.instance.trakt.watchedShows() }.getOrNull().orEmpty().map { it.show }.also { v = it }
+    }
+
+    /** AniList id of the season before [id] (TV / TV_SHORT / ONA only), or null. */
+    private fun prequel(id: Int): Int? {
+        val query = "{ Media(id: $id, type: ANIME) { relations { edges { relationType node { id type format } } } } }"
+        val req = Request.Builder().url("https://graphql.anilist.co").header("Accept", "application/json")
+            .post(JSONObject().put("query", query).toString().toRequestBody("application/json".toMediaType())).build()
+        return runCatching {
+            Net.http.newCall(req).execute().use { r ->
+                val edges = JSONObject(r.body!!.string()).optJSONObject("data")?.optJSONObject("Media")?.optJSONObject("relations")?.optJSONArray("edges") ?: return null
+                (0 until edges.length()).mapNotNull { edges.optJSONObject(it) }.firstOrNull { e ->
+                    val n = e.optJSONObject("node")
+                    e.optString("relationType") == "PREQUEL" && n?.optString("type") == "ANIME" && n.optString("format") in setOf("TV", "TV_SHORT", "ONA")
+                }?.optJSONObject("node")?.optInt("id")?.takeIf { it > 0 }
+            }
+        }.getOrNull()
+    }
+
+    private val seasonWords = Regex("(?i)\\s*[:(\\-]?\\s*(season\\s*\\d+|\\d+(st|nd|rd|th)\\s*season|part\\s*\\d+|cour\\s*\\d+|final season)\\)?.*$")
+
+    /** IMDb's search for the first season's names: a series with the same name, started that year (±1). */
+    private suspend fun imdbSearch(z: JSONObject, watched: Mine): String? = withContext(Dispatchers.IO) {
+        val t = z.optJSONObject("titles")
+        val names = listOfNotNull(t?.optString("en"), t?.optString("x-jat")).map { it.replace(seasonWords, "") }.filter { it.isNotBlank() && it != "null" }.distinct()
+        val year = z.optJSONObject("episodes")?.optJSONObject("1")?.optString("airDateUtc")?.take(4)?.toIntOrNull()
+        // Your own shows first (same name, no network).
+        watched.get().firstOrNull { w -> names.any { norm(it) == norm(w.title) } && (year == null || w.year == null || kotlin.math.abs(w.year - year) <= 1) }?.ids?.imdb?.let { return@withContext it }
+        for (n in names) {
+            val q = java.net.URLEncoder.encode(n.trim().lowercase(), "UTF-8").replace("+", "%20")
+            val hit = runCatching { JSONObject(Net.get("https://v3.sg.media-imdb.com/suggestion/x/$q.json", 10)).optJSONArray("d") }.getOrNull() ?: continue
+            (0 until hit.length()).mapNotNull { hit.optJSONObject(it) }.firstOrNull { h ->
+                h.optString("id").startsWith("tt") && h.optString("qid") in setOf("tvSeries", "tvMiniSeries") && norm(h.optString("l")) == norm(n) &&
+                    (year == null || h.optInt("y", 0).let { y -> y == 0 || kotlin.math.abs(y - year) <= 1 })
+            }?.let { return@withContext it.optString("id") }
+        }
+        null
+    }
+
+    private fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
     private suspend fun load(id: String, type: String): Meta? {
         val num = id.substringAfter(':')

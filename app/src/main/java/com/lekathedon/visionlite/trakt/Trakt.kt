@@ -236,6 +236,13 @@ class Trakt(private val prefs: Prefs) {
     }
 
     /** Every show ever watched (no seasons), newest first. Null when Trakt is off or not reachable. */
+    @Serializable data class Found(val type: String = "", val show: TShow? = null)
+    /** IMDb id of a show by its TVDB or TMDB id (Trakt's id lookup; needs only the app id, no sign-in). */
+    suspend fun imdbByExternal(source: String, id: String): String? = if (!configured) null else runCatching {
+        val (code, text) = call("GET", "search/$source/$id?type=show", auth = false)
+        if (code !in 200..299) null else Net.json.decodeFromString<List<Found>>(text).firstNotNullOfOrNull { it.show?.ids?.imdb?.takeIf { i -> i.startsWith("tt") } }
+    }.getOrNull()
+
     suspend fun watchedShows(): List<Watched>? = if (!on()) null else runCatching { get<List<Watched>>("sync/watched/shows?extended=noseasons") }.getOrNull()
 
     /** Calendar: episodes of shows you watch and films you follow, from today for [days] days. Empty when Trakt is off. */

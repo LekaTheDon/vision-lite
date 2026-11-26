@@ -1698,8 +1698,8 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
                 com.lekathedon.visionlite.ui.KitMenuItem(label, { act(); onClose(removes) }, mod)
             }
             if (m.type == "movie" || m.type == "series") {
-                Choice(if (verdict == "love") "Loved ✓ (undo)" else "Love it") { if (verdict == "love") Recs.forget(m.id) else Recs.love(m.id, tv, m.name) }
-                Choice(if (verdict == "like") "Liked ✓ (undo)" else "Like · more like this") { if (verdict == "like") Recs.forget(m.id) else Recs.moreLikeThis(m.id, tv, m.name) }
+                val loved = verdict == "love" || verdict == "like"
+                Choice(if (loved) "Loved ✓ (undo)" else "Love it") { if (loved) Recs.forget(m.id) else Recs.love(m.id, tv, m.name) }
                 // Gone from the engine's rows at once and never recommended again; other rows (charts, services) keep it.
                 Choice("Not for me", removes = VisionRows.isEngine(row.key)) { Recs.notForMe(m.id, tv, m.name) }
                 // A tick on the card, then gone from every recommendation for good; lists (charts, services, Library) keep it.

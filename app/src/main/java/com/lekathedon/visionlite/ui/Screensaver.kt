@@ -68,6 +68,20 @@ object Screensaver {
     }
     fun untrack(p: androidx.media3.common.Player) { playingNow -= p; DpadPace.touch() }
 
+    /**
+     * The slide's picture: TMDB's backdrop for that IMDb id first (curated per title), metahub's only without a TMDB
+     * key or backdrop (user 2026-11-26: metahub's picture for Das Boot (1985) is an unrelated AI image of a woman).
+     * Kept per title for the run; one TMDB call per new slide.
+     */
+    private val arts = java.util.concurrent.ConcurrentHashMap<String, String>()
+    suspend fun backdrop(m: MetaPreview): String = arts[m.id] ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val o = com.lekathedon.visionlite.home.Tmdb.get("find/${m.id}?external_source=imdb_id")
+        val r = o?.optJSONArray(if (m.type == "movie") "movie_results" else "tv_results")?.optJSONObject(0)
+            ?: o?.optJSONArray("movie_results")?.optJSONObject(0) ?: o?.optJSONArray("tv_results")?.optJSONObject(0)
+        com.lekathedon.visionlite.home.Tmdb.img(r?.optString("backdrop_path"), "original")
+            ?: "https://images.metahub.space/background/large/${m.id}/img"
+    }.also { arts[m.id] = it }
+
     fun dismiss(e: KeyEvent): Boolean {
         if (e.action == KeyEvent.ACTION_UP && e.keyCode == swallowUp) { swallowUp = -1; return true }
         if (!showing.value) return false
@@ -103,6 +117,7 @@ fun ScreensaverHost(nav: Nav) {
     DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
     val ctx = LocalContext.current
     var slide by remember { mutableStateOf<MetaPreview?>(null) }
+    var artUrl by remember { mutableStateOf<String?>(null) }
     var motion by remember { mutableStateOf(MOTIONS[0]) }
     val alpha = remember { Animatable(0f) }
     val titleA = remember { Animatable(0f) }
@@ -115,10 +130,11 @@ fun ScreensaverHost(nav: Nav) {
             val all = Screensaver.titles()
             val next = all.filter { it.id != last }.randomOrNull() ?: break
             // Load it (screen size) before it shows, so the fade never starts on an empty frame.
+            val art = Screensaver.backdrop(next)
             runCatching {
-                coil3.SingletonImageLoader.get(ctx).execute(coil3.request.ImageRequest.Builder(ctx)
-                    .data("https://images.metahub.space/background/large/${next.id}/img").build())
+                coil3.SingletonImageLoader.get(ctx).execute(coil3.request.ImageRequest.Builder(ctx).data(art).build())
             }
+            artUrl = art
             last = next.id
             val mi = MOTIONS.indices.filter { it != lastMotion }.random(); lastMotion = mi
             motion = MOTIONS[mi]; slide = next
@@ -144,7 +160,7 @@ fun ScreensaverHost(nav: Nav) {
             translationX = (motion.x0 + (motion.x1 - motion.x0) * p) * size.width
             translationY = (motion.y0 + (motion.y1 - motion.y0) * p) * size.height
         }) {
-            coil3.compose.AsyncImage("https://images.metahub.space/background/large/${m.id}/img", null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            coil3.compose.AsyncImage(artUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 72.dp, bottom = 64.dp).widthIn(max = 560.dp),
