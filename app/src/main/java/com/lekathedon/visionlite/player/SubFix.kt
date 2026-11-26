@@ -126,8 +126,11 @@ object SubFix {
         val utf8 = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
             .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
         runCatching { return utf8.decode(java.nio.ByteBuffer.wrap(raw)).toString().removePrefix("﻿") }
-        val name = runCatching { android.icu.text.CharsetDetector().setText(raw).detect()?.name }.getOrNull()
-        return String(raw, runCatching { charset(name ?: "windows-1252") }.getOrDefault(Charsets.ISO_8859_1))
+        // Not UTF-8: an old Arabic file (windows-1256: most high bytes are letters 0xC1-0xEA) or Western (windows-1252).
+        val high = raw.count { (it.toInt() and 0xFF) >= 0x80 }
+        val arabic = raw.count { (it.toInt() and 0xFF) in 0xC1..0xEA }
+        val name = if (high > 20 && arabic * 10 > high * 7) "windows-1256" else "windows-1252"
+        return String(raw, runCatching { charset(name) }.getOrDefault(Charsets.ISO_8859_1))
     }
 
     // ---------------------------------------------------------------- the file's own lines, as they download
