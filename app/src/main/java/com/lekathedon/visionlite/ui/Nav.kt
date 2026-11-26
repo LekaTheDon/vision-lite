@@ -25,6 +25,8 @@ sealed interface Screen {
     data class Standings(val leagueId: String) : Screen
     data object Vod : Screen
     data object Recordings : Screen
+    /** Your debrid cloud (streams/Cloud.kt). */
+    data object Cloud : Screen
     data object Discover : Screen
     data class Genre(val slug: String) : Screen
     data class Decade(val slug: String) : Screen

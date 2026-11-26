@@ -1597,7 +1597,8 @@ private object Sections {
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search,
-            "Library" to Screen.Library, "Calendar" to Screen.Calendar)
+            "Library" to Screen.Library, "Calendar" to Screen.Calendar) +
+            (if (com.lekathedon.visionlite.streams.Cloud.services().isNotEmpty()) listOf("Cloud" to Screen.Cloud) else emptyList())
     }
     /** Every section stays on Home with its pages in the pill (YouTube and Music removed 2026-11-26). */
     @Suppress("UNUSED_PARAMETER") fun opensAt(key: String): Screen? = null
