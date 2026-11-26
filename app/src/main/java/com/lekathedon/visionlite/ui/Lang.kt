@@ -36,7 +36,8 @@ object Lang {
     /** "" = the TV's language when bundled, else English. */
     fun chosen(): String {
         val p = App.instance.prefs.appLang.value
-        if (p.isNotBlank()) return p
+        // A saved language no longer bundled (Arabic parked 2026-11-26) falls back to English, left to right.
+        if (p.isNotBlank()) return if (p == "en" || bundled.any { it.first == p }) p else "en"
         val sys = java.util.Locale.getDefault().language
         return if (bundled.any { it.first == sys }) sys else "en"
     }

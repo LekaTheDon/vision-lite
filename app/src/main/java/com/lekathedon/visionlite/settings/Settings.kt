@@ -358,7 +358,8 @@ fun Settings(nav: Nav, start: String? = null) {
             Choice("Billboard titles", "Which row feeds the big billboard on Home", p.billboardSource,
                 listOf("" to "Continue watching, then first row", "random" to "A random row each visit") + rows, m)
         }
-        row { m -> Choice("App language", "Menus and buttons; titles and plots keep their own language", p.appLang,
+        // Shown only while a translation is bundled (Arabic parked 2026-11-26 in parked/lang/; move it back to assets/lang/ to bring it back).
+        if (com.lekathedon.visionlite.ui.Lang.bundled.isNotEmpty()) row { m -> Choice("App language", "Menus and buttons; titles and plots keep their own language", p.appLang,
             listOf("" to "This TV's language", "en" to "English") + com.lekathedon.visionlite.ui.Lang.bundled, m) }
         row { m -> Toggle("Clock", "Time in the top bar", p.clock, m) }
         row { m -> Choice("Screensaver", "Backdrops from your rows after no key is pressed for a while", p.screensaverMin,
