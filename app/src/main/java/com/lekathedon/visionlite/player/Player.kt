@@ -824,6 +824,7 @@ private suspend fun nextEpisode(nav: com.lekathedon.visionlite.ui.Nav, s: Screen
 @Composable
 private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
     val trakt = App.instance.trakt
+    val isVod = s.addon == com.lekathedon.visionlite.streams.VodLinks.ADDON
     if (s.id.isBlank() || !s.id.startsWith("tt")) return
     val parts = s.id.split(':')
     val imdb = parts[0]
