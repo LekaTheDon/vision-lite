@@ -50,7 +50,7 @@ import kotlin.math.roundToInt
 
 private val ROW_HEIGHT = 18.dp
 /** The start overlays' red (user 2026-11-26): the bars and the names are red, the values white. */
-internal val OverlayRed = Color(0xFFE53935)
+internal val OverlayRed = Color(0xFFB3191E)
 private val ROW_GAP = 2.dp
 internal const val STAGGERED_OVERLAY_HOLD_MS = 15_000L
 
@@ -159,8 +159,9 @@ fun MaturityBadge(id: String, started: Boolean, modifier: Modifier = Modifier) {
         Column(Modifier.padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(ROW_GAP)) {
             warnings.forEachIndexed { index, w ->
                 Row(Modifier.height(ROW_HEIGHT).alpha(frame.itemAlphas.getOrNull(index) ?: 0f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(w.label + ":", fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold)
-                    Text(" " + w.severity, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                    Text(w.label, fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold)
+                    Text(" · ", fontSize = 11.sp, color = Color.White.copy(alpha = 0.4f))
+                    Text(w.severity, fontSize = 11.sp, color = Color.White.copy(alpha = 0.5f))
                 }
             }
         }
@@ -215,8 +216,9 @@ fun DisplayModeBadge(started: Boolean, modifier: Modifier = Modifier) {
             Column(Modifier.padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(ROW_GAP), horizontalAlignment = Alignment.End) {
                 items.forEachIndexed { index, item ->
                     Row(Modifier.height(ROW_HEIGHT).alpha(frame.itemAlphas.getOrNull(index) ?: 0f), verticalAlignment = Alignment.CenterVertically) {
-                        Text(item.first + ":", fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
-                        Text(" " + item.second, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
+                        Text(item.first, fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+                        Text(" - ", fontSize = 11.sp, color = Color.White.copy(alpha = 0.4f))
+                        Text(item.second, fontSize = 11.sp, color = Color.White.copy(alpha = 0.6f), textAlign = TextAlign.End)
                     }
                 }
             }
@@ -235,36 +237,28 @@ private fun formatHz(rate: Float): String {
 
 
 /**
- * Lite's own third overlay (user 2026-11-26): what this file is (picture, HDR / Dolby Vision, sound, source, bitrate),
- * beside the content warnings, on the same timeline (in, 15 s, rolls up with them). Picture and sound come from the
- * player; Atmos, Remux / BluRay / WEB-DL and the size from the release name and the link. Cost: one read of the
- * playing formats ~1.5 s after the first picture; nothing after it leaves.
+ * What this file is, as plain words beside the content warnings (DebridStream's idea, Lite's words): 4K · Dolby Vision ·
+ * Atmos · TrueHD 7.1 · Remux. No line; it fades in with the warnings, stays 15 s and fades out. Like the subtitles, it is
+ * a little dimmer on HDR (so it doesn't glare) and brighter on SDR. Cost: one read of the playing formats ~1.5 s after the
+ * first picture.
  */
 @Composable
 internal fun MediaBadge(started: Boolean, release: String, stats: () -> StatsSource, modifier: Modifier = Modifier) {
-    var items by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var words by remember { mutableStateOf<List<String>>(emptyList()) }
+    var hdr by remember { mutableStateOf(false) }
     LaunchedEffect(started) {
-        if (!started || items.isNotEmpty()) return@LaunchedEffect
+        if (!started || words.isNotEmpty()) return@LaunchedEffect
         delay(1_500)
-        items = runCatching { mediaFacts(stats(), release) }.getOrDefault(emptyList())
+        runCatching { val src = stats(); hdr = playing(src)?.hdr?.isNotEmpty() == true; words = mediaFacts(src, release).map { it.second } }
     }
-    val count = items.size
-    if (count == 0) return
-    val totalLineHeight = (ROW_HEIGHT.value * count) + (ROW_GAP.value * (count - 1))
-    var frame by remember { mutableStateOf(StaggeredOverlayFrame.hidden(count)) }
-    LaunchedEffect(count) { runStaggeredOverlay(count) { frame = it } }
+    if (words.isEmpty()) return
+    var frame by remember { mutableStateOf(StaggeredOverlayFrame.hidden(1)) }
+    LaunchedEffect(words.size) { runStaggeredOverlay(1) { frame = it } }
     if (frame.containerAlpha <= 0f) return
-    Row(modifier.alpha(frame.containerAlpha).padding(start = 32.dp, top = 24.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.width(3.dp).height((totalLineHeight * frame.lineFraction).dp).clip(RoundedCornerShape(1.dp)).background(OverlayRed))
-        Column(Modifier.padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(ROW_GAP)) {
-            items.forEachIndexed { index, (k, v) ->
-                Row(Modifier.height(ROW_HEIGHT).alpha(frame.itemAlphas.getOrNull(index) ?: 0f), verticalAlignment = Alignment.CenterVertically) {
-                    Text("$k:", fontSize = 11.sp, color = OverlayRed, fontWeight = FontWeight.SemiBold)
-                    Text(" $v", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-    }
+    val ink = Color.White.copy(alpha = if (hdr) 0.62f else 0.9f)
+    Text(words.joinToString("  ·  "), fontSize = 12.sp, color = ink, fontWeight = FontWeight.SemiBold, maxLines = 1,
+        style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 6f)),
+        modifier = modifier.alpha(frame.containerAlpha * (frame.itemAlphas.firstOrNull() ?: 0f)).padding(start = 28.dp, top = 26.dp))
 }
 
 internal fun mediaFacts(src: StatsSource, release: String): List<Pair<String, String>> {

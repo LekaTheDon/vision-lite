@@ -284,9 +284,9 @@ internal fun Controls(
 
         val shown = seekTo ?: pos
         if (thumbs && seekTo != null) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 150.dp)) { ArcThumbPane(shown, dur) }
-        Column(Modifier.align(Alignment.BottomCenter).padding(start = 56.dp, end = 56.dp, bottom = 26.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp)).background(Color(0xD90D0D11)).border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // No panel round it (user 2026-11-26): the timeline and the buttons sit straight on the bottom shade.
+        Column(Modifier.align(Alignment.BottomCenter).padding(start = 48.dp, end = 48.dp, bottom = 24.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
             var barFocused by remember { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(clock(shown), color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(56.dp))
@@ -421,32 +421,28 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
     }
 }
 
-/** The dock's play button: a small disc in the look's accent; focused, it grows a little and gets a white ring. */
+/** The play button: a small disc in the look's accent; focused, a ring in the skin's focus colour. */
 @Composable
 private fun PlayButton(playing: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val accent = com.lekathedon.visionlite.ui.KitInk.accent
-    Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape) { f ->
-        val size by androidx.compose.animation.core.animateDpAsState(if (f) 44.dp else 40.dp, label = "play")
-        Box(Modifier.size(size).background(if (f) accent else accent.copy(alpha = 0.85f), androidx.compose.foundation.shape.CircleShape)
-            .border(if (f) 2.dp else 0.dp, Color.White.copy(alpha = if (f) 0.9f else 0f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.size(22.dp), tint = Color.White)
+    // Inside(true): the focus ring is the skin's own (Kit.ringColor), not the white one or a fill.
+    com.lekathedon.visionlite.ui.Inside(true) { Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape) { f ->
+        Box(Modifier.size(42.dp).padding(3.dp).background(accent.copy(alpha = 0.9f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.size(20.dp), tint = Color.White)
         }
-    }
+    } }
 }
 
-/** A dock button: a quiet 36 dp icon; focused, it opens into a pill (accent tint + line) with its name beside the icon. */
+/** A player button: a quiet 36 dp icon; focused, it opens to show its name inside a ring in the skin's focus colour (no fill). */
 @Composable
 private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val accent = com.lekathedon.visionlite.ui.KitInk.accent
-    Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
+    com.lekathedon.visionlite.ui.Inside(true) { Focusable(onClick, modifier, RoundedCornerShape(50)) { f ->
         Row(Modifier.height(36.dp).animateContentSize(androidx.compose.animation.core.tween(160))
-            .background(if (f) accent.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(50))
-            .border(1.dp, if (f) accent.copy(alpha = 0.8f) else Color.Transparent, RoundedCornerShape(50))
             .padding(horizontal = if (f) 12.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.Icon(icon, label, Modifier.size(20.dp), tint = if (f) Color.White else Color.White.copy(alpha = 0.72f))
             if (f) Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
         }
-    }
+    } }
 }
 
 @Composable

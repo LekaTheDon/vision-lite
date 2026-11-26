@@ -70,6 +70,8 @@ class Nav {
     val dropped = ArrayList<String>()
     val current: Screen get() = stack.last()
     val canPop: Boolean get() = stack.size > 1
+    /** The screen under the top one (null on Home). */
+    val below: Screen? get() = stack.getOrNull(stack.size - 2)
     /** The top screen's saved-state key and focus memory. */
     val key: String get() = "s" + keys.last()
     val memory: FocusMemory get() = mems.last()

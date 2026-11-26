@@ -667,7 +667,12 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             },
             thumbs = thumbs,
             onNext = { scope.launch { nextEpisode(nav, s) } },
-            onSources = { nav.pop() },
+            // Sources opens this title's link list to choose from (never autoplay again, never Home): the list under the
+            // player is reused when it is this title's, else the player is swapped for a fresh list.
+            onSources = {
+                val list = Screen.Streams(if (s.type == "series") "series" else s.type, s.id, s.title, s.id.substringBefore(':'), manual = true)
+                if ((nav.below as? Screen.Streams)?.id == s.id) { nav.pop(); nav.replace(list) } else nav.replace(list)
+            },
             onAspect = ::aspectTo,
             stats = {
                 StatsSource(player, current, (if (session.smartAuto || session.reason != null) session.reason?.let { if (session.smartAuto) "Auto: $it" else it } else null),
