@@ -18,6 +18,8 @@ import org.json.JSONObject
 object Sync {
     @Volatile var audioMs = 0L
     @Volatile var subMs = 0L
+    /** Auto-sync's own move for the add-on subtitle on now (SubFix); never saved, added to [subMs] for ExoPlayer. */
+    @Volatile var autoSubMs = 0L
     private var title = ""
 
     const val STEP = 50L

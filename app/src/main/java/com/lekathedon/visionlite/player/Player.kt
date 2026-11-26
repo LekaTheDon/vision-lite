@@ -68,7 +68,7 @@ private class Renderers(context: Context, private val fel: Boolean, private val 
         super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, out)
         for (i in start until out.size) out[i] = object : androidx.media3.exoplayer.ForwardingRenderer(out[i]) {
             override fun render(positionUs: Long, elapsedRealtimeUs: Long) =
-                super.render((positionUs + Sync.audioMs * 1000 - Sync.subMs * 1000).coerceAtLeast(0L), elapsedRealtimeUs)
+                super.render((positionUs + Sync.audioMs * 1000 - (Sync.subMs + Sync.autoSubMs) * 1000).coerceAtLeast(0L), elapsedRealtimeUs)
         }
     }
     init { setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
@@ -267,7 +267,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             val http = OkHttpDataSource.Factory(Net.http).setDefaultRequestProperties(s.headers)
             // Live: the bytes the player downloads are also kept for rewind (no second connection).
             if (s.type == "live") Timeshift.leave()
-            val data = androidx.media3.datasource.DefaultDataSource.Factory(context, if (s.type == "live") Timeshift.tee(http) else com.lekathedon.visionlite.trailer.ChunkedYt.Factory(http))
+            // Add-on subtitles are cleaned up and their times noted as they load (SubFix); the rest passes straight through.
+            SubFix.begin(if (addonSubs && s.type != "live") com.lekathedon.visionlite.addons.Subs.forId(s.id).map { it.url } else emptyList())
+            val data = SubFix.factory(androidx.media3.datasource.DefaultDataSource.Factory(context, if (s.type == "live") Timeshift.tee(http) else com.lekathedon.visionlite.trailer.ChunkedYt.Factory(http)))
             // This TV › Dolby Vision: Vision's converter (DV7/DV5 -> 8.1 via libdovi, HDR10 base layer, HDR10+ strip) reads MKV
             // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
             // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
@@ -286,10 +288,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (ass != null) io.github.peerless2012.ass.media.factory.AssRenderersFactory(ass, r) else r }
             // MKV: the file's declared frame rate goes to the decoder (MkvFrameRate), libass reader when styled subs are on.
             val base = androidx.media3.extractor.DefaultExtractorsFactory()
-            val sources = if (useDv) DefaultMediaSourceFactory(data, DvRoute.factory(base, dv!!))
-            else if (ass == null) DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, null)) else {
+            // SubFix.capture goes outside: the MKV swaps inside look for the plain Matroska reader.
+            val sources = if (useDv) DefaultMediaSourceFactory(data, SubFix.capture(DvRoute.factory(base, dv!!)))
+            else if (ass == null) DefaultMediaSourceFactory(data, SubFix.capture(MkvFrameRate.factory(base, null))) else {
                 val parsers = io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory(ass)
-                DefaultMediaSourceFactory(data, MkvFrameRate.factory(base, parsers to ass)).also { it.setSubtitleParserFactory(parsers) }
+                DefaultMediaSourceFactory(data, SubFix.capture(MkvFrameRate.factory(base, parsers to ass))).also { it.setSubtitleParserFactory(parsers) }
             }
             ExoPlayer.Builder(context, renderers)
                 .setMediaSourceFactory(Sync.wrap(sources))
@@ -329,6 +332,12 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     playWhenReady = true
                 }
         }
+    }
+    // Subtitle auto-sync (SubFix): the add-on subtitle on now is lined up with the file's own lines, every 15 s.
+    androidx.compose.runtime.LaunchedEffect(player) {
+        val exo = player as? ExoPlayer ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(8_000)
+        while (true) { if (exo.isPlaying) runCatching { SubFix.tick(exo, exo.currentPosition) }; kotlinx.coroutines.delay(15_000) }
     }
     // Audio "Original": normally known already (looked up when the links page opened); if not, looked up now and the
     // audio moves to it once (only if you haven't picked a track yourself meanwhile).
@@ -681,14 +690,14 @@ private fun selectedVideo(tracks: Tracks): androidx.media3.common.Format? =
 private fun withSubs(s: Screen.Player): MediaItem {
     val subs = com.lekathedon.visionlite.addons.Subs.forId(s.id)
     if (subs.isEmpty()) return MediaItem.fromUri(s.url)
-    return MediaItem.Builder().setUri(s.url).setSubtitleConfigurations(subs.map { sub ->
+    return MediaItem.Builder().setUri(s.url).setSubtitleConfigurations(subs.mapIndexed { n, sub ->
         val u = sub.url.substringBefore('?').lowercase()
         val mime = when {
             u.endsWith(".vtt") -> androidx.media3.common.MimeTypes.TEXT_VTT
             u.endsWith(".ass") || u.endsWith(".ssa") -> androidx.media3.common.MimeTypes.TEXT_SSA
             else -> androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
         }
-        MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url)).setMimeType(mime)
+        MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url)).setMimeType(mime).setId("ext:$n|${sub.url}")
             .setLanguage(sub.lang).setLabel("${sub.lang} · add-on").build()
     }).build()
 }

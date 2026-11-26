@@ -144,6 +144,10 @@ class Prefs(context: Context) {
     val subLang2 = Text("sub_lang2", "")
     /** "off", "foreign" (only when the audio isn't in a subtitle language), "always". */
     val subsWhen = Text("subs_when", "foreign")
+    /** Add-on subtitles: [sighs], (door creaks), "JOHN:" and lone ♪ taken out as they load (player/SubFix.kt). */
+    val subsStripSdh = Flag("subs_strip_sdh", true)
+    /** Add-on subtitles lined up with the file's own subtitle lines while it plays (player/SubFix.kt). */
+    val subsAutoSync = Flag("subs_auto_sync", true)
     /** "s", "m", "l", "xl". */
     val subSize = Text("sub_size", "m")
     /** "white", "yellow", "box", "outline". */
