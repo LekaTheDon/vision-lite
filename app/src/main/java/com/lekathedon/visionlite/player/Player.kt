@@ -295,6 +295,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 DefaultMediaSourceFactory(data, SubFix.capture(MkvFrameRate.factory(base, parsers to ass))).also { it.setSubtitleParserFactory(parsers) }
             }
             ExoPlayer.Builder(context, renderers)
+                // One playback thread of Lite's own, pinned to the big cores on boxes that have them (BigCores).
+                .setPlaybackLooper(BigCores.playbackLooper)
                 .setMediaSourceFactory(Sync.wrap(sources))
                 .apply { loadControl(prefs.buffer.value)?.let { setLoadControl(it) } }
                 .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
@@ -333,6 +335,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 }
         }
     }
+    androidx.compose.runtime.LaunchedEffect(player) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { BigCores.pinForPlayback() } }
     // Subtitle auto-sync (SubFix): the add-on subtitle on now is lined up with the file's own lines, every 15 s.
     androidx.compose.runtime.LaunchedEffect(player) {
         val exo = player as? ExoPlayer ?: return@LaunchedEffect

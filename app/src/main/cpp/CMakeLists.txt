@@ -36,3 +36,8 @@ target_compile_features(nuviothumb PRIVATE cxx_std_17)
 target_compile_options(nuviothumb PRIVATE -O2 -Wno-deprecated-declarations -Wno-unused-parameter)
 target_link_options(nuviothumb PRIVATE "-Wl,-z,max-page-size=16384" -s)
 target_link_libraries(nuviothumb log ${jnigraphics-lib} dl m)
+
+# Big-core pinning for playback threads (vl_sched.cpp): only acts on boxes whose cores differ.
+add_library(vl_sched SHARED vl_sched.cpp)
+target_compile_options(vl_sched PRIVATE -Os)
+target_link_options(vl_sched PRIVATE -Wl,--gc-sections -s "-Wl,-z,max-page-size=16384")
