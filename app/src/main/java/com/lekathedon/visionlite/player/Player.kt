@@ -202,6 +202,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         gen++
     }
 
+    // The file itself turned out to be Dolby Vision the DV route converts (DV7 / DV5 not named "DV"): reopened on it.
+    var forceDv by remember(s.url) { mutableStateOf(false) }
+    val dvOn = remember(s.url) { booleanArrayOf(false) }
     var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && AmlFelSupport.nativeFelUsableOnce()) }
     // A dead add-on subtitle link must never stop the film: on a load error the file restarts without them.
     var addonSubs by remember(s.url) { mutableStateOf(true) }
@@ -269,9 +272,14 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
             // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
             val dv = DvRoute.of(prefs, felAllowed)
-            val useDv = dv != null && (!prefs.libass.value || DvRoute.namedDv(s.name.ifBlank { s.title }))
+            val useDv = dv != null && (forceDv || !prefs.libass.value || DvRoute.namedDv(s.name.ifBlank { s.title }))
+            dvOn[0] = useDv
             val ass = if (prefs.libass.value && s.type != "live" && !useDv) io.github.peerless2012.ass.media.AssHandler(
-                io.github.peerless2012.ass.media.type.AssRenderType.OVERLAY_OPEN_GL,
+                // CUES (user 2026-11-26, anime stuttered on every file, 4K and 90s alike): libass draws each subtitle line
+                // once into a picture the subtitle view shows until the line changes. The old OVERLAY_OPEN_GL mode
+                // redrew a full-screen layer over the video for every frame. Fonts, colours and positions stay;
+                // only moving effects (karaoke sweeps) hold still.
+                io.github.peerless2012.ass.media.type.AssRenderType.CUES,
                 io.github.peerless2012.ass.media.AssHandlerConfig(maxRenderPixels = 1920 * 1080)) else null
             assRef[0] = ass
             val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed, decodedInBox(prefs, Sound.stereo(context))).let { r ->
@@ -479,6 +487,13 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                         switchTo(Engine.MPV, "picture", player.currentPosition); return
                     }
                 }
+                // This TV › Dolby Vision converts, but the file was opened without the converter (libass on and the
+                // name never said DV; UHD Blu-ray remuxes rarely do): reopen it on the DV route once (user 2026-11-26).
+                val prof = Hud.dvProfile(video)?.first
+                if (!dvOn[0] && !forceDv && (prof == 7 || (prof == 5 && prefs.dv5To81.value)) && DvRoute.of(prefs, felAllowed) != null) {
+                    android.util.Log.i("DvRoute", "DV$prof file not opened on the converter: reopening on it")
+                    forceDv = true; session.resumeAt = player.currentPosition.coerceAtLeast(0); gen++; return
+                }
                 if (session.smartAuto && EngineRules.isHdr(video)) session.reason = EngineRules.REASON_HDR
                 if (session.smartAuto && !session.rerouted && !EngineRules.isHdr(video) && EngineRules.isHi10p(video)) {
                     session.rerouted = true; session.mpvSoftware = true; session.reason = EngineRules.REASON_HI10P
@@ -504,6 +519,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             s.type, s.id)
         onDispose {
             session.resumeAt = player.currentPosition
+            // One line per play in files/reports/playback.log (last 60): what played how, so a stutter is measured next time.
+            if (current == Engine.EXO && s.type != "live") PlayLog.add(title, s.name.lineSequence().firstOrNull().orEmpty(), session.reason,
+                exoStats.videoDecoder, myAss?.renderType?.name, dvOn[0], felNow.get(), exoStats.dropped, exoStats.rebuffers, player.currentPosition)
             com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release()
             runCatching { myAss?.release() }; if (assRef[0] === myAss) assRef[0] = null
         }
@@ -538,7 +556,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     pv.subtitleView?.let { styleSubtitles(it, hdrVideo) }
                     // libass draws in its own view inside the subtitle view, once per player.
                     val ass = assRef[0]
-                    if (ass != null && pv.getTag(R_ASS) !== ass) {
+                    if (ass != null && ass.renderType != io.github.peerless2012.ass.media.type.AssRenderType.CUES && pv.getTag(R_ASS) !== ass) {
                         pv.subtitleView?.let { sv -> (sv.getTag(R_ASS) as? android.view.View)?.let(sv::removeView)
                             val v = io.github.peerless2012.ass.media.widget.AssSubtitleView(sv.context, ass); sv.addView(v); sv.setTag(R_ASS, v) }
                         pv.setTag(R_ASS, ass)

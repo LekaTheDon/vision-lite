@@ -29,14 +29,39 @@ object AnimeMeta {
         m
     }
 
-    private suspend fun load(id: String, type: String): Meta? {
+    private val zips = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()
+
+    /** ani.zip's mapping for an anime id (ids, titles, episodes), kept for the run. */
+    private fun zip(id: String): JSONObject? {
+        zips[id]?.let { return it }
         val num = id.substringAfter(':')
         val q = when {
             id.startsWith("mal:") -> "mal_id=$num"
             id.startsWith("kitsu:") -> "kitsu_id=$num"
             else -> "anilist_id=$num"
         }
-        val z = runCatching { JSONObject(Net.get("https://api.ani.zip/mappings?$q", 10)) }.getOrNull()
+        return runCatching { JSONObject(Net.get("https://api.ani.zip/mappings?$q", 10)) }.getOrNull()?.also { zips[id] = it }
+    }
+
+    /**
+     * IMDb-style grouping (user 2026-11-26): an anime season listed on its own (MAL / AniList / Kitsu each list every
+     * season as a show) belongs to its IMDb show. Returns that show's id and the season this entry is (TVDB's number,
+     * as ani.zip gives it), or null for films and entries IMDb doesn't know. Same one ani.zip request as the page.
+     */
+    suspend fun parentOf(id: String): Pair<String, Int?>? = withContext(Dispatchers.IO) {
+        val base = id.split(':').take(2).joinToString(":")
+        val z = zip(base) ?: return@withContext null
+        val maps = z.optJSONObject("mappings") ?: return@withContext null
+        if (maps.optString("type").equals("MOVIE", true)) return@withContext null
+        val imdb = maps.optString("imdb_id").takeIf { it.startsWith("tt") } ?: return@withContext null
+        val eps = z.optJSONObject("episodes")
+        val season = eps?.optJSONObject("1")?.optInt("seasonNumber", 0)?.takeIf { it > 0 }
+        imdb to season
+    }
+
+    private suspend fun load(id: String, type: String): Meta? {
+        val num = id.substringAfter(':')
+        val z = zip(id)
         val maps = z?.optJSONObject("mappings")
         val anilist = maps?.optInt("anilist_id")?.takeIf { it > 0 } ?: num.toIntOrNull()?.takeIf { id.startsWith("anilist:") }
         val malId = maps?.optInt("mal_id")?.takeIf { it > 0 } ?: num.toIntOrNull()?.takeIf { id.startsWith("mal:") }

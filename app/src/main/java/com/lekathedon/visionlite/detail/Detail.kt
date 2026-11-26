@@ -114,6 +114,12 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     var loaded by remember(s.id) { mutableStateOf(false) }
     val imdbId = s.id.substringBefore(':').takeIf { Imdb.isId(it) }
 
+    // An anime season opened by its MAL / AniList / Kitsu id: its IMDb show instead, on that season (IMDb-style
+    // grouping, user 2026-11-26), so every season sits under one show.
+    LaunchedEffect(s.id) {
+        if (s.type == "series" && AnimeMeta.isAnimeId(s.id))
+            AnimeMeta.parentOf(s.id)?.let { (tt, season) -> nav.replace(Screen.Detail("series", tt, s.name, season)); return@LaunchedEffect }
+    }
     LaunchedEffect(s.id) {
         coroutineScope {
             val m = async { runCatching { App.instance.client.meta(s.type, s.id) }.getOrNull()
@@ -153,7 +159,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
 
         val seasons = remember(eps) { eps.map { it.season }.distinct().sorted().let { l -> if (l.size > 1) l.filter { it != 0 } else l } }
         val next = progress?.next
-        var season by remember(s.id, seasons, next) { mutableStateOf(next?.season?.takeIf { it in seasons } ?: seasons.firstOrNull() ?: 1) }
+        var season by remember(s.id, seasons, next) { mutableStateOf(s.season?.takeIf { it in seasons } ?: next?.season?.takeIf { it in seasons } ?: seasons.firstOrNull() ?: 1) }
         val list = rememberLazyListState()
         val scope = rememberCoroutineScope()
         val play = remember { FocusRequester() }
@@ -284,8 +290,14 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         KitButton(playLabel, I.Play, {
                             if (!isSeries) nav.push(Screen.Streams(s.type, if (AnimeMeta.isAnimeId(s.id)) m?.id ?: s.id else s.id, name, s.id))
                             else {
-                                val e = (next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
-                                    ?: eps.firstOrNull { it.season == seasons.firstOrNull() })
+                                val listed = next?.let { n -> eps.firstOrNull { it.season == n.season && it.episode == n.number } }
+                                // Trakt's next episode is missing from the list (a season IMDb hasn't added yet, user
+                                // 2026-11-26 JoJo S6E6 played S1E1): play that episode anyway, never the first one.
+                                if (next != null && listed == null && imdbId != null) {
+                                    nav.push(Screen.Streams("series", "$imdbId:${next.season}:${next.number}", "$name S${next.season}E${next.number}", s.id))
+                                    return@KitButton
+                                }
+                                val e = (listed ?: eps.firstOrNull { it.season == seasons.firstOrNull() })
                                     ?.takeIf { it.airedMs == null || it.airedMs <= System.currentTimeMillis() }
                                 e?.let { nav.push(Screen.Streams("series", it.videoId, "$name S${it.season}E${it.episode}", s.id)) }
                             }
@@ -526,7 +538,9 @@ private fun Facts(m: Meta?, t: Imdb.Title?, series: Boolean) {
     val years = t?.year?.let { y -> if (series) "$y–${t.endYear ?: ""}" else "$y" } ?: m?.releaseInfo
     val runtime = t?.runtimeMin?.let { if (it >= 60 && !series) "${it / 60}h ${it % 60}m" else "${it}m" } ?: m?.runtime
     val genres = (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).take(3).joinToString(" · ").ifBlank { null }
-    val seasons = t?.seasons?.filter { it > 0 }?.size?.takeIf { series && it > 0 }?.let { if (it == 1) "1 season" else "$it seasons" }
+    // IMDb's count, or more when TMDB filled in seasons IMDb hasn't listed yet (detail/TmdbSeasons.kt).
+    val seasons = maxOf(t?.seasons?.count { it > 0 } ?: 0, m?.videos.orEmpty().mapNotNull { it.season }.filter { it > 0 }.distinct().size)
+        .takeIf { series && it > 0 }?.let { if (it == 1) "1 season" else "$it seasons" }
     val style = Kit.style
     Row(Modifier.padding(top = if (style == Style.TONAL) 0.dp else 12.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 8.dp else 0.dp)) {

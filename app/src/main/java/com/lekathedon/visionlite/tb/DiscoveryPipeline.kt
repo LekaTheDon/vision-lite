@@ -127,7 +127,28 @@ object DiscoveryPipeline {
     /** Manga / book / archive releases (Comet by Kitsu id returned manga volumes). */
     private val NOT_VIDEO = Regex("\\b(?:cbz|cbr|cb7|epub|pdf|mobi|azw3?)\\b|\\b(?:manga|light novel|artbook|scans?)\\b", RegexOption.IGNORE_CASE)
 
+    /**
+     * Strict rule (user 2026-11-26: "Monster" played two different shows on two boxes): a one-word show name ("Monster",
+     * "Dark", "Lost") is many shows, and title-parsing indexes (text search, DMM/Zilean, TorBox search) mix them up, so
+     * such a release must also name the show's year (±1).
+     * Stremio add-ons that matched the id themselves (Torrentio, Comet…) and anime-only sources (named by the anime's own ids)
+     * don't need it. Cost: none (text only).
+     */
     private fun matchByNumber(c: DiscoveryCandidate, target: DiscoveryTarget): ReleaseMatch {
+        val m = matchByNumber0(c, target)
+        if (!m.accepted || !target.isSeries || c.trustedMatch || c.source in ANIME_SOURCES || (target.isAnime && c.source == DiscoverySource.NYAA)) return m
+        if (!oneWordTitle(target)) return m
+        val year = target.year ?: return ReleaseMatch.reject("ambiguous_title")
+        fun names(n: String?) = n != null && ReleaseMatcher.tokens(n).any { t -> t.toIntOrNull()?.let { kotlin.math.abs(it - year) <= 1 } == true }
+        return if (names(c.name) || names(c.fileName)) m else ReleaseMatch.reject("ambiguous_title")
+    }
+
+    private fun oneWordTitle(target: DiscoveryTarget): Boolean {
+        val main = target.titles.firstOrNull() ?: return false
+        return ReleaseMatcher.tokens(main).filter { it != "the" }.size <= 1
+    }
+
+    private fun matchByNumber0(c: DiscoveryCandidate, target: DiscoveryTarget): ReleaseMatch {
         val animeNumbers = c.source in ANIME_SOURCES
         val byName = ReleaseMatcher.match(c.name, target, c.idTagged, animeNumbers)
         if (byName.accepted) return byName

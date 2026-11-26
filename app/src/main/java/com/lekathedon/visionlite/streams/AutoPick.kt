@@ -341,7 +341,7 @@ object AutoPick {
      */
     fun rank(pool: List<Link>, minutes: Int = 0): List<Link> {
         val fel = felBox
-        val dub = runCatching { com.lekathedon.visionlite.App.instance.prefs.dubLang.value }.getOrDefault("")
+        val dub = DubLang.wanted()
         val parsed = pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }
         // This box / TV / internet (user 2026-11-24): what can't play here is out (unless nothing else is left),
         // what would struggle goes after everything that plays well.

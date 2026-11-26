@@ -23,6 +23,36 @@ object DubLang {
     /** "AR - Title", "EN| Title", "|FR| Title": the provider's language tag in front. */
     private val PREFIX = Regex("""^\s*\|?\s*([A-Za-z]{2})\s*[-:|•]""")
 
+    /**
+     * The language autoplay should look for a dub in: Settings › Audio "Preferred dub", or when that is Off, the Audio
+     * language itself if it names a language (user 2026-11-26: Arabic audio on Case Closed must play the Arabic dub).
+     */
+    fun wanted(): String = runCatching {
+        val p = com.lekathedon.visionlite.App.instance.prefs
+        p.dubLang.value.ifEmpty { p.audioLang.value.takeIf { it.length in 2..3 && it != "original" }.orEmpty() }
+    }.getOrDefault("")
+
+    /** "AR-KID - …", "AR-ANM-D - …", "EN| …", "|FR| …": the provider's tag in front, split ("AR", "-KID"). */
+    private val VOD_TAG = Regex("""^\s*\|?\s*([A-Za-z]{2})((?:[-_ ][A-Za-z0-9+]{1,4}){0,3})\s*[-:|•]\s""")
+    /** Subtitled, not dubbed: Arabic "مترجم", VOSTFR, "multi-subs", "subbed". */
+    private val SUBBED = Regex("""(?i)مترجم|\bvost(fr)?\b|\bsub(s|bed|titled)?\b|multi[- ]?subs""")
+
+    /**
+     * A VOD title's dub language (user 2026-11-26): explicit dub words first; else the provider's language tag when the
+     * title was made in another language and nothing says subtitled ("AR-KID - المحقق كونان" in old cartoons = the
+     * Arabic dub of a Japanese show; "AR-ANM-S" or "… مترجمة" = Japanese audio with Arabic subtitles). [original] is
+     * the title's original language (TMDB); unknown = only explicit words count.
+     */
+    fun ofVod(name: String, group: String, original: String?): String? {
+        of("$name $group")?.let { return it }
+        val m = VOD_TAG.find(name) ?: return null
+        val lang = m.groupValues[1].lowercase()
+        val segs = m.groupValues[2].split('-', '_', ' ').filter { it.isNotBlank() }.map { it.uppercase() }
+        if ("S" in segs || SUBBED.containsMatchIn("$name $group")) return null
+        if (original.isNullOrBlank() || original == lang) return null
+        return lang.takeIf { "D" in segs || WORDS.any { w -> w.first == it } }
+    }
+
     /** The dub language of [text] (a name, plus its category), or null when it doesn't say it is dubbed. */
     fun of(text: String): String? {
         IMPLIED.firstOrNull { it.first.containsMatchIn(text) }?.let { return it.second }

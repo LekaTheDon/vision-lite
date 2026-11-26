@@ -5,6 +5,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 /** Calls add-ons. Small in-memory caches so going back never refetches. */
 class AddonClient(private val store: AddonStore) {
@@ -62,10 +64,13 @@ class AddonClient(private val store: AddonStore) {
         return coroutineScope {
             val eps = if (type == "series") async { imdbApi.episodes(imdb) } else null
             val t = imdbApi.title(imdb) ?: return@coroutineScope null
-            val videos = eps?.await().orEmpty().map { e ->
+            val imdbEps = eps?.await().orEmpty()
+            // Seasons IMDb hasn't listed yet, from TMDB (detail/TmdbSeasons.kt), so Play / next episode find them.
+            val later = if (type == "series") withContext(Dispatchers.IO) { com.lekathedon.visionlite.detail.TmdbSeasons.beyond(imdb, imdbEps) } else emptyList()
+            val videos = imdbEps.map { e ->
                 Video(id = "$imdb:${e.season}:${e.episode}", title = e.title, name = e.title, season = e.season, episode = e.episode,
                     released = e.airedMs?.let { java.time.Instant.ofEpochMilli(it).toString() }, thumbnail = e.image, overview = e.plot)
-            }
+            } + later
             Meta(id = imdb, type = type, name = t.name, poster = t.poster,
                 background = "https://images.metahub.space/background/large/$imdb/img", logo = "https://images.metahub.space/logo/medium/$imdb/img",
                 description = t.plot, releaseInfo = t.year?.let { y -> t.endYear?.let { "$y-$it" } ?: "$y" },

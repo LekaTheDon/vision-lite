@@ -6,7 +6,8 @@ import androidx.compose.runtime.mutableStateListOf
 /** Screens and the back stack. No navigation library: a list of screens, the last one drawn. */
 sealed interface Screen {
     data object Home : Screen
-    data class Detail(val type: String, val id: String, val name: String) : Screen
+    /** [season]: open on that season (an anime season card grouped under its IMDb show). */
+    data class Detail(val type: String, val id: String, val name: String, val season: Int? = null) : Screen
     /** A VOD series from a Home row (no TMDB match): its episodes. */
     data class VodSeries(val pl: String, val id: String, val name: String) : Screen
     data class Streams(val type: String, val id: String, val title: String, val metaId: String, val manual: Boolean = false) : Screen

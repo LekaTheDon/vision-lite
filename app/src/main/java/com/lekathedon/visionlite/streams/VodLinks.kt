@@ -16,7 +16,8 @@ import kotlinx.coroutines.withContext
 object VodLinks {
     private val YEAR = Regex("""(?<!\d)(19|20)\d{2}(?!\d)""")
     private val TAGS = Regex("""\[[^]]*]|\([^)]*\)|\|[^|]*\||(?i)\b(4k|uhd|fhd|hd|sd|hevc|h\.?265|x265|1080p?|2160p?|720p?|multi|vostfr|dual|sub|subbed|dub|dubbed|hdr10?|dv|dolby vision)\b|مدبلج[ةه]?|مترجم[ةه]?|كامل[ةه]?""")
-    private val PREFIX = Regex("""^\s*(?:[A-Za-z]{2,3}|[A-Za-z]{2,3}[-_ ][A-Za-z]{2,3})\s*[-:|•]\s+""")
+    // "EN - ", "AR-KID - ", "AR-ANM-D - ", "AR-AS-S-S - ": the provider's tag in front.
+    private val PREFIX = Regex("""^\s*[A-Za-z]{2,3}(?:[-_ ][A-Za-z0-9+]{1,4}){0,3}\s*[-:|•]\s+""")
 
     fun available(): Boolean = runCatching { Vod.count() > 0 }.getOrDefault(false)
 
@@ -53,7 +54,9 @@ object VodLinks {
             titles = EpisodeFacts.titlesOf(target); year = null
         }
         // Preferred dub on: the title's name in that language too (dubbed copies are listed under it; one TMDB call, kept).
-        val dubLang = com.lekathedon.visionlite.App.instance.prefs.dubLang.value
+        val dubLang = DubLang.wanted()
+        // The title's own language: a VOD copy tagged in another language (AR-KID, DE …) is that language's dub.
+        val original = com.lekathedon.visionlite.player.OriginalLang.resolve(imdb, type)
         val dubName = if (dubLang.isNotEmpty()) localName(imdb, kind0(type), dubLang) else null
         val wanted = (titles + listOfNotNull(dubName)).map(::clean).filter { it.length >= 2 }.toSet()
         if (wanted.isEmpty() && com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb) == null) return@withContext emptyList()
@@ -65,10 +68,10 @@ object VodLinks {
             .filter { clean(it.name) in wanted && yearOk(it.name, year) }).distinctBy { it.pl + it.id }
         if (type == "movie") hits.mapNotNull { v ->
             val url = v.url ?: return@mapNotNull null
-            link(url, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.of(v.name + " " + v.group))
+            link(url, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
         } else hits.take(3).flatMap { v ->
             Vod.episodes(v).filter { it.season == target!!.season && it.number == target.episode }.map { e ->
-                link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV", DubLang.of(v.name + " " + v.group))
+                link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
             }
         }
     }
