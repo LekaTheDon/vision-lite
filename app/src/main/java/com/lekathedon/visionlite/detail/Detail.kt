@@ -129,6 +129,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             launch { traktRating = imdbId?.let { App.instance.trakt.rating(it, s.type == "series") }?.rating?.takeIf { it > 0 } }
             launch { if (imdbId != null && s.type == "series") progress = App.instance.trakt.progress(imdbId) }
             meta = m.await(); imdb = t.await(); loaded = true
+            // What this title is (type, years, length) for Vision TB and the player, before Play (no extra call).
+            imdb?.let { com.lekathedon.visionlite.tb.TitleFacts.put(it) }
             eps = merge(meta, e.await(), imdbId ?: s.id)
         }
     }

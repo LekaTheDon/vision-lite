@@ -16,7 +16,7 @@ object LinkMemory {
     private const val WEEK = 7 * 24 * 3600_000L
     private val prefs get() = App.instance.prefs
 
-    enum class Bad(val text: String) { FAILED("Didn't play last time"), BUFFERED("Kept buffering last time") }
+    enum class Bad(val text: String) { FAILED("Didn't play last time"), BUFFERED("Kept buffering last time"), WRONG("Wrong video last time") }
 
     /** One key per link: the add-on (or Vision TB) and the link's own text, the same on every visit. */
     fun keyOf(source: String, text: String): String = (source + "|" + text.trim()).hashCode().toUInt().toString(36)

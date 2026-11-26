@@ -394,6 +394,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     DisposableEffect(player) {
         val myAss = assRef[0]
         var subsChecked = false
+        var lengthChecked = false
         var pausedByUser = false
         var lastSeek = 0L
         var stallFrom = 0L
@@ -412,6 +413,19 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == MediaPlayer.STATE_READY && current == Engine.MPV) firstFrame = true
                 if (state == MediaPlayer.STATE_READY && s.type != "live" && player.duration > 0) player.duration.let { d -> scope.launch(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.data.LastLink.duration(d) } }
+                // The file against what the title is (tb/TitleFacts, user 2026-11-26): an episode far from the show's
+                // length (56 min for a 24-min anime) is the wrong video: stop, mark the link, play the next one.
+                if (state == MediaPlayer.STATE_READY && !lengthChecked && (s.type == "series" || s.type == "movie") && player.duration > 0) {
+                    lengthChecked = true
+                    com.lekathedon.visionlite.tb.TitleFacts.wrongDuration(s.id, s.type == "series", player.duration, s.name)?.let { why ->
+                        player.pause()
+                        linkKey?.let { com.lekathedon.visionlite.streams.LinkMemory.mark(it, com.lekathedon.visionlite.streams.LinkMemory.Bad.WRONG) }
+                        if (com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
+                            failNote = "$why · trying the next link"
+                            scope.launch { com.lekathedon.visionlite.streams.LinkFallback.next(s.id)?.let { nav.replace(it) } ?: run { failNote = "$why · no other link fits this title" } }
+                        } else failNote = "$why · no other link fits this title"
+                    }
+                }
                 // Buffering that isn't a seek, after the picture came, lasting over 2 s: 3 of them mark the link.
                 val nowMs = System.currentTimeMillis()
                 if (state == MediaPlayer.STATE_BUFFERING && firstFrame && nowMs - lastSeek > 3_000) stallFrom = nowMs

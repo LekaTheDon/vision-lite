@@ -86,6 +86,9 @@ object VisionTb {
         if (imdb == null && !byAnimeId) { harvest?.cancel(); return@withContext }
         if (series && (season == null || episode == null)) { harvest?.cancel(); return@withContext }
         val t0 = SystemClock.elapsedRealtime()
+        // What this title is (film / show / anime, years, length) before any release is judged (TitleFacts): from the
+        // details page in memory, else IMDb's cached title, else one IMDb request (≤3 s).
+        val facts = imdb?.let { i -> withTimeoutOrNull(3_000) { runCatching { TitleFacts.ensure(i) }.getOrNull() } }
         // Per-source report (Settings › Vision TB): what each source found, how fast, whether it still answers.
         val search = TbSources.Search(id)
         val allow = HashMap<String, Boolean>()
@@ -104,7 +107,8 @@ object VisionTb {
                     }
                 }
             }
-            val idTarget = DiscoveryTarget(imdb, series, emptyList(), null, season, episode)
+            val idTarget = DiscoveryTarget(imdb, series, listOfNotNull(facts?.name?.takeIf { it.isNotBlank() }), facts?.year, season, episode,
+                isAnime = series && (facts?.kind == TitleFacts.Kind.ANIME || zip != null), endYear = facts?.endYear)
             val claimed = HashSet<String>()
             var budget = DiscoveryPipeline.MAX_CACHE_CHECKS
             suspend fun pass(source: DiscoverySource, rows: List<DiscoveryCandidate>, target: DiscoveryTarget, src: String = source.name) {
@@ -128,7 +132,8 @@ object VisionTb {
                     val hint = if (series && imdb != null && season != null && episode != null)
                         withTimeoutOrNull(5_000) { TbMeta.episodeHint(imdb, season, episode, TbMeta.namesOf(m)) } else null
                     val titles = (listOfNotNull(m?.name?.takeIf { it.isNotBlank() }) + t?.first.orEmpty() + zip?.titles.orEmpty()).distinct()
-                    idTarget.copy(titles = titles, year = year, episodeHint = hint, isAnime = series && (t?.second == true || zip != null))
+                    idTarget.copy(titles = (titles + idTarget.titles).distinct(), year = year ?: idTarget.year, episodeHint = hint,
+                        isAnime = series && (t?.second == true || zip != null || idTarget.isAnime))
                 }
                 // Anime (shows): Kitsu / AniList / AniDB ids, Kitsu's titles, SeaDex's best releases. An IMDb season other
                 // than 1 can hold several anime entries (Demon Slayer S2), so only season 1 or an anime id gets the ids.
@@ -159,7 +164,9 @@ object VisionTb {
                     if (series && (req.source == DiscoverySource.TORRENTIO || req.source == DiscoverySource.TORRENTIO_REGIONAL))
                         com.lekathedon.visionlite.streams.AutoPick.vouch(id, rows.map { it.hash to (it.fileName ?: it.name) })
                     // Shows: rows naming this exact episode go before the titles arrive; the rest wait for them.
-                    if (quick && series && !target.isCompleted) pass(req.source, rows, idTarget, sk)
+                    // Only with the title's facts known (name, year, type): never on episode numbers alone (user
+                    // 2026-11-26: a 2026 show's S01E01 went through this way for the 2004 anime).
+                    if (quick && series && !target.isCompleted && idTarget.titles.isNotEmpty() && idTarget.year != null) pass(req.source, rows, idTarget, sk)
                     pass(req.source, rows, target.await(), sk)
                 }
                 if (imdb != null) {

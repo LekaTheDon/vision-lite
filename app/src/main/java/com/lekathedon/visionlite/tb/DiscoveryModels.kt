@@ -28,7 +28,9 @@ data class DiscoveryTarget(
     /** Anime only: the title's Kitsu / AniList / AniDB ids (anime sources are skipped without them). */
     val anime: AnimeRefs? = null,
     /** Kitsu's own titles for this entry: names from the anime sources may carry any of them. */
-    val animeTitles: List<String> = emptyList()
+    val animeTitles: List<String> = emptyList(),
+    /** The last year the show ran (TitleFacts); null = still running or unknown. */
+    val endYear: Int? = null
 )
 
 /** Where a release was found. Order = trust when two sources disagree on the name. */

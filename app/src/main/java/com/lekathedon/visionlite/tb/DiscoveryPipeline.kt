@@ -136,11 +136,43 @@ object DiscoveryPipeline {
      */
     private fun matchByNumber(c: DiscoveryCandidate, target: DiscoveryTarget): ReleaseMatch {
         val m = matchByNumber0(c, target)
+        // The title's facts hold for every source, trusted add-ons included (TitleFacts).
+        if (m.accepted) clash(c.name, target)?.let { return ReleaseMatch.reject(it) }
+        if (m.accepted) c.fileName?.let { f -> clash(f, target)?.let { return ReleaseMatch.reject(it) } }
         if (!m.accepted || !target.isSeries || c.trustedMatch || c.source in ANIME_SOURCES || (target.isAnime && c.source == DiscoverySource.NYAA)) return m
         if (!oneWordTitle(target)) return m
         val year = target.year ?: return ReleaseMatch.reject("ambiguous_title")
         fun names(n: String?) = n != null && ReleaseMatcher.tokens(n).any { t -> t.toIntOrNull()?.let { kotlin.math.abs(it - year) <= 1 } == true }
         return if (names(c.name) || names(c.fileName)) m else ReleaseMatch.reject("ambiguous_title")
+    }
+
+    private val EP_MARK = Regex("""(?i)\bs\d{1,2}(?:e\d{1,3})?\b|\b\d{1,2}x\d{2,3}\b|\bseason\b|\bcomplete\b""")
+    private val HIGH_END = Regex("""(?i)\b(2160p|4k|uhd|dovi|dv|hdr10\+?|hdr|dolby[ ._-]?vision|atmos)\b""")
+    private val REMASTER = Regex("""(?i)\b(remaster(ed)?|upscaled?|ai[ ._-]?upscale)\b""")
+
+    /**
+     * A release that can't be this title, whatever source vouched for it (user 2026-11-26):
+     *  - year: a show's release naming a year before the show began, or (season 1) well after it began, or after it
+     *    ended; a film's release naming another year (years inside the title itself are ignored);
+     *  - type: a 4K / HDR / Dolby Vision / Atmos copy of an anime that ended before 2015 (no such masters exist; the
+     *    4K "Monster 2026" Netflix show is not the 2004 anime) unless it says remastered / upscaled.
+     * Null = no clash. Text only.
+     */
+    internal fun clash(name: String, target: DiscoveryTarget): String? {
+        val y0 = target.year ?: return null
+        val tokens = ReleaseMatcher.tokens(name)
+        val titleTokens = target.titles.flatMap { ReleaseMatcher.tokens(it) }.toSet()
+        val years = (if (target.isSeries) {
+            val cut = tokens.indexOfFirst { EP_MARK.matches(it) }.let { if (it < 0) tokens.size else it }
+            tokens.subList(0, cut)
+        } else tokens.take(12)).filter { it !in titleTokens }.mapNotNull { it.toIntOrNull()?.takeIf { y -> y in 1920..2099 } }
+        if (target.isSeries) {
+            val last = (target.endYear ?: java.time.Year.now().value) + 1
+            if (years.any { it < y0 - 1 || it > last }) return "year_clash"
+            if (target.season == 1 && years.any { it > y0 + 1 }) return "year_clash"
+        } else if (years.isNotEmpty() && years.none { kotlin.math.abs(it - y0) <= 1 }) return "year_clash"
+        if (target.isSeries && target.isAnime && (target.endYear ?: y0) < 2015 && HIGH_END.containsMatchIn(name) && !REMASTER.containsMatchIn(name)) return "type_clash"
+        return null
     }
 
     private fun oneWordTitle(target: DiscoveryTarget): Boolean {

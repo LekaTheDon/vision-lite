@@ -394,11 +394,22 @@ object AutoPick {
         }
     }
 
+    /**
+     * The link's file can't be this title (wrong years, a 4K copy of an old anime): TitleFacts against its file name,
+     * whichever source it came from (user 2026-11-26). Null = fine or facts unknown.
+     */
+    fun clashOf(l: Link, videoId: String, t: EpisodeCheck.Target?): String? {
+        val f = com.lekathedon.visionlite.tb.TitleFacts.get(videoId.substringBefore(':').takeIf { it.startsWith("tt") }) ?: return null
+        val target = com.lekathedon.visionlite.tb.DiscoveryTarget(videoId.substringBefore(':'), t != null, listOf(f.name), f.year, t?.season, t?.episode,
+            isAnime = t != null && f.kind == com.lekathedon.visionlite.tb.TitleFacts.Kind.ANIME, endYear = f.endYear)
+        return listOfNotNull(l.fileName, l.stream.behaviorHints?.filename, l.stream.title?.lineSequence()?.firstOrNull()).firstNotNullOfOrNull { com.lekathedon.visionlite.tb.DiscoveryPipeline.clash(it, target) }
+    }
+
     /** The order autoplay tries links in (the manual list keeps every row). */
     fun order(links: List<Link>, videoId: String): List<Link> {
         // Link memory: a link that failed or kept buffering this week is skipped; your pick for the show goes first.
         val t = EpisodeCheck.targetOf(videoId)
-        val ranked = rank(pool(links, t, videoId), minutesFor(videoId, t)).filter { LinkMemory.bad(it) == null }
+        val ranked = rank(pool(links, t, videoId), minutesFor(videoId, t)).filter { LinkMemory.bad(it) == null && clashOf(it, videoId, t) == null }
         val mine = ranked.filter { LinkMemory.pickMatch(videoId, it) > 0 }.sortedByDescending { LinkMemory.pickMatch(videoId, it) }
         return mine.take(1) + ranked.filter { it !in mine.take(1) }
     }
