@@ -36,7 +36,7 @@ object VodLinks {
         val wanted = names.map(::clean).filter { it.length >= 2 }.toSet()
         wanted.any { w ->
             runCatching { Vod.search(kind, w.split(' ').maxBy { it.length }) }.getOrDefault(emptyList())
-                .any { clean(it.name) in wanted && (kind != "movie" || yearOk(it.name, year)) }
+                .any { clean(it.name) in wanted && yearOk(it.name, year) }
         }
     }
 
@@ -158,19 +158,20 @@ object VodLinks {
 
     /** Links for [type]/[videoId] ("tt…" or "tt…:s:e"). */
     /** [withTech]: also ask the panel for each copy's file facts (Play with VOD; films one small call each, at most 12). */
-    suspend fun links(type: String, videoId: String, withTech: Boolean = false): List<Link> = withContext(Dispatchers.IO) {
+    /** [names] / [showYear]: the title page's own names and year (the same ones [present] matched by), so a press finds what the button promised. */
+    suspend fun links(type: String, videoId: String, withTech: Boolean = false, names: List<String> = emptyList(), showYear: Int? = null): List<Link> = withContext(Dispatchers.IO) {
         if (!available()) return@withContext emptyList()
         val target = EpisodeCheck.targetOf(videoId)
         val imdb = videoId.substringBefore(':')
         val titles: List<String>; val year: Int?
         if (type == "movie") {
             MovieFacts.ensure(imdb)
-            val f = MovieFacts.of(imdb) ?: return@withContext emptyList()
-            titles = f.first; year = f.second
+            val f = MovieFacts.of(imdb)
+            titles = ((f?.first ?: emptyList()) + names).filter { it.isNotBlank() }.distinct(); year = f?.second ?: showYear
         } else {
             if (target == null) return@withContext emptyList()
             EpisodeFacts.ensure(type, videoId)
-            titles = EpisodeFacts.titlesOf(target); year = null
+            titles = (EpisodeFacts.titlesOf(target) + names).filter { it.isNotBlank() }.distinct(); year = showYear
         }
         // Preferred dub on: the title's name in that language too (dubbed copies are listed under it; one TMDB call, kept).
         val dubLang = DubLang.wanted()
@@ -179,23 +180,36 @@ object VodLinks {
         val dubName = if (dubLang.isNotEmpty()) localName(imdb, kind0(type), dubLang) else null
         val wanted = (titles + listOfNotNull(dubName)).map(::clean).filter { it.length >= 2 }.toSet()
         if (wanted.isEmpty() && com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb) == null) return@withContext emptyList()
-        val names = Iptv.playlists().associate { it.id to it.name }
+        val plNames = Iptv.playlists().associate { it.id to it.name }
         val kind = if (type == "movie") "movie" else "series"
         // Plus the VOD title a Home VOD card was opened from (Arabic names don't match the English ones).
         val saved = com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb)?.takeIf { it.kind == kind }
         val hits = (listOfNotNull(saved) + wanted.flatMap { w -> Vod.search(kind, w.split(' ').maxBy { it.length }) }
             .filter { clean(it.name) in wanted && yearOk(it.name, year) }).distinctBy { it.pl + it.id }
+        val main = titles.firstOrNull() ?: saved?.name?.replace(PREFIX, "")?.trim() ?: return@withContext emptyList()
         if (type == "movie") {
             val films = hits.filter { it.url != null }.take(if (withTech) 12 else Int.MAX_VALUE)
             val infos = if (withTech) kotlinx.coroutines.coroutineScope { films.map { v -> async { Vod.vodInfo(v) } }.map { it.await() } } else films.map { null }
             films.mapIndexed { i, v ->
-                link(v.url!!, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original)).copy(tech = tech(infos[i]), group = v.group)
+                link(v.url!!, main, year?.toString(), v.name, plNames[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original)).copy(tech = tech(infos[i]), group = v.group)
             }
-        } else hits.take(3).flatMap { v ->
-            Vod.episodes(v).filter { it.season == target!!.season && it.number == target.episode }.map { e ->
-                link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
+        } else {
+            // Panels list one copy per language (30+ for a big show): yours first (original / English / preferred dub),
+            // then every copy's episode list is asked at once (12 at most, one small call each), so the episode is found
+            // wherever it is, not only in the first three the database happened to hold.
+            val mine = setOfNotNull("EN", original?.uppercase(), dubLang.uppercase().ifBlank { null })
+            fun rank(v: com.lekathedon.visionlite.iptv.VodItem): Int {
+                val tag = PREFIX.find(v.name)?.value.orEmpty().uppercase().split('-', '_', ' ', ':', '|').filter { it.isNotBlank() }
+                return if (tag.isEmpty() || tag.any { it in mine }) 0 else 1
+            }
+            val ranked = hits.sortedBy(::rank).take(12)
+            val lists = kotlinx.coroutines.coroutineScope { ranked.map { v -> async { v to runCatching { Vod.episodes(v) }.getOrDefault(emptyList()) } }.map { it.await() } }
+            lists.flatMap { (v, eps) ->
+            eps.filter { it.season == target!!.season && it.number == target.episode }.map { e ->
+                link(e.url, main, "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), plNames[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
                     .copy(tech = tech(e.info), group = v.group)
             }
+        }
         }
     }
 

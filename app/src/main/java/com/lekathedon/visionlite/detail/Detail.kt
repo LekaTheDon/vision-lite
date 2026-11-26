@@ -320,7 +320,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             hint = "Looking in your VOD…"
                             scope.launch {
                                 val V = com.lekathedon.visionlite.streams.VodLinks
-                                val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid, withTech = true) }.getOrDefault(emptyList())).take(12)
+                                val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid, withTech = true, names = listOf(name, s.name).distinct(), showYear = t?.year) }.getOrDefault(emptyList())).take(12)
                                 hint = null
                                 sheet = if (opts.isEmpty()) Sheet.Menu("Not in your VOD" + (if (isSeries) " for this episode" else ""), listOf(Triple("OK", null) {}))
                                 else {
