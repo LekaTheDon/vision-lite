@@ -5,6 +5,7 @@ import com.lekathedon.visionlite.addons.StreamHints
 import com.lekathedon.visionlite.iptv.Iptv
 import com.lekathedon.visionlite.iptv.Vod
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
 /**
@@ -14,6 +15,8 @@ import kotlinx.coroutines.withContext
  * panel for the episode list once (Xtream get_series_info). Nothing runs when no playlist has VOD.
  */
 object VodLinks {
+    /** The player's source name for Play with VOD: such a play never touches normal Play's resume link, link memory or fallback. */
+    const val ADDON = "IPTV VOD"
     private val YEAR = Regex("""(?<!\d)(19|20)\d{2}(?!\d)""")
     private val TAGS = Regex("""\[[^]]*]|\([^)]*\)|\|[^|]*\||(?i)\b(4k|uhd|fhd|hd|sd|hevc|h\.?265|x265|1080p?|2160p?|720p?|multi|vostfr|dual|sub|subbed|dub|dubbed|hdr10?|dv|dolby vision)\b|مدبلج[ةه]?|مترجم[ةه]?|كامل[ةه]?""")
     // "EN - ", "AR-KID - ", "AR-ANM-D - ", "AR-AS-S-S - ": the provider's tag in front.
@@ -36,22 +39,66 @@ object VodLinks {
         }
     }
 
-    /** One VOD copy as the "Play with VOD" list names it: audio (dub / subtitled / original), quality, Atmos, HDR, playlist. */
+    /**
+     * One VOD copy as the "Play with VOD" list names it: audio (dub / subtitled / original), then the panel's real file
+     * facts when it gave them (picture, HDR / Dolby Vision, codec, Atmos + sound format + channels, audio language,
+     * bitrate), else what the name says; then the playlist.
+     */
     fun label(l: Link): String {
         val shown = l.stream.title.orEmpty().substringBefore('\n')
         val t = shown.lowercase()
         val parts = mutableListOf<String>()
         parts += l.dub?.let { java.util.Locale(it).getDisplayLanguage(java.util.Locale.ENGLISH) + " dub" }
             ?: if (Regex("""\b(sub|subbed|subs|vostfr)\b|مترجم""").containsMatchIn(t)) "Subtitled" else "Original audio"
-        when (height(shown)) { 2160 -> "4K"; 1080 -> "1080p"; 720 -> "720p"; else -> null }?.let(parts::add)
-        if ("atmos" in t) parts += "Atmos"
-        if (Regex("""\b(dv|dolby vision)\b""").containsMatchIn(t)) parts += "Dolby Vision" else if (Regex("""\bhdr(10)?\b""").containsMatchIn(t)) parts += "HDR"
-        l.stream.title.orEmpty().substringAfter("📺 ", "").substringBefore(" VOD").takeIf { it.isNotBlank() }?.let(parts::add)
-        return parts.joinToString(" · ")
+        val more = mutableListOf<String>()
+        if (l.tech != null) { parts += l.tech.substringBefore('\n'); l.tech.substringAfter('\n', "").takeIf { it.isNotBlank() }?.let(more::add) } else {
+            when (height(shown)) { 2160 -> "4K"; 1080 -> "1080p"; 720 -> "720p"; else -> null }?.let(parts::add)
+            if (Regex("""\b(dv|dolby vision)\b""").containsMatchIn(t)) parts += "Dolby Vision" else if (Regex("""\bhdr(10)?\b""").containsMatchIn(t)) parts += "HDR"
+            if ("atmos" in t) parts += "Atmos"
+            if (parts.size == 1) more += "No file details from the provider"
+        }
+        l.stream.title.orEmpty().substringAfter("📺 ", "").substringBefore(" VOD").takeIf { it.isNotBlank() }?.let(more::add)
+        shown.takeIf { it.isNotBlank() }?.let(more::add)
+        // Two lines: what you choose by (audio · picture), then the file facts, playlist and the provider's name for it.
+        return parts.joinToString(" · ") + "\n" + more.joinToString(" · ")
     }
 
-    /** Best first: the quality, then original audio before dubs. */
-    fun sorted(links: List<Link>): List<Link> = links.sortedWith(compareByDescending<Link> { height(it.stream.title.orEmpty()) }.thenBy { if (it.dub == null) 0 else 1 })
+    /** The provider's file facts (Xtream info: video / audio / bitrate) as one line; null when it gave none. */
+    internal fun tech(info: org.json.JSONObject?): String? {
+        if (info == null) return null
+        val v = info.optJSONObject("video"); val a = info.optJSONObject("audio")
+        val head = mutableListOf<String>(); val parts = mutableListOf<String>()
+        val w = v?.optInt("width") ?: 0; val h = v?.optInt("height") ?: 0
+        when { w >= 3200 || h >= 2000 -> "4K"; w >= 1800 || h >= 1000 -> "1080p"; w >= 1200 || h >= 700 -> "720p"; w > 0 -> "SD"; else -> null }?.let(head::add)
+        val side = v?.optJSONArray("side_data_list")?.toString().orEmpty()
+        val tr = v?.optString("color_transfer").orEmpty()
+        when {
+            side.contains("DOVI", true) || v?.optString("codec_tag_string")?.startsWith("dv") == true -> "Dolby Vision"
+            tr == "smpte2084" -> "HDR10"; tr == "arib-std-b67" -> "HLG"; else -> null
+        }?.let(head::add)
+        when (v?.optString("codec_name")) { "hevc" -> "HEVC"; "h264" -> "H.264"; "av1" -> "AV1"; else -> null }?.let(parts::add)
+        if (a != null) {
+            val prof = a.optString("profile")
+            val codec = when (val c = a.optString("codec_name")) {
+                "eac3" -> "DD+"; "ac3" -> "Dolby Digital"; "truehd" -> "TrueHD"; "dts" -> if (prof.contains("MA")) "DTS-HD MA" else "DTS"
+                "aac" -> "AAC"; "opus" -> "Opus"; "flac" -> "FLAC"; else -> c.uppercase().ifBlank { null }
+            }
+            val ch = when (val n = a.optInt("channels")) { 0 -> null; 1 -> "mono"; 2 -> "stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "$n ch" }
+            if (prof.contains("Atmos", true)) head += "Atmos"
+            listOfNotNull(codec, ch).joinToString(" ").ifBlank { null }?.let(parts::add)
+            a.optJSONObject("tags")?.optString("language")?.takeIf { it.length in 2..3 && it != "und" }
+                ?.let { java.util.Locale(it).getDisplayLanguage(java.util.Locale.ENGLISH).ifBlank { null } }?.let { parts += "$it audio" }
+        }
+        info.optInt("bitrate").takeIf { it > 0 }?.let { parts += if (it >= 1000) "%.0f Mbps".format(it / 1000.0) else "$it kbps" }
+        if (head.isEmpty() && parts.isEmpty()) return null
+        return head.joinToString(" · ") + "\n" + parts.joinToString(" · ")
+    }
+
+    private fun heightOf(l: Link): Int = l.tech?.let { when { it.startsWith("4K") -> 2160; it.startsWith("1080") -> 1080; it.startsWith("720") -> 720; else -> 0 } }
+        ?: height(l.stream.title.orEmpty())
+
+    /** Best first: the quality (the panel's facts first), then original audio before dubs. */
+    fun sorted(links: List<Link>): List<Link> = links.sortedWith(compareByDescending<Link> { heightOf(it) }.thenBy { if (it.dub == null) 0 else 1 })
 
     /** "EN - Dune: Part Two (2024) 4K" → "dune part two". */
     internal fun clean(name: String): String =
@@ -71,7 +118,8 @@ object VodLinks {
     }
 
     /** Links for [type]/[videoId] ("tt…" or "tt…:s:e"). */
-    suspend fun links(type: String, videoId: String): List<Link> = withContext(Dispatchers.IO) {
+    /** [withTech]: also ask the panel for each copy's file facts (Play with VOD; films one small call each, at most 12). */
+    suspend fun links(type: String, videoId: String, withTech: Boolean = false): List<Link> = withContext(Dispatchers.IO) {
         if (!available()) return@withContext emptyList()
         val target = EpisodeCheck.targetOf(videoId)
         val imdb = videoId.substringBefore(':')
@@ -98,12 +146,16 @@ object VodLinks {
         val saved = com.lekathedon.visionlite.iptv.VodArabic.forImdb(imdb)?.takeIf { it.kind == kind }
         val hits = (listOfNotNull(saved) + wanted.flatMap { w -> Vod.search(kind, w.split(' ').maxBy { it.length }) }
             .filter { clean(it.name) in wanted && yearOk(it.name, year) }).distinctBy { it.pl + it.id }
-        if (type == "movie") hits.mapNotNull { v ->
-            val url = v.url ?: return@mapNotNull null
-            link(url, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
+        if (type == "movie") {
+            val films = hits.filter { it.url != null }.take(if (withTech) 12 else Int.MAX_VALUE)
+            val infos = if (withTech) kotlinx.coroutines.coroutineScope { films.map { v -> async { Vod.vodInfo(v) } }.map { it.await() } } else films.map { null }
+            films.mapIndexed { i, v ->
+                link(v.url!!, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original)).copy(tech = tech(infos[i]))
+            }
         } else hits.take(3).flatMap { v ->
             Vod.episodes(v).filter { it.season == target!!.season && it.number == target.episode }.map { e ->
                 link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
+                    .copy(tech = tech(e.info))
             }
         }
     }

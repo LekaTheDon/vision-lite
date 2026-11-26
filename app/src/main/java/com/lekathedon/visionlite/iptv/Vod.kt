@@ -61,7 +61,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class VodItem(val pl: String, val kind: String, val id: String, val name: String, val group: String, val poster: String?, val url: String?, val rating: String?)
-data class VodEpisode(val season: Int, val number: Int, val title: String, val url: String, val plot: String?, val image: String?)
+/** [info]: the panel's file facts for this episode (video / audio / bitrate, Xtream get_series_info), when it gave them. */
+data class VodEpisode(val season: Int, val number: Int, val title: String, val url: String, val plot: String?, val image: String?, val info: JSONObject? = null)
 
 /**
  * VOD (Vision's On Demand): films and series from your playlists. Xtream logins list them through their own API, asked
@@ -253,6 +254,15 @@ object Vod {
         if (changed) _version.value++
     }
 
+    /** A film's file facts from its panel (Xtream get_vod_info: video / audio / bitrate); null when not Xtream or none. */
+    suspend fun vodInfo(item: VodItem): JSONObject? = withContext(Dispatchers.IO) {
+        val pl = Iptv.playlists().firstOrNull { it.id == item.pl && it.xtream } ?: return@withContext null
+        runCatching {
+            JSONObject(Iptv.openStream("${Iptv.xtreamBase(pl)}/player_api.php?username=${Iptv.encode(pl.user)}&password=${Iptv.encode(pl.pass)}&action=get_vod_info&vod_id=${item.id}")
+                .bufferedReader().use { it.readText() }).optJSONObject("info")
+        }.getOrNull()
+    }
+
     /** A series' episodes (Xtream get_series_info). */
     suspend fun episodes(item: VodItem): List<VodEpisode> = withContext(Dispatchers.IO) {
         val pl = Iptv.playlists().firstOrNull { it.id == item.pl && it.xtream } ?: return@withContext emptyList()
@@ -268,7 +278,7 @@ object Vod {
                     val info = e.optJSONObject("info")
                     VodEpisode(s.toIntOrNull() ?: e.optInt("season"), e.optInt("episode_num"), e.optString("title"),
                         "$base/series/${Iptv.encode(pl.user)}/${Iptv.encode(pl.pass)}/${e.optString("id")}.${e.optString("container_extension").ifBlank { "mp4" }}",
-                        info?.optString("plot")?.takeIf { it.isNotBlank() }, info?.optString("movie_image")?.takeIf { it.startsWith("http") })
+                        info?.optString("plot")?.takeIf { it.isNotBlank() }, info?.optString("movie_image")?.takeIf { it.startsWith("http") }, info)
                 }.asSequence()
             }.sortedWith(compareBy({ it.season }, { it.number })).toList()
         }.getOrDefault(emptyList())

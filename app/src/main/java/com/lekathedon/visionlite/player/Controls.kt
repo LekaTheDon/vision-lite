@@ -52,6 +52,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -244,13 +245,23 @@ internal fun Controls(
             var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
             LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(5_000) } }
             val fmt = remember { java.text.SimpleDateFormat(if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm", Locale.getDefault()) }
-            Box(Modifier.align(Alignment.TopEnd).width(420.dp).height(170.dp)
-                .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, 0f), radius = 900f)))
-            Column(Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 48.dp), horizontalAlignment = Alignment.End) {
+            Box(Modifier.align(Alignment.TopEnd).width(420.dp).height(150.dp)
+                .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, 0f), radius = 800f)))
+            // WuPlay's corner: small grey lines, the time and end time, then what is playing (4K · DV · Atmos DD+ 5.1 · 26 Mbps).
+            Column(Modifier.align(Alignment.TopEnd).padding(top = 30.dp, end = 32.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val shade = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f))
-                Text(fmt.format(java.util.Date(now)), color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, style = shade)
-                Text("Ends at ${endsAt((dur - (seekTo ?: pos)).coerceAtLeast(0), speed)}", color = Color.White.copy(alpha = 0.9f), fontSize = 16.sp, style = shade)
+                Text(fmt.format(java.util.Date(now)) + "  ·  Ends at ${endsAt((dur - (seekTo ?: pos)).coerceAtLeast(0), speed)}",
+                    color = Color.White.copy(alpha = 0.72f), fontSize = 15.sp, style = shade)
+                var line by remember { mutableStateOf("") }
+                LaunchedEffect(release) {
+                    while (true) { runCatching { val src = stats(); playing(src)?.let { line = statusLine(it, release, src, dur) } }; delay(2_000) }
+                }
+                if (line.isNotEmpty()) Text(line, color = Color.White.copy(alpha = 0.6f), fontSize = 15.sp, style = shade, maxLines = 1)
             }
+        }
+        if (!playing && panel == null && !nextUp) Box(Modifier.align(Alignment.Center).size(76.dp).border(1.dp, Color.White.copy(alpha = 0.28f), androidx.compose.foundation.shape.CircleShape)
+            .background(Color.Black.copy(alpha = 0.25f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(Icons.Pause, "Paused", Modifier.size(34.dp), tint = Color.White.copy(alpha = 0.8f))
         }
         if (!visible) return@Box
 
@@ -260,35 +271,27 @@ internal fun Controls(
             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent))))
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(230.dp)
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
-        Column(Modifier.align(Alignment.TopStart).padding(start = 48.dp, top = 36.dp, end = 380.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.align(Alignment.TopStart).padding(start = 32.dp, top = 30.dp, end = 420.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             val ep = remember(title) { EPISODE.find(title) }
             val name = ep?.let { title.substring(0, it.range.first).trim() } ?: title
             var logoFailed by remember(logo) { mutableStateOf(logo.isNullOrBlank()) }
-            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 300.dp, maxHeight = 64.dp),
+            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.sizeIn(maxWidth = 260.dp, maxHeight = 80.dp),
                 alignment = Alignment.CenterStart, contentScale = androidx.compose.ui.layout.ContentScale.Fit, onError = { logoFailed = true })
             else Text(name, color = com.lekathedon.visionlite.ui.KitInk.text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             ep?.let { m ->
                 val rest = title.substring(m.range.last + 1).trim().trimStart('-', '·', '–').trim()
-                Text("S${m.groupValues[1].toInt()} E${m.groupValues[2].toInt()}" + (if (rest.isNotEmpty()) "  •  $rest" else ""),
-                    color = Color.White.copy(alpha = 0.9f), fontSize = 15.sp, maxLines = 1)
+                Text("S%02dE%02d".format(m.groupValues[1].toInt(), m.groupValues[2].toInt()) + (if (rest.isNotEmpty()) " - $rest" else ""),
+                    color = Color.White.copy(alpha = 0.62f), fontSize = 24.sp, fontWeight = FontWeight.Medium, maxLines = 1)
             }
-            var badges by remember { mutableStateOf(emptyList<Int>()) }
-            LaunchedEffect(release) {
-                while (true) {
-                    runCatching { playing(stats()) }.getOrNull()?.let { badges = badgesFor(it, release) }
-                    delay(1_000)
-                }
-            }
-            if (badges.isNotEmpty()) BadgeRow(badges)
         }
 
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 34.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 32.dp, end = 32.dp, bottom = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
             val shown = seekTo ?: pos
             var barFocused by remember { mutableStateOf(false) }
             if (thumbs && seekTo != null) ArcThumbPane(shown, dur)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(clock(shown), color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, modifier = Modifier.width(72.dp))
+                Text(clock(shown), color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, modifier = Modifier.width(64.dp))
                 // The timeline: pill track 4 dp (8 focused), white played + buffered, a round marker.
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).height(20.dp)
                     .focusRequester(bar).onFocusChanged { barFocused = it.isFocused }.focusable()
@@ -301,33 +304,35 @@ internal fun Controls(
                             else -> false
                         }
                     }, contentAlignment = Alignment.CenterStart) {
-                    val track = if (barFocused) 8.dp else 4.dp
+                    val track = if (barFocused) 6.dp else 4.dp
                     val frac = if (dur > 0) (shown.toFloat() / dur).coerceIn(0f, 1f) else 0f
-                    Box(Modifier.fillMaxWidth().height(track).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if (barFocused) 0.24f else 0.18f))) {
+                    Box(Modifier.fillMaxWidth().height(track).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.16f))) {
                         if (dur > 0) {
-                            Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color.White.copy(alpha = 0.35f)))
-                            Box(Modifier.fillMaxHeight().fillMaxWidth(frac).background(Color.White))
+                            Box(Modifier.fillMaxHeight().fillMaxWidth((buffered.toFloat() / dur).coerceIn(0f, 1f)).background(Color.White.copy(alpha = 0.14f)))
+                            Box(Modifier.fillMaxHeight().fillMaxWidth(frac).clip(RoundedCornerShape(50)).background(com.lekathedon.visionlite.ui.KitInk.accent.copy(alpha = 0.8f)))
                         }
                     }
-                    val dot = if (barFocused) 14.dp else 8.dp
-                    if (dur > 0) Box(Modifier.padding(start = ((maxWidth - dot) * frac)).size(dot).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
+                    val dot = 16.dp
+                    if (dur > 0 && (barFocused || seekTo != null)) Box(Modifier.padding(start = ((maxWidth - dot) * frac)).size(dot).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
                 }
-                Text(if (dur > 0) "-" + clock(dur - shown) else "", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp,
-                    modifier = Modifier.width(72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Text(if (dur > 0) androidx.compose.ui.text.buildAnnotatedString {
+                        append("-" + clock(dur - shown))
+                        withStyle(androidx.compose.ui.text.SpanStyle(color = Color.White.copy(alpha = 0.45f))) { append(" / " + clock(dur)) }
+                    } else androidx.compose.ui.text.AnnotatedString(""), color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp,
+                    modifier = Modifier.padding(start = 12.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
             }
-            // Five round buttons, centred; the focused one's name under the row. Everything else is under More.
-            var label by remember { mutableStateOf("") }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                ControlButton(Icons.Subtitles, "Subtitles", onFocus = { label = "Subtitles" }) { panel = Panel.SUBS }
-                ControlButton(Icons.Audio, "Audio", onFocus = { label = "Audio" }) { panel = Panel.AUDIO }
-                ControlButton(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton), big = true,
-                    onFocus = { label = if (player.playWhenReady) "Pause" else "Play" }) { toggle() }
-                if (canNext) ControlButton(Icons.Next, "Next episode", onFocus = { label = "Next episode" }) { onNext() }
-                else ControlButton(Icons.Sources, "Sources", onFocus = { label = "Sources" }) { onSources() }
-                ControlButton(Icons.More, "More", onFocus = { label = "More" }) { panel = Panel.MORE }
+            // WuPlay's row: thin-ring circles (Play, Next), a divider, then plain words that turn into a pill when focused; More at the far right.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                ControlButton(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", Modifier.focusRequester(playButton), big = true) { toggle() }
+                if (canNext) ControlButton(Icons.Next, "Next episode") { onNext() }
+                Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(30.dp).background(Color.White.copy(alpha = 0.2f)))
+                WordButton("Subtitles") { panel = Panel.SUBS }
+                WordButton("Audio") { panel = Panel.AUDIO }
+                WordButton("Sources") { onSources() }
+                WordButton("Speed") { panel = Panel.SPEED }
+                Spacer(Modifier.weight(1f))
+                ControlButton(Icons.More, "More") { panel = Panel.MORE }
             }
-            Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, maxLines = 1,
-                modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
 
         when (panel) {
@@ -421,15 +426,40 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
     }
 }
 
-/** Vision's ControlButton: round, icon only (28 dp), clear until focused, then a white circle with a black icon. */
+/** WuPlay's round button: a thin ring and a light icon; focused, a filled disc in the look's focus colour. */
 @Composable
 private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, big: Boolean = false,
                           onFocus: () -> Unit = {}, onClick: () -> Unit) {
     Focusable(onClick, modifier, androidx.compose.foundation.shape.CircleShape, onFocus = onFocus) { focused ->
-        Box(Modifier.size(if (big) 68.dp else 52.dp).background(if (focused) com.lekathedon.visionlite.ui.KitInk.bg else Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(icon, label, Modifier.size(if (big) 38.dp else 26.dp), tint = if (focused) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text)
+        Box(Modifier.size(if (big) 56.dp else 48.dp)
+            .background(if (focused) com.lekathedon.visionlite.ui.KitInk.bg else Color.Black.copy(alpha = 0.2f), androidx.compose.foundation.shape.CircleShape)
+            .border(1.dp, if (focused) Color.Transparent else Color.White.copy(alpha = 0.22f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(icon, label, Modifier.size(if (big) 26.dp else 22.dp), tint = if (focused) com.lekathedon.visionlite.ui.KitInk.ink else Color.White.copy(alpha = 0.88f))
         }
     }
+}
+
+/** WuPlay's word button: grey text; focused, a light pill with dark text. */
+@Composable
+private fun WordButton(text: String, onClick: () -> Unit) {
+    Focusable(onClick, Modifier, RoundedCornerShape(50)) { f ->
+        Text(text, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Color.White.copy(alpha = 0.7f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color.Transparent, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 8.dp))
+    }
+}
+
+/** The status line (WuPlay): picture, HDR, sound, bitrate, from the player itself; Atmos from the release name. */
+internal fun statusLine(p: Playing, release: String, src: StatsSource, durMs: Long): String {
+    val parts = mutableListOf<String>()
+    when { p.width >= 3200 || p.height >= 2000 -> "4K"; p.width >= 1800 || p.height >= 1000 -> "1080p"; p.width >= 1200 || p.height >= 700 -> "720p"; p.height > 0 -> "${p.height}p"; else -> null }?.let(parts::add)
+    when (p.hdr) { "DV" -> "DV"; "HDR10" -> "HDR"; "HLG" -> "HLG"; else -> null }?.let(parts::add)
+    val atmos = p.audioCodec == "E-AC-3-JOC" || (p.audioCodec in setOf("TRUEHD", "E-AC-3") && release.contains("atmos", true))
+    val codec = when (p.audioCodec) { "TRUEHD" -> "TrueHD"; "E-AC-3-JOC", "E-AC-3" -> "DD+"; "AC-3" -> "DD"; "DTS-HD" -> "DTS-HD"; "DTS" -> "DTS"; else -> null }
+    val ch = when (p.channels) { 0 -> null; 1 -> "Mono"; 2 -> "Stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "${p.channels} ch" }
+    listOfNotNull(if (atmos) "Atmos" else null, codec, ch).joinToString(" ").ifBlank { null }?.let(parts::add)
+    val size = (if (src.engine == Engine.MPV) src.mpv?.prop("file-size")?.toLongOrNull() else null)?.takeIf { it > 0 } ?: src.linkBytes
+    if (size > 0 && durMs > 0) parts += "%.0f Mbps".format(size * 8.0 / 1000.0 / durMs)
+    return parts.joinToString(" · ")
 }
 
 @Composable

@@ -395,7 +395,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         }
     }
     // Link memory: a link that plays 2 minutes without buffering trouble clears its mark and becomes your pick for the show.
-    val linkKey = remember(s.url) { if (s.type != "live" && s.addon.isNotBlank()) com.lekathedon.visionlite.streams.LinkMemory.keyOf(s.addon, s.name) else null }
+    // Play with VOD (separate from normal Play): no link memory, no pick, no fallback to normal links, its own resume %.
+    val isVod = s.addon == com.lekathedon.visionlite.streams.VodLinks.ADDON
+    val linkKey = remember(s.url) { if (s.type != "live" && s.addon.isNotBlank() && !isVod) com.lekathedon.visionlite.streams.LinkMemory.keyOf(s.addon, s.name) else null }
     val stalls = remember(s.url) { intArrayOf(0) }
     androidx.compose.runtime.LaunchedEffect(firstFrame, linkKey) {
         if (!firstFrame || linkKey == null) return@LaunchedEffect
@@ -432,7 +434,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     com.lekathedon.visionlite.tb.TitleFacts.wrongDuration(s.id, s.type == "series", player.duration, s.name)?.let { why ->
                         player.pause()
                         linkKey?.let { com.lekathedon.visionlite.streams.LinkMemory.mark(it, com.lekathedon.visionlite.streams.LinkMemory.Bad.WRONG) }
-                        if (com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
+                        if (!isVod && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
                             failNote = "$why · trying the next link"
                             scope.launch { com.lekathedon.visionlite.streams.LinkFallback.next(s.id)?.let { nav.replace(it) } ?: run { failNote = "$why · no other link fits this title" } }
                         } else failNote = "$why · no other link fits this title"
@@ -479,7 +481,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 if (liveReconnect(if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) "Fell behind live" else "Signal dropped")) return
                 if (at < 15_000) linkKey?.let { com.lekathedon.visionlite.streams.LinkMemory.mark(it, com.lekathedon.visionlite.streams.LinkMemory.Bad.FAILED) }
                 // The link died before it really played: the next link of the same list (Vision's source fallback).
-                if (at < 15_000 && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
+                if (at < 15_000 && !isVod && com.lekathedon.visionlite.streams.LinkFallback.has(s.id)) {
                     failNote = "Link failed · trying the next one"
                     scope.launch { com.lekathedon.visionlite.streams.LinkFallback.next(s.id)?.let { nav.replace(it) } ?: run { failNote = "No other link worked" } }
                 }
@@ -827,11 +829,11 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
         var asked = false
         var resumed = false
         if (trakt.connected.value != null && App.instance.prefs.resume.value) scope.launch {
-            resumeTo = trakt.savedProgress(imdb, season, episode).takeIf { it > 0f } ?: com.lekathedon.visionlite.streams.ResumeLinks.pct(s.id)
+            resumeTo = trakt.savedProgress(imdb, season, episode).takeIf { it > 0f } ?: com.lekathedon.visionlite.streams.ResumeLinks.pct(if (isVod) "vod|${s.id}" else s.id)
             asked = true
         } else if (App.instance.prefs.resume.value) {
             // No Trakt: the % kept with the exact link (ResumeLinks) is where it resumes.
-            resumeTo = com.lekathedon.visionlite.streams.ResumeLinks.pct(s.id); asked = true
+            resumeTo = com.lekathedon.visionlite.streams.ResumeLinks.pct(if (isVod) "vod|${s.id}" else s.id); asked = true
         }
         val listener = object : MediaPlayer.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -854,7 +856,8 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
             PlayerReturn.mark()
             if (p > 0f) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { trakt.scrobble("stop", imdb, season, episode, p) }
             if (p > 0f || player.playbackState == MediaPlayer.STATE_ENDED)
-                com.lekathedon.visionlite.streams.ResumeLinks.progress(s.id, if (player.playbackState == MediaPlayer.STATE_ENDED) 100f else p)
+                (if (player.playbackState == MediaPlayer.STATE_ENDED) 100f else p).let { q ->
+                    if (isVod) com.lekathedon.visionlite.streams.ResumeLinks.vodProgress(s.id, q) else com.lekathedon.visionlite.streams.ResumeLinks.progress(s.id, q) }
             // Finished: ask for a rating (Settings › Recommendations › Rate after watching).
             if (p >= 90f || player.playbackState == MediaPlayer.STATE_ENDED)
                 com.lekathedon.visionlite.home.Rate.afterWatching(imdb, season != null, s.title.replace(Regex("""\s+S\d+\s*E\d+.*$"""), "").ifBlank { s.title })

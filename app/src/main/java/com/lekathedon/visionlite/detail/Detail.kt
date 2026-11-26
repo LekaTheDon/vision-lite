@@ -63,6 +63,7 @@ import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
 import com.lekathedon.visionlite.ui.Kit
+import com.lekathedon.visionlite.ui.KitInk
 import com.lekathedon.visionlite.ui.KitButton
 import com.lekathedon.visionlite.ui.KitIcon
 import com.lekathedon.visionlite.ui.Gold
@@ -317,14 +318,14 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             hint = "Looking in your VOD…"
                             scope.launch {
                                 val V = com.lekathedon.visionlite.streams.VodLinks
-                                val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid) }.getOrDefault(emptyList())).take(12)
+                                val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid, withTech = true) }.getOrDefault(emptyList())).take(12)
                                 hint = null
                                 sheet = if (opts.isEmpty()) Sheet.Menu("Not in your VOD" + (if (isSeries) " for this episode" else ""), listOf(Triple("OK", null) {}))
                                 else Sheet.Menu("Play with VOD · $title", opts.map { l ->
                                     Triple(V.label(l), I.Play as androidx.compose.ui.graphics.vector.ImageVector?) {
-                                        com.lekathedon.visionlite.streams.ResumeLinks.remember(id, l)
+                                        // Its own source name: never normal Play's resume link, link memory or fallback.
                                         nav.push(Screen.Player(l.stream.url.orEmpty(), title, emptyMap(), if (isSeries) "series" else s.type, id,
-                                            listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.title).joinToString("\n"), l.source, l.bytes))
+                                            listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.title).joinToString("\n"), V.ADDON, l.bytes))
                                     }
                                 })
                             }
@@ -1004,7 +1005,16 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                     com.lekathedon.visionlite.ui.Eyebrow(sh.title, Modifier.padding(bottom = 14.dp))
                     Column(Modifier.heightIn(max = 470.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         sh.items.forEachIndexed { i, (label, icon, act) ->
-                            KitButton(label, icon, { act(); onClose() }, if (i == 0) Modifier.focusRequester(first) else Modifier, primary = i == 0)
+                            if ('\n' in label) {
+                                // Two-line option (Play with VOD): the choice in bold, its file facts under it.
+                                Focusable({ act(); onClose() }, (if (i == 0) Modifier.focusRequester(first) else Modifier).fillMaxWidth().padding(vertical = 3.dp),
+                                    RoundedCornerShape(10.dp)) { f ->
+                                    Column(Modifier.background(if (f) KitInk.bg else Kit.card2, RoundedCornerShape(10.dp)).fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                        Text(label.substringBefore('\n'), color = if (f) KitInk.ink else KitInk.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                        Text(label.substringAfter('\n'), color = if (f) KitInk.inkDim else KitInk.dim, fontSize = 13.sp, maxLines = 2, lineHeight = 18.sp)
+                                    }
+                                }
+                            } else KitButton(label, icon, { act(); onClose() }, if (i == 0) Modifier.focusRequester(first) else Modifier, primary = i == 0)
                         }
                     }
                 }

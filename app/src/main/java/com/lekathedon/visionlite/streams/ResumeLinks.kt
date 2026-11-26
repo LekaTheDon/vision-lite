@@ -26,7 +26,8 @@ object ResumeLinks {
 
     /** Called when a link starts playing for [videoId] (Streams.play). */
     fun remember(videoId: String, l: Link) {
-        if (videoId.isBlank()) return
+        // VOD is separate from normal Play (user 2026-11-26): a VOD copy is never normal Play's resume link.
+        if (videoId.isBlank() || l.vod) return
         val st = l.stream
         val j = JSONObject().put("src", l.source).put("key", LinkMemory.keyOf(l)).put("t", System.currentTimeMillis()).put("pct", 0.0)
             .put("name", st.name).put("details", st.details).put("bytes", l.bytes)
@@ -48,6 +49,13 @@ object ResumeLinks {
         save(o)
     }
 
+    /** Play with VOD keeps its own % under "vod|id" (no link): normal Play and VOD never share a resume point. */
+    fun vodProgress(videoId: String, pct: Float) {
+        val o = all(); val k = "vod|$videoId"
+        if (pct >= 80f) o.remove(k) else o.put(k, JSONObject().put("pct", pct.toDouble()).put("t", System.currentTimeMillis()))
+        save(o)
+    }
+
     /** The % saved with the link (Resume without Trakt), or -1. */
     fun pct(videoId: String): Float = all().optJSONObject(videoId)?.optDouble("pct", -1.0)?.toFloat() ?: -1f
 
@@ -58,6 +66,8 @@ object ResumeLinks {
         val j = all().optJSONObject(videoId) ?: return null
         if (j.optDouble("pct", 0.0) !in 2.0..92.0) return null
         if (LinkMemory.bad(j.optString("key")) != null) return null
+        // A VOD copy saved before VOD was separate (0.41.0) is never resumed by normal Play.
+        if (j.optString("src") == VodLinks.ADDON || j.optString("name").contains("\nVOD") || j.optString("details").contains(" VOD")) return null
         return j
     }
 
