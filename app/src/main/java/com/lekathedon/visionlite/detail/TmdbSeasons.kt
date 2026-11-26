@@ -30,7 +30,7 @@ object TmdbSeasons {
         // Same numbering as IMDb up to IMDb's last season, else TMDB's later seasons mean something else.
         if ((1..last).any { n -> kotlin.math.abs((counts[n] ?: -99) - (perSeason[n] ?: 0)) > 2 }) return emptyList()
         return counts.keys.filter { it > last && (counts[it] ?: 0) > 0 }.sorted().flatMap { n ->
-            val eps = Tmdb.get("tv/$id/season/$n")?.optJSONArray("episodes") ?: return@flatMap emptyList()
+            val eps = Tmdb.get("tv/$id/season/$n")?.optJSONArray("episodes") ?: return@flatMap emptyList<Video>()
             (0 until eps.length()).mapNotNull { eps.optJSONObject(it) }.mapNotNull { e ->
                 val en = e.optInt("episode_number").takeIf { it > 0 } ?: return@mapNotNull null
                 val air = e.optString("air_date").takeIf { it.length == 10 }
