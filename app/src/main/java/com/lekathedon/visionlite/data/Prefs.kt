@@ -251,6 +251,10 @@ class Prefs(context: Context) {
     val iptvUpdateHours = Text("iptv_update_hours", "24")
     val iptvUpdateOnStart = Flag("iptv_update_on_start", false)
     val iptvRecent = Text("iptv_recent", "")
+    /** A channel that won't play moves to another version of itself (iptv/ChannelVersions.kt). On by default. */
+    val iptvAutoSwitch = Flag("iptv_auto_switch", true)
+    /** Hide the "+1" (an hour later) copies from the channel lists. Off by default. */
+    val iptvHidePlus1 = Flag("iptv_hide_plus1", false)
     val recordings = Text("recordings", "")
     // YouTube sign-in left with YouTube (2026-11-26): its saved token is wiped once.
     init { if (sp.contains("yt_tokens")) sp.edit().remove("yt_tokens").apply() }

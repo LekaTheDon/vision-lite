@@ -159,6 +159,16 @@ private fun Schedule(nav: Nav, c: Channel, minute: Long, version: Int) {
     Img(c.logo, 120.dp, 68.dp, Modifier.size(120.dp, 68.dp), ContentScale.Fit)
     Text(c.name, color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
     Text(c.group + (if (Iptv.isFavourite(c)) " · ★" else "") + (c.catchup?.let { " · catch-up ${it.days} d" } ?: ""), color = Palette.TextDim, fontSize = 13.sp)
+    // Other versions of this channel (same name and country, other picture / copy), playable at once.
+    val versions by produceState(emptyList<Channel>(), c) { value = withContext(Dispatchers.IO) { runCatching { ChannelVersions.of(c) }.getOrDefault(emptyList()) } }
+    if (versions.isNotEmpty()) {
+        Text("Other versions", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        androidx.compose.foundation.lazy.LazyRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(versions.take(6), key = { it.key }) { v ->
+                com.lekathedon.visionlite.ui.Button(ChannelVersions.label(v), { Iptv.played(v); nav.push(Screen.Player(v.url, v.name, v.headers, type = "live")) })
+            }
+        }
+    }
     if (all.isEmpty()) { Text("No guide for this channel", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 16.dp)); return }
     LazyColumn(Modifier.padding(top = 10.dp).fillMaxSize(), state = list, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(all) { pr ->

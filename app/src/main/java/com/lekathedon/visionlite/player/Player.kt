@@ -370,10 +370,27 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         nav.replace(Screen.Player(ch.url, ch.name, ch.headers, type = "live"))
         return true
     }
+    // Channel versions (user 2026-11-26): a channel that won't play moves to another version of itself (4K → FHD → HD
+    // → SD, same region), each tried once. Settings › Live TV › Switch to another version.
+    remember(s.url) { if (s.type == "live") com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url)?.let { com.lekathedon.visionlite.iptv.ChannelVersions.opened(it.key) }; 0 }
+    fun versionFailover(): Boolean {
+        if (s.type != "live") return false
+        val cur = com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url) ?: return false
+        val ch = com.lekathedon.visionlite.iptv.ChannelVersions.next(cur) ?: return false
+        failNote = "This channel won't play · trying ${ch.name}"
+        com.lekathedon.visionlite.iptv.Iptv.played(ch)
+        nav.replace(Screen.Player(ch.url, ch.name, ch.headers, type = "live"))
+        return true
+    }
     androidx.compose.runtime.LaunchedEffect(s.url, gen) {
         if (s.type != "live") return@LaunchedEffect
         kotlinx.coroutines.delay(15_000)
-        if (!firstFrame) sportsFailover()
+        if (firstFrame || sportsFailover()) return@LaunchedEffect
+        val ch = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url)?.let { com.lekathedon.visionlite.iptv.ChannelVersions.next(it) } } ?: return@LaunchedEffect
+        failNote = "This channel won't play · trying ${ch.name}"
+        com.lekathedon.visionlite.iptv.Iptv.played(ch)
+        nav.replace(Screen.Player(ch.url, ch.name, ch.headers, type = "live"))
     }
     // Live reconnect (Zero TV / TiviDeck idea): providers that cut the stream every so often, a stream that ends, or
     // one stuck buffering are reopened quietly. 5 tries in 2 minutes (2 when it never showed a picture), then it says so.
@@ -383,7 +400,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         if (s.type != "live") return false
         val t = android.os.SystemClock.elapsedRealtime()
         drops.removeAll { t - it > 120_000 }
-        if (drops.size >= (if (everPlayed) 5 else 2)) { failNote = "This channel keeps failing · try another one (OK = channel list)"; return false }
+        if (drops.size >= (if (everPlayed) 5 else 2)) {
+            if (versionFailover()) return true
+            failNote = "This channel keeps failing · try another one (OK = channel list)"; return false
+        }
         drops += t
         failNote = "$why · reconnecting…"
         scope.launch { kotlinx.coroutines.delay(if (drops.size == 1) 300L else 1_500L * drops.size); gen++ }

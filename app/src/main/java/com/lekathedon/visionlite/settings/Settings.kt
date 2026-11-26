@@ -451,6 +451,8 @@ fun Settings(nav: Nav, start: String? = null) {
         }
         row { m -> Choice("Update channels, VOD and guide", "Downloaded once in full; after that a quiet update at 05:00 changes only what the provider changed",
             p.iptvUpdateHours, listOf("12" to "Every 12 hours", "24" to "Every day", "48" to "Every 2 days"), m) }
+        row { m -> Toggle("Switch to another version", "A channel that won't play moves to another copy of it in your playlists (4K, FHD, HD, SD; same country)", p.iptvAutoSwitch, m) }
+        row { m -> Toggle("Hide +1 channels", "Leave the hour-later copies out of the channel lists", p.iptvHidePlus1, m) }
         row { m -> Toggle("Update on app start", "Also update every time the app starts (heavier; off like TiviMate)", p.iptvUpdateOnStart, m) }
         row { m -> Choice("Live rewind", "Pause and rewind live channels: what you watch is kept on disk (never more than 30 % of free space; emptied on channel change)",
             p.liveRewind, listOf("0" to "Off", "15" to "15 minutes", "30" to "30 minutes", "60" to "1 hour", "120" to "2 hours"), m) }

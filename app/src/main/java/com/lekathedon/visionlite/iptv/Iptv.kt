@@ -397,6 +397,11 @@ object Iptv {
             buildList { while (c.moveToNext()) add(readChannel(c)) }
         }
         if (favs != null) return all.filter { it.key in favs }
+        // Settings › Live TV › Hide +1 channels (off by default): the hour-later copies leave the lists, never favourites.
+        if (p.iptvHidePlus1.value) return hideGroups(group, all).filter { !ChannelVersions.isPlusOne(it.name) }
+        return hideGroups(group, all)
+    }
+    private fun hideGroups(group: String?, all: List<Channel>): List<Channel> {
         // All channels leaves out the groups you hid (Groups.kt).
         if (group == null) { val hid = Groups.hidden("live"); if (hid.isNotEmpty()) return all.filter { it.group !in hid } }
         return all
@@ -469,6 +474,15 @@ object Iptv {
 
     fun byUrl(url: String): Channel? = zapList.firstOrNull { it.url == url }
         ?: db.readableDatabase.rawQuery("SELECT $COLS FROM ch WHERE url=? LIMIT 1", arrayOf(url)).use { if (it.moveToFirst()) readChannel(it) else null }
+
+    /** Channels whose name holds every one of [words] (any case), or with guide id [tvg] in playlist [pl]: ChannelVersions narrows them. */
+    fun versionCandidates(words: List<String>, tvg: String?, pl: String): List<Channel> {
+        val likes = words.map { "%" + it.replace("%", "").replace("_", "") + "%" }
+        val byName = likes.joinToString(" AND ") { "name LIKE ?" }
+        val (sql, args) = if (tvg != null) "SELECT $COLS FROM ch WHERE ($byName) OR (pl=? AND tvg=?) LIMIT 400" to (likes + listOf(pl, tvg)).toTypedArray()
+            else "SELECT $COLS FROM ch WHERE $byName LIMIT 400" to likes.toTypedArray()
+        return db.readableDatabase.rawQuery(sql, args).use { c -> buildList { while (c.moveToNext()) add(readChannel(c)) } }
+    }
 
     /** A channel's guide, yesterday to tomorrow (what's kept). */
     fun schedule(c: Channel): List<EpgProgram> {
