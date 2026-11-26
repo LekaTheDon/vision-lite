@@ -342,6 +342,7 @@ object AutoPick {
     fun rank(pool: List<Link>, minutes: Int = 0): List<Link> {
         val fel = felBox
         val dub = DubLang.wanted()
+        val subs = SubsIn.wanted()
         val parsed = pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }
         // This box / TV / internet (user 2026-11-24): what can't play here is out (unless nothing else is left),
         // what would struggle goes after everything that plays well.
@@ -352,6 +353,8 @@ object AutoPick {
             .thenByDescending { fits[it.first] ?: DeviceFit.GOOD }
             // Preferred dub (user 2026-11-24): a link dubbed in that language beats 4K original audio.
             .thenByDescending { dub.isNotEmpty() && (it.first.dub ?: DubLang.of(textFor(it.first))) == dub }
+            // Subtitles in your language (user 2026-11-26, when switched on): the add-on whose link has them wins.
+            .thenByDescending { if (subs.isEmpty()) 0 else subs.maxOf { lang -> SubsIn.score(textFor(it.first), lang) } }
             .thenByDescending { it.second.resolution == 2160 || it.first.height == 2160 }
             .thenByDescending { if (fel) dvTier(textFor(it.first), it.second) else 0 }
             .thenByDescending { it.first.bytes }

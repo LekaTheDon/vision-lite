@@ -148,6 +148,8 @@ class Prefs(context: Context) {
     val subsStripSdh = Flag("subs_strip_sdh", true)
     /** Add-on subtitles lined up with the file's own subtitle lines while it plays (player/SubFix.kt). */
     val subsAutoSync = Flag("subs_auto_sync", true)
+    /** Autoplay (user 2026-11-26): a link that carries subtitles in your Subtitle language wins over 4K (streams/SubsIn.kt). */
+    val autoplaySubs = Flag("autoplay_subs", false)
     /** "s", "m", "l", "xl". */
     val subSize = Text("sub_size", "m")
     /** "white", "yellow", "box", "outline". */

@@ -302,6 +302,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Show subtitles", "Foreign only = none when the audio is already your language", p.subsWhen, SubsWhenOpts, m) }
         row { m -> Choice("Subtitle language", "", p.subLang, Langs, m) }
         row { m -> Choice("If that's missing", "Second subtitle language", p.subLang2, Langs, m) }
+        row { m -> Toggle("Autoplay picks links with these subtitles", "A link that says it has subtitles in your language wins, even over 4K (like Preferred dub does for audio)", p.autoplaySubs, m) }
         row { m -> Toggle("Remove hearing-impaired tags", "Add-on subtitles: [sighs], (door creaks), JOHN: and lone ♪ taken out", p.subsStripSdh, m) }
         row { m -> Toggle("Auto-sync add-on subtitles", "Lined up with the file's own subtitles while it plays, section by section", p.subsAutoSync, m) }
         head("How they look")

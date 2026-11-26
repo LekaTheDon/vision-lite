@@ -237,7 +237,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 Column(Modifier.width(when (style) { Style.TONAL -> 440.dp; Style.MARQUEE -> 560.dp; Style.HALO -> 600.dp })
                     .heightIn(min = 380.dp).padding(top = if (style == Style.MARQUEE) 90.dp else 0.dp)) {
                     val more by androidx.compose.runtime.produceState(MoreRatings.R(), imdbId) { imdbId?.let { value = MoreRatings.of(it, isSeries) } }
-                    val plot = m?.description ?: t?.plot
+                    val plot0 = m?.description ?: t?.plot
+                    // In the app language when it isn't English (TMDB's translation, else Gemini's), kept on disk.
+                    val loc by androidx.compose.runtime.produceState<Localized.Title?>(null, imdbId, plot0) {
+                        value = imdbId?.let { Localized.title(it, isSeries, plot0) } }
+                    val plot = loc?.plot ?: plot0
                     val crew = t?.let { (if (isSeries) it.creators else it.directors).take(2).joinToString(", ") { p -> p.name } }.orEmpty()
                     val stars = t?.cast?.take(4)?.joinToString(", ") { it.name }?.ifBlank { null } ?: m?.cast?.take(4)?.joinToString(", ")?.ifBlank { null }
                     when (style) {
@@ -453,7 +457,15 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     SeasonTabs(seasons, season, counts) { season = it }
                 }
                 item(key = "episodes") {
-                    val inSeason = remember(eps, season) { eps.filter { it.season == season } }
+                    val inSeason0 = remember(eps, season) { eps.filter { it.season == season } }
+                    // Episode names and plots in the app language (one TMDB call per season looked at; Gemini for gaps).
+                    val epLoc by androidx.compose.runtime.produceState(emptyMap<Int, Localized.Episode>(), imdbId, season, inSeason0.size) {
+                        if (imdbId != null && inSeason0.isNotEmpty())
+                            value = Localized.season(imdbId, season, inSeason0.associate { it.episode to (it.title to it.plot) })
+                    }
+                    val inSeason = remember(inSeason0, epLoc) {
+                        if (epLoc.isEmpty()) inSeason0 else inSeason0.map { e -> epLoc[e.episode]?.let { l -> e.copy(title = l.title ?: e.title, plot = l.plot ?: e.plot) } ?: e }
+                    }
                     var focusedEp by remember(season) { mutableStateOf<Ep?>(null) }
                     val epRow = rememberLazyListState()
                     LaunchedEffect(season, next) {
