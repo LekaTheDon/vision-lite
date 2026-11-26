@@ -34,8 +34,6 @@ class Commands(private val ctx: Context) {
         }
         "iptv" -> iptv(a)
         "channel" -> channel(a)
-        "youtube" -> youtube(a)
-        "music" -> music(a)
         "next" -> next()
         "sync" -> sync()
         "addons" -> addons()
@@ -74,42 +72,12 @@ class Commands(private val ctx: Context) {
         return ok().put("synced", true)
     }
 
-    /** The phone's YouTube Music songs: play now ("play", "radio") or queue ("next", "add") in Lite's Music. */
-    private fun music(a: JSONObject): JSONObject {
-        val action = a.optString("action").takeIf { it in setOf("play", "next", "add", "radio") } ?: return err("Unknown music action")
-        val tracks = a.optJSONArray("tracks") ?: return err("No songs")
-        val items = (0 until minOf(tracks.length(), 300)).mapNotNull { tracks.optJSONObject(it) }
-            .filter { it.optString("id").matches(Regex("[A-Za-z0-9_-]{11}")) }
-            .map { t -> com.lekathedon.visionlite.youtube.YtItem(t.optString("id"), null, null, t.optString("t").take(200), t.optString("a").take(200),
-                t.optString("th").takeIf { it.startsWith("https://") }) }
-        if (items.isEmpty()) return err("No YouTube Music songs to send")
-        val start = a.optInt("i", 0).coerceIn(0, items.lastIndex)
-        val done = java.util.concurrent.CountDownLatch(1)
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            runCatching {
-                val mp = com.lekathedon.visionlite.music.MusicPlayer
-                when (action) {
-                    "next" -> mp.insert(items, next = true)
-                    "add" -> mp.insert(items, next = false)
-                    else -> mp.play(items, start)
-                }
-            }
-            done.countDown()
-        }
-        done.await(3, java.util.concurrent.TimeUnit.SECONDS)
-        // Playing: Music's page comes up on the TV (queued songs just wait in the queue).
-        return if (action == "play" || action == "radio") open(Screen.Music("HOME")) else ok()
-    }
-
     private fun status(): JSONObject {
         val r = ok()
         r.put("awake", (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive)
         r.put("installed", true).put("running", true).put("front", LinkState.front)
         LinkState.mediaJson()?.let { r.put("media", it) }
         r.put("canLaunch", Settings.canDrawOverlays(ctx))
-        com.lekathedon.visionlite.music.MusicPlayer.now.value?.let { m ->
-            r.put("music", JSONObject().put("title", m.title).put("artist", m.artist).put("art", m.art.orEmpty()).put("playing", m.playing))
-        }
         return r
     }
 
@@ -152,11 +120,6 @@ class Commands(private val ctx: Context) {
         val type = a.optString("type").ifBlank { return err("No type") }
         val id = a.optString("id").ifBlank { return err("No title id") }
         return open(Screen.Detail(type, id, a.optString("name").ifBlank { id }))
-    }
-
-    private fun youtube(a: JSONObject): JSONObject {
-        val id = a.optString("id").takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return err("Not a YouTube video id")
-        return open(Screen.YtPlay(id, a.optString("title")))
     }
 
     // ---- Live TV ----

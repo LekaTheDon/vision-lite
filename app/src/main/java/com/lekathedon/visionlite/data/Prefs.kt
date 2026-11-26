@@ -174,8 +174,8 @@ class Prefs(context: Context) {
     val clock = Flag("clock", true)
     /** Watched titles in Home rows (not Continue watching): "show", "dim" or "hide" (Vision's Show / Dim / Hide). */
     val watchedOnHome = Text("watched_home", "show")
-    /** The pill's section (Vision's AppSection): "NUVIO" or "IPTV" (YouTube and Music join as they're built). */
-    val appSection = Text("app_section", "NUVIO")
+    /** The pill's section (Vision's AppSection): "NUVIO", "ANIME" or "IPTV". */
+    val appSection = Text("app_section", "NUVIO").also { if (it.value == "YOUTUBE" || it.value == "MUSIC") it.value = "NUVIO" }
     val ratings = Flag("ratings", false)
     // Details page (Vision's IMDb parts)
     /** Episode IMDb ratings: "all", "watched" (hide on episodes not watched yet: no spoilers), "off". */
@@ -240,7 +240,8 @@ class Prefs(context: Context) {
     val iptvUpdateOnStart = Flag("iptv_update_on_start", false)
     val iptvRecent = Text("iptv_recent", "")
     val recordings = Text("recordings", "")
-    val ytTokens = Text("yt_tokens", "")
+    // YouTube sign-in left with YouTube (2026-11-26): its saved token is wiped once.
+    init { if (sp.contains("yt_tokens")) sp.edit().remove("yt_tokens").apply() }
     /** Sports: Vision's settings and follows (JSON, "" = defaults). */
     val sportsSettings = Text("sports_settings", "")
     val sportsFollows = Text("sports_follows", "")

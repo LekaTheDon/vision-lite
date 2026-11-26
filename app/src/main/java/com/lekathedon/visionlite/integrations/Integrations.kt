@@ -71,7 +71,6 @@ object Integrations {
         Service("mistral", "Mistral", Group.AI, "Helps every recommendation", "console.mistral.ai/api-keys (free tier)",
             listOf(Field("Mistral API key", secret = true))) { v -> ok(get("https://api.mistral.ai/v1/models", bearer = v[0])) },
 
-        Service("youtube", "YouTube", Group.EXTRAS, null, "Sign-in comes with YouTube"),
         Service("plex", "Plex", Group.EXTRAS, "Your Plex files in the links list and a Home row", "Sign in: enter the code at plex.tv/link", signIn = true),
         Service("jellyfin", "Jellyfin", Group.EXTRAS, "Your Jellyfin files in the links list and a Home row",
             "Its address from the phone, then Quick Connect (approve the code in Jellyfin)", listOf(Field("Jellyfin address (e.g. 192.168.1.20:8096)", secret = false))),

@@ -36,9 +36,6 @@ sealed interface Screen {
     data class Person(val id: String, val name: String) : Screen
     /** A production company's page (IMDb co id): its films and shows. */
     data class Company(val id: String, val name: String) : Screen
-    data class YouTube(val tab: String = "HOME") : Screen
-    data class YtPlay(val id: String, val title: String) : Screen
-    data class Music(val tab: String = "HOME") : Screen
     data object Settings : Screen
     /** Settings › Profiles, and one profile's page (name, picture, PIN…). */
     data object Profiles : Screen

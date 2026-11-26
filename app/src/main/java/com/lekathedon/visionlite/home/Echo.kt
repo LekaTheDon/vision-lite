@@ -831,7 +831,7 @@ fun BoxScope.TopPill(
         }
         return true
     }
-    // Back on Home from IPTV / YouTube / Music: to the content hub Home shows (Films & TV or Anime).
+    // Back on Home from IPTV: to the content hub Home shows (Films & TV or Anime).
     val contentHub by com.lekathedon.visionlite.anime.Hubs.content.collectAsStateWithLifecycle()
     androidx.activity.compose.BackHandler(enabled = open && (choosing || (current == null && section != contentHub.key))) {
         if (choosing) choosing = false else com.lekathedon.visionlite.anime.Hubs.setSection(contentHub.key)
@@ -1591,18 +1591,16 @@ private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal
 /** Vision's sections and their pages, as far as Lite has built them (the rest join here as they arrive). */
 private object Sections {
     /** Anime has no section of its own when Settings › Anime is Merged or Off. */
-    val all get() = listOf("NUVIO" to "Films & TV", "ANIME" to "Anime", "IPTV" to "IPTV", "YOUTUBE" to "YouTube", "MUSIC" to "Music")
+    val all get() = listOf("NUVIO" to "Films & TV", "ANIME" to "Anime", "IPTV" to "IPTV")
         .filter { it.first != "ANIME" || com.lekathedon.visionlite.anime.Hubs.separate() }
     fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Films & TV"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
-        "YOUTUBE" -> com.lekathedon.visionlite.youtube.YtTabs.tabs().map { (k, l) -> l to Screen.YouTube(k) }
-        "MUSIC" -> com.lekathedon.visionlite.music.MusicTabs.all.map { (k, l) -> l to Screen.Music(k) }
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search,
             "Library" to Screen.Library, "Calendar" to Screen.Calendar)
     }
-    /** Picking YouTube or Music opens its first tab (as Vision's do); Films & TV, Anime and IPTV stay on Home with their pages in the pill. */
-    fun opensAt(key: String): Screen? = if (key == "YOUTUBE" || key == "MUSIC") pages(key).firstOrNull()?.second else null
+    /** Every section stays on Home with its pages in the pill (YouTube and Music removed 2026-11-26). */
+    @Suppress("UNUSED_PARAMETER") fun opensAt(key: String): Screen? = null
 }
 
 // ---- Vision's own row cards ----

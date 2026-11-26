@@ -88,7 +88,7 @@ fun ScreensaverHost(nav: Nav) {
     val showing by Screensaver.showing.collectAsState()
     val top = nav.current
     LaunchedEffect(minutes, top) {
-        if (minutes <= 0 || top is Screen.Player || top is Screen.YtPlay) { Screensaver.showing.value = false; return@LaunchedEffect }
+        if (minutes <= 0 || top is Screen.Player) { Screensaver.showing.value = false; return@LaunchedEffect }
         DpadPace.touch()
         while (true) {
             delay(15_000)

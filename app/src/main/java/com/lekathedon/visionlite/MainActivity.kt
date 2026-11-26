@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 for (s in com.lekathedon.visionlite.link.LinkState.open) {
                     if (s == Screen.Home) nav.popToHome()
-                    else { if (nav.current is Screen.Player || nav.current is Screen.YtPlay) nav.pop(); nav.push(s) }
+                    else { if (nav.current is Screen.Player) nav.pop(); nav.push(s) }
                 }
             }
             // Let the app decide: a new TV, soundbar or internet (Wi-Fi / cable / DNS servers) since the last check gets its recommended settings by itself.
@@ -94,11 +94,9 @@ class MainActivity : ComponentActivity() {
                 val n = runCatching { com.lekathedon.visionlite.device.DeviceCheck.autoUpdate(ctx) }.getOrDefault(0)
                 if (n > 0) android.widget.Toast.makeText(ctx, "New TV, soundbar or internet: $n settings updated (Settings › This TV)", android.widget.Toast.LENGTH_LONG).show()
             }
-            // Music never plays over a video: a film, an episode, Live TV or a YouTube video pauses it.
             val top = nav.current
             androidx.compose.runtime.LaunchedEffect(top) {
-                com.lekathedon.visionlite.ui.DpadPace.inPlayer = top is Screen.Player || top is Screen.YtPlay
-                if (top is Screen.Player || top is Screen.YtPlay) com.lekathedon.visionlite.music.MusicPlayer.pause()
+                com.lekathedon.visionlite.ui.DpadPace.inPlayer = top is Screen.Player
             }
             CompositionLocalProvider(LocalLook provides look) {
                 val blackBars by app.prefs.blackBars.flow.collectAsState()
@@ -116,12 +114,12 @@ class MainActivity : ComponentActivity() {
                   androidx.compose.runtime.LaunchedEffect(nav.current) { com.lekathedon.visionlite.home.hubOf(nav.current)?.let { com.lekathedon.visionlite.anime.Hubs.setSection(it) } }
                   Box(Modifier.fillMaxSize().padding(top = if (hub != null) 50.dp else 0.dp)) {
                     // Past Home (not the player) every screen wears the look: its font and parts (ui/Kit.kt).
-                    val inside = nav.current != Screen.Home && nav.current !is Screen.Player && nav.current !is Screen.YtPlay
+                    val inside = nav.current != Screen.Home && nav.current !is Screen.Player
                     com.lekathedon.visionlite.ui.Inside(inside, font = inside || (nav.current == Screen.Home && homeLookOn)) {
                     // Home keeps its scroll/focus position under the screens opened from it. Every other screen
                     // keeps its own (scroll positions, the part last focused) while screens opened from it are on top.
                     val cur = nav.current
-                    val keepsFocus = cur != Screen.Home && cur !is Screen.Player && cur !is Screen.YtPlay && cur != Screen.LiveTv
+                    val keepsFocus = cur != Screen.Home && cur !is Screen.Player && cur != Screen.LiveTv
                     androidx.compose.runtime.SideEffect { nav.dropped.forEach { saved.removeState(it) }; nav.dropped.clear() }
                     androidx.compose.runtime.key(nav.key) {
                     KeepState(saved, if (cur == Screen.Home) null else nav.key) {
@@ -174,9 +172,6 @@ class MainActivity : ComponentActivity() {
                         is Screen.Service -> com.lekathedon.visionlite.browse.ServicePage(nav, s.id)
                         is Screen.Person -> com.lekathedon.visionlite.browse.PersonPage(nav, s.id, s.name)
                         is Screen.Company -> com.lekathedon.visionlite.browse.CompanyPage(nav, s.id, s.name)
-                        is Screen.YouTube -> com.lekathedon.visionlite.youtube.YouTubeScreen(nav, s.tab)
-                        is Screen.YtPlay -> com.lekathedon.visionlite.youtube.YtPlayer(nav, s)
-                        is Screen.Music -> com.lekathedon.visionlite.music.MusicScreen(nav, s.tab)
                         Screen.Trakt -> com.lekathedon.visionlite.trakt.TraktScreen()
                         Screen.Rows -> com.lekathedon.visionlite.settings.Rows(nav)
                         Screen.Interests -> com.lekathedon.visionlite.settings.InterestsPage()
@@ -200,7 +195,7 @@ class MainActivity : ComponentActivity() {
                   com.lekathedon.visionlite.home.RateHost()
                   // Vision TB: a source that stopped working (or came back), told once.
                   com.lekathedon.visionlite.settings.RowsAskHost()
-                  com.lekathedon.visionlite.tb.TbAlertHost(nav.current is Screen.Player || nav.current is Screen.YtPlay)
+                  com.lekathedon.visionlite.tb.TbAlertHost(nav.current is Screen.Player)
                   if (hub != null) {
                       val pillHome = remember { androidx.compose.ui.focus.FocusRequester() }
                       var pillFocused by remember { androidx.compose.runtime.mutableStateOf(false) }

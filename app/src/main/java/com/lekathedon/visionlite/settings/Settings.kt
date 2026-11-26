@@ -428,7 +428,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> DriverRow(Integrations.Group.AI, "Asked first", m) }
         row { m -> AiModeRow(m) }
     }
-    pages += page("Live TV and more", "IPTV playlists, sports, YouTube", {
+    pages += page("Live TV and more", "IPTV playlists and sports", {
         Iptv.version.collectAsState().value
         val n = Iptv.playlists().size
         if (n == 0) "No playlists" else "$n playlist${if (n == 1) "" else "s"}"
@@ -466,9 +466,6 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> SportsSwitch("Scoring alerts", "A card when a team you follow scores (waits 30 s so it never beats your stream)", m, { it.scoringAlerts }) { s, v -> s.copy(scoringAlerts = v) } }
         row { m -> SportsSwitch("Hide scores", "No spoilers: scores stay hidden until you open a game", m, { it.hideScores }) { s, v -> s.copy(hideScores = v) } }
         row { m -> SportsSwitch("Only games on my channels", "Leave out games none of your channels show (your teams always show)", m, { it.onlyOnMyChannels }) { s, v -> s.copy(onlyOnMyChannels = v) } }
-        head("YouTube and Music")
-        row { m -> Link("YouTube account", "Your subscriptions, Music library and history", m,
-            value = if (com.lekathedon.visionlite.youtube.Yt.signedIn) "Signed in" else "Sign in") { nav.push(Screen.YouTube("ACCOUNT")) } }
     }
     pages += page("This TV", "What this TV, box and soundbar can do; settings made for them", {
         tvWatch()

@@ -1,22 +1,14 @@
 package com.lekathedon.visionlite.youtube
 
-import android.util.Log
-import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.data.Net
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 data class YtItem(val videoId: String?, val playlistId: String?, val browseId: String?, val title: String, val sub: String, val thumb: String?) {
@@ -27,11 +19,11 @@ data class YtShelf(val title: String, val items: List<YtItem>)
 data class YtStreams(val video: String?, val audio: String?, val hls: String?, val title: String, val author: String, val height: Int)
 
 /**
- * A small YouTube / YouTube Music client of our own (Vision runs SmartTube's engine; this is the light way):
- *  - sign-in = YouTube's TV device code (approve at youtube.com/activate), the same way TVs sign in;
- *  - feeds and search = the TV and Music web APIs (InnerTube), read with one generic walker;
- *  - playback = the VR app's player answer, whose links play without deciphering.
- * Nothing is called until YouTube or Music opens. YouTube changes these without notice, so this can break.
+ * What's left of Lite's YouTube client after YouTube and Music left the app (2026-11-26, Debrid + IPTV only): just
+ * enough for trailers and the services' intro clips. No sign-in, no feeds.
+ *  - search = the TV web API (InnerTube), signed out, read with one generic walker (trailer search fallback);
+ *  - playback = the visionOS / VR players' answer, whose links play without deciphering.
+ * YouTube changes these without notice, so this can break.
  */
 object Yt {
     private const val TAG = "Yt"
@@ -42,7 +34,6 @@ object Yt {
 
     private enum class Client(val cname: String, val version: String, val id: String, val ua: String, val host: String) {
         TV("TVHTML5", "7.20250929.13.00", "7", TV_UA, "https://www.youtube.com"),
-        MUSIC("WEB_REMIX", "1.20250929.01.00", "67", WEB_UA, "https://music.youtube.com"),
         WEB("WEB", "2.20251101.01.00", "1", WEB_UA, "https://www.youtube.com"),
         VR("ANDROID_VR", "1.65.10", "28", VR_UA, "https://www.youtube.com"),
         // Vision's first player client (InAppYouTubeExtractor): plays without a bot check when sent with a visitor id.
@@ -59,76 +50,6 @@ object Yt {
         return v
     }
 
-    // ------------------------------------------------------------ sign-in
-
-    data class Code(val device: String, val user: String, val url: String, val interval: Int, val expires: Int)
-    private class Tokens(val access: String, val refresh: String, val expiresAt: Long)
-
-    @Volatile private var tokens: Tokens? = load()
-    val signedIn get() = tokens != null
-    private val signedFlow = kotlinx.coroutines.flow.MutableStateFlow(tokens != null)
-    val signed: kotlinx.coroutines.flow.StateFlow<Boolean> get() = signedFlow
-
-    private fun load(): Tokens? = runCatching {
-        val o = JSONObject(App.instance.prefs.ytTokens.value.ifEmpty { return null })
-        Tokens(o.getString("a"), o.getString("r"), o.getLong("e"))
-    }.getOrNull()
-
-    private fun store(t: Tokens?) {
-        tokens = t; signedFlow.value = t != null
-        App.instance.prefs.ytTokens.value = t?.let { JSONObject().put("a", it.access).put("r", it.refresh).put("e", it.expiresAt).toString() } ?: ""
-    }
-
-    fun signOut() = store(null)
-
-    @Volatile private var creds: Pair<String, String>? = null
-    /** The TV app's own client id and secret, read from youtube.com/tv's script (as SmartTube does); known values if that fails. */
-    private fun creds(): Pair<String, String> = creds ?: runCatching {
-        val page = text(Request.Builder().url("https://www.youtube.com/tv").header("User-Agent", TV_UA).build())
-        val js = Regex("<script id=\"base-js\" src=\"([^\"]+)\"").find(page)!!.groupValues[1].let { if (it.startsWith("http")) it else "https://www.youtube.com$it" }
-        val m = Regex("clientId:\"([-\\w]+\\.apps\\.googleusercontent\\.com)\",\\n?[$\\w]+:\"([-\\w]+)\"").find(text(Request.Builder().url(js).header("User-Agent", TV_UA).build()))!!
-        m.groupValues[1] to m.groupValues[2]
-    }.getOrElse { Log.w(TAG, "creds: ${it.message}"); "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com" to "SboVhoG9s0rNafixCSGGKXAT" }.also { creds = it }
-
-    suspend fun startLogin(): Code = withContext(Dispatchers.IO) {
-        val (id, _) = creds()
-        val o = JSONObject(text(Request.Builder().url("https://www.youtube.com/o/oauth2/device/code").header("User-Agent", TV_UA)
-            .post(FormBody.Builder().add("client_id", id).add("scope", "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content")
-                .add("device_id", UUID.randomUUID().toString()).add("device_model", "ytlr::").build()).build()))
-        Code(o.getString("device_code"), o.getString("user_code"), o.optString("verification_url", "https://www.youtube.com/activate"), o.optInt("interval", 5), o.optInt("expires_in", 1800))
-    }
-
-    /** Polls until the code is approved (true), refused or expired (false). */
-    suspend fun waitForLogin(c: Code): Boolean = withContext(Dispatchers.IO) {
-        val (id, secret) = creds()
-        val until = System.currentTimeMillis() + c.expires * 1000L
-        var every = c.interval * 1000L
-        while (System.currentTimeMillis() < until) {
-            delay(every)
-            val o = runCatching { JSONObject(raw(Request.Builder().url("https://www.youtube.com/o/oauth2/token").header("User-Agent", TV_UA)
-                .post(FormBody.Builder().add("client_id", id).add("client_secret", secret).add("code", c.device)
-                    .add("grant_type", "http://oauth.net/grant_type/device/1.0").build()).build())) }.getOrNull() ?: continue
-            when (o.optString("error")) {
-                "" -> { store(Tokens(o.getString("access_token"), o.getString("refresh_token"), System.currentTimeMillis() + o.optLong("expires_in", 3600) * 1000)); return@withContext true }
-                "authorization_pending" -> {}
-                "slow_down" -> every += 2000
-                else -> return@withContext false
-            }
-        }
-        false
-    }
-
-    private fun bearer(): String? {
-        val t = tokens ?: return null
-        if (System.currentTimeMillis() < t.expiresAt - 60_000) return t.access
-        val (id, secret) = creds()
-        return runCatching {
-            val o = JSONObject(text(Request.Builder().url("https://www.youtube.com/o/oauth2/token").header("User-Agent", TV_UA)
-                .post(FormBody.Builder().add("client_id", id).add("client_secret", secret).add("refresh_token", t.refresh).add("grant_type", "refresh_token").build()).build()))
-            Tokens(o.getString("access_token"), t.refresh, System.currentTimeMillis() + o.optLong("expires_in", 3600) * 1000).also(::store).access
-        }.getOrElse { e -> if (e.message?.contains("invalid_grant") == true) store(null); null }
-    }
-
     // ------------------------------------------------------------ InnerTube
 
     private fun context(c: Client) = JSONObject().put("client", JSONObject().put("clientName", c.cname).put("clientVersion", c.version).put("hl", "en").put("gl", "US").apply {
@@ -138,80 +59,15 @@ object Yt {
 
     private fun call(c: Client, endpoint: String, body: JSONObject, auth: Boolean, visitorId: String? = null): JSONObject {
         body.put("context", context(c))
-        fun req(withAuth: Boolean) = Request.Builder().url("${c.host}/youtubei/v1/$endpoint?prettyPrint=false")
+        @Suppress("UNUSED_PARAMETER") fun req(withAuth: Boolean) = Request.Builder().url("${c.host}/youtubei/v1/$endpoint?prettyPrint=false")
             .header("User-Agent", c.ua).header("X-Youtube-Client-Name", c.id).header("X-Youtube-Client-Version", c.version)
             .header("Origin", c.host).header("Referer", c.host + "/")
             .apply { if (visitorId != null) header("X-Goog-Visitor-Id", visitorId) }
-            .apply { if (withAuth) bearer()?.let { header("Authorization", "Bearer $it") } }
             .post(body.toString().toRequestBody(JSON)).build()
-        // Music doesn't always take the TV sign-in; then it answers signed out.
-        return runCatching { JSONObject(text(req(auth))) }.getOrElse { if (auth && tokens != null) JSONObject(text(req(false))) else throw it }
-    }
-
-    suspend fun home(): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.TV, "browse", JSONObject().put("browseId", "FEwhat_to_watch"), true)) }
-    suspend fun subscriptions(): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.TV, "browse", JSONObject().put("browseId", "FEsubscriptions"), true)) }
-    /** Any TV feed by its browse id (History, Playlists, Channels, the topic pages, a channel, a playlist "VL…"). */
-    suspend fun browse(id: String): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.TV, "browse", JSONObject().put("browseId", id), true)) }
-
-    /** Vision's YouTube tabs (its engine's feeds, the same browse ids). */
-    suspend fun tab(tab: String): List<YtShelf> = when (tab) {
-        "HOME" -> home()
-        "SUBSCRIPTIONS" -> subscriptions()
-        "HISTORY" -> browse("FEhistory")
-        "PLAYLISTS" -> (browse("FEplaylist_aggregation") + browse("FElibrary")).distinctBy { s -> s.items.map { it.key } }
-        "CHANNELS" -> browse("FEchannels")
-        "SHORTS" -> shorts()
-        "MUSIC" -> browse("FEtopics_music")
-        "GAMING" -> browse("FEtopics_gaming")
-        "NEWS" -> browse("FEtopics_news")
-        "LIVE" -> browse("FEtopics_live")
-        "SPORTS" -> browse("FEtopics_sports")
-        // YouTube closed its Trending page in 2025 (Vision's engine gets nothing there now); its Hype chart is what's left.
-        "TRENDING" -> withContext(Dispatchers.IO) {
-            runCatching { shelves(call(Client.WEB, "browse", JSONObject().put("browseId", "FEtrending").put("params", "6gQJRkVleHBsb3Jl"), false)) }.getOrNull()
-                ?.takeIf { it.isNotEmpty() } ?: shelves(call(Client.WEB, "browse", JSONObject().put("browseId", "FEhype_leaderboard"), false))
-        }
-        else -> home()
-    }
-
-    /** Shorts as Vision's engine reads them: YouTube's Shorts player sequence (a few pages, ~8 each). */
-    suspend fun shorts(pages: Int = 4): List<YtShelf> = withContext(Dispatchers.IO) {
-        val first = call(Client.WEB, "reel/reel_item_watch", JSONObject().put("disablePlayerResponse", true)
-            .put("inputType", "REEL_WATCH_INPUT_TYPE_SEEDLESS").put("params", "CA8%3D"), false)
-        val ids = LinkedHashSet<String>()
-        first.optJSONObject("replacementEndpoint")?.optJSONObject("reelWatchEndpoint")?.optString("videoId")?.takeIf { it.length == 11 }?.let(ids::add)
-        var seq = first.optString("sequenceContinuation").ifBlank { null }
-        repeat(pages) {
-            val p = seq ?: return@repeat
-            val o = runCatching { call(Client.WEB, "reel/reel_watch_sequence", JSONObject().put("sequenceParams", p), false) }.getOrNull() ?: return@repeat
-            val es = o.optJSONArray("entries") ?: JSONArray()
-            for (i in 0 until es.length()) es.optJSONObject(i)?.optJSONObject("command")?.optJSONObject("reelWatchEndpoint")?.optString("videoId")
-                ?.takeIf { it.length == 11 }?.let(ids::add)
-            seq = o.optJSONObject("continuationEndpoint")?.optJSONObject("continuationCommand")?.optString("token")?.ifBlank { null }
-        }
-        listOf(YtShelf("Shorts", ids.map { YtItem(it, null, null, "Short", "", "https://i.ytimg.com/vi/$it/oar2.jpg") })).filter { it.items.isNotEmpty() }
+        return JSONObject(text(req(auth)))
     }
 
     suspend fun search(q: String): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.TV, "search", JSONObject().put("query", q), true)) }
-
-    suspend fun musicHome(): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.MUSIC, "browse", JSONObject().put("browseId", "FEmusic_home"), true)) }
-    suspend fun musicBrowse(id: String): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.MUSIC, "browse", JSONObject().put("browseId", id), true)) }
-    /** Vision Music's Explore: YouTube Music's Explore page (new releases, charts, moods). */
-    suspend fun musicExplore(): List<YtShelf> = musicBrowse("FEmusic_explore")
-    /** Vision Music's Library, from your YouTube sign-in (Music's own site won't take a TV sign-in): what you played, your artists, your playlists. */
-    suspend fun musicLibrary(): List<YtShelf> = coroutineScope {
-        listOf("FEmusic_last_played" to "Recently played", "FEmusic_library_corpus_artists" to "Your artists", "FEplaylist_aggregation" to "Your playlists")
-            .map { (id, name) -> async { runCatching { browse(id) }.getOrDefault(emptyList()).flatMap { it.items }.distinctBy { it.key }.let { YtShelf(name, it) } } }
-            .awaitAll().filter { it.items.isNotEmpty() }
-    }
-    suspend fun musicSearch(q: String): List<YtShelf> = withContext(Dispatchers.IO) { shelves(call(Client.MUSIC, "search", JSONObject().put("query", q), true)) }
-    /** A queue: the song's radio, or a playlist / album in order. */
-    suspend fun queue(videoId: String?, playlistId: String?): List<YtItem> = withContext(Dispatchers.IO) {
-        val b = JSONObject().put("isAudioOnly", true)
-        videoId?.let { b.put("videoId", it) }
-        b.put("playlistId", playlistId ?: "RDAMVM$videoId")
-        shelves(call(Client.MUSIC, "next", b, true)).flatMap { it.items }.filter { it.videoId != null }.distinctBy { it.videoId }
-    }
 
     private val streamCache = ConcurrentHashMap<String, Pair<Long, YtStreams>>()
 
@@ -346,7 +202,6 @@ object Yt {
 
     // ------------------------------------------------------------ http
 
-    private fun raw(r: Request): String = Net.http.newCall(r).execute().use { it.body?.string() ?: "" }
     private fun text(r: Request): String = Net.http.newCall(r).execute().use { res ->
         val b = res.body?.string() ?: ""
         if (!res.isSuccessful) throw IOException("HTTP ${res.code}: ${b.take(160)}")

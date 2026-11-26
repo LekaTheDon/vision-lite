@@ -42,7 +42,6 @@ object Setup {
     }
 
     private fun isSet(id: String) = when (id) {
-        "youtube" -> com.lekathedon.visionlite.youtube.Yt.signedIn
         else -> Integrations.all.firstOrNull { it.id == id }?.let(Integrations::isSet) ?: false
     }
 
@@ -116,7 +115,6 @@ object Setup {
     /** Starts [id]'s sign-in: (website, code to enter there, wait for the approval). */
     private suspend fun start(id: String): Triple<String, String, suspend () -> Boolean> = when (id) {
         "trakt" -> App.instance.trakt.startLogin().let { dc -> Triple(dc.url, dc.userCode, suspend { App.instance.trakt.waitForLogin(dc) }) }
-        "youtube" -> com.lekathedon.visionlite.youtube.Yt.startLogin().let { c -> Triple(c.url, c.user, suspend { com.lekathedon.visionlite.youtube.Yt.waitForLogin(c) }) }
         "realdebrid", "alldebrid" -> com.lekathedon.visionlite.streams.DebridSignIn.start(id).let { c -> Triple(c.url, c.userCode, suspend { com.lekathedon.visionlite.streams.DebridSignIn.wait(id, c) }) }
         "plex" -> com.lekathedon.visionlite.streams.MediaServers.plexStart().let { c -> Triple(c.url, c.userCode, suspend { com.lekathedon.visionlite.streams.MediaServers.plexWait(c) }) }
         "jellyfin" -> com.lekathedon.visionlite.streams.MediaServers.jfStart().let { c -> Triple(c.url, c.userCode, suspend { com.lekathedon.visionlite.streams.MediaServers.jfWait(c) }) }
@@ -142,8 +140,7 @@ object Setup {
     }
 
     private fun signOut(id: String): JSONObject {
-        if (id == "youtube") com.lekathedon.visionlite.youtube.Yt.signOut()
-        else Integrations.all.firstOrNull { it.id == id }?.let(Integrations::clear)
+        Integrations.all.firstOrNull { it.id == id }?.let(Integrations::clear)
         synchronized(pending) { pending.remove(id)?.job?.cancel() }
         return state()
     }
