@@ -50,7 +50,8 @@ object Subs {
         }
         if (!mine) { done.await(); return }
         try {
-            synchronized(cache) { cache[id] = fetch(type, id) }
+            val got = fetch(type, id)
+            synchronized(cache) { cache[id] = got }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e
         } catch (e: Exception) { synchronized(cache) { cache[id] = emptyList() }
         } finally {
