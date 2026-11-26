@@ -11,10 +11,10 @@ src = json.load(open("tools/lang/en.json", encoding="utf-8"))
 keys = sorted(src)
 out_dir = pathlib.Path("app/src/main/assets/lang"); out_dir.mkdir(parents=True, exist_ok=True)
 PROMPT = """You translate the user interface of a TV streaming app (films, series, anime, live TV / IPTV, sports, debrid links) into {lang}.
-Input: a JSON object whose keys are English UI strings. Output: a JSON object with the SAME keys, each value the {lang} translation.
+Input: a JSON object of numbered English UI strings. Output: a JSON object with the SAME numbers as keys, each value the {lang} translation.
 Rules: natural, short, everyday {lang} as a polished TV app would use (like Netflix/Apple TV in {lang}); keep placeholders like {{0}} {{1}} exactly;
 keep symbols (›, ·, ★, ●, ✓, arrows, emoji) and punctuation style; keep brand/service names untouched (Trakt, TorBox, IMDb, TMDB, Real-Debrid, Dolby Vision, HDR10, Atmos, 4K, VOD, IPTV, Xtream, M3U, EPG, AniList, MyAnimeList, Simkl, Gemini, ExoPlayer, mpv, FEL);
-technical tokens (codecs, units like MB, ms, fps) stay as is. If a key is clearly code, a query, an ID or not human text, return it unchanged.
+technical tokens (codecs, units like MB, ms, fps) stay as is. If a string is clearly code, a query, an ID or not human text, return it unchanged.
 Only the JSON object, nothing else."""
 def call(chunk, lang):
     body = {"contents": [{"parts": [{"text": PROMPT.format(lang=lang) + "\n" + json.dumps(chunk, ensure_ascii=False)}]}],
@@ -33,7 +33,8 @@ for tag in tags:
     todo = [k for k in keys if k not in have]
     print(tag, "todo", len(todo), flush=True)
     for i in range(0, len(todo), N):
-        chunk = {k: k for k in todo[i:i + N]}
+        part = todo[i:i + N]
+        chunk = {str(j): k for j, k in enumerate(part)}
         for attempt in range(6):
             try:
                 res = call(chunk, lang); break
@@ -42,8 +43,8 @@ for tag in tags:
                 print(tag, i, "retry", attempt, msg, flush=True); time.sleep(20 * (attempt + 1))
         else:
             print(tag, i, "FAILED chunk", flush=True); continue
-        for k in chunk:
-            v = res.get(k)
+        for j, k in chunk.items():
+            v = res.get(j)
             if isinstance(v, str) and v.strip() and v.count("{") == k.count("{"):
                 have[k] = v
         json.dump(have, open(f, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))

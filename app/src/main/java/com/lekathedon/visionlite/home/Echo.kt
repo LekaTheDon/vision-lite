@@ -1595,7 +1595,8 @@ private object Sections {
         "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search,
             "Library" to Screen.Library, "Calendar" to Screen.Calendar) +
-            (if (com.lekathedon.visionlite.streams.Cloud.services().isNotEmpty()) listOf("Cloud" to Screen.Cloud) else emptyList())
+            (if (com.lekathedon.visionlite.streams.Cloud.services().isNotEmpty()) listOf("Cloud" to Screen.Cloud) else emptyList()) +
+            (if (com.lekathedon.visionlite.App.instance.prefs.arabBrowse.value && com.lekathedon.visionlite.tb.ArabP2P.configured()) listOf("ArabP2P" to Screen.ArabBrowse) else emptyList())
     }
     /** Every section stays on Home with its pages in the pill (YouTube and Music removed 2026-11-26). */
     @Suppress("UNUSED_PARAMETER") fun opensAt(key: String): Screen? = null

@@ -169,6 +169,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Vod -> com.lekathedon.visionlite.iptv.VodScreen(nav)
                         Screen.Recordings -> com.lekathedon.visionlite.iptv.RecordingsScreen(nav)
                         Screen.Cloud -> com.lekathedon.visionlite.streams.CloudScreen(nav)
+                        Screen.ArabBrowse -> com.lekathedon.visionlite.tb.ArabBrowseScreen(nav)
                         Screen.Discover -> com.lekathedon.visionlite.browse.Discover(nav)
                         is Screen.Genre -> com.lekathedon.visionlite.browse.GenrePage(nav, s.slug)
                         is Screen.Mood -> com.lekathedon.visionlite.browse.MoodPage(nav, s.key)

@@ -150,6 +150,8 @@ class Prefs(context: Context) {
     val subsAutoSync = Flag("subs_auto_sync", true)
     /** Autoplay (user 2026-11-26): a link that carries subtitles in your Subtitle language wins over 4K (streams/SubsIn.kt). */
     val autoplaySubs = Flag("autoplay_subs", false)
+    /** ArabP2P browse page in the Home pill (user 2026-11-26: off until the user decides it's worth keeping). */
+    val arabBrowse = Flag("arabp2p_browse", false)
     /** "s", "m", "l", "xl". */
     val subSize = Text("sub_size", "m")
     /** "white", "yellow", "box", "outline". */

@@ -164,6 +164,79 @@ object ArabP2P {
         }.awaitAll().filterNotNull()
     }
 
+    // ---------------------------------------------------------------- browse (user 2026-11-26, off by default)
+    data class Release(val name: String, val bytes: Long?, val seeds: Int?)
+
+    /** A signed-in page; null when the site won't sign in. */
+    private suspend fun signedPage(url: String): String? {
+        if (!loggedIn && !jar.has() && !login()) return null
+        var html = runCatching { get(url) }.getOrNull() ?: return null
+        if (!html.contains("logout.php?t=")) {
+            loggedIn = false; jar.clear()
+            if (!login()) return null
+            html = runCatching { get(url) }.getOrNull() ?: return null
+        }
+        loggedIn = true
+        return html
+    }
+
+    private val CAT = Regex("""page=torrents&(?:amp;)?category=(\d+)[^>]*>([^<]{2,60})<""", RegexOption.IGNORE_CASE)
+
+    /** The site's own categories (id, name), read from its torrents page. Empty = not signed in. */
+    suspend fun categories(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        val html = signedPage("$BASE/index.php?page=torrents") ?: return@withContext emptyList()
+        CAT.findAll(html).map { it.groupValues[1] to unescape(it.groupValues[2]).trim() }.filter { it.first != "0" && it.second.isNotBlank() }
+            .distinctBy { it.first }.toList()
+    }
+
+    /** One page of a category, newest first (no .torrent downloads: names, sizes and seeders only). */
+    suspend fun browse(cat: String, page: Int): List<Release>? = withContext(Dispatchers.IO) {
+        val html = signedPage("$BASE/index.php?page=torrents&category=$cat&active=0&order=3&by=2&pages=$page") ?: return@withContext null
+        ROW.findAll(html).mapNotNull { m ->
+            val r = m.groupValues[1]
+            val title = TITLE.find(r)?.groupValues?.get(1)?.replace(TAGS, "")?.let(::unescape)?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val size = SIZE.find(r)?.let { s ->
+                val n = s.groupValues[1].replace(",", "").toDoubleOrNull() ?: return@let null
+                val mult = when (s.groupValues[2].uppercase().first()) { 'K' -> 1L shl 10; 'M' -> 1L shl 20; 'G' -> 1L shl 30; else -> 1L shl 40 }
+                (n * mult).toLong()
+            }
+            Release(title, size, SEEDS.find(r)?.groupValues?.get(1)?.toIntOrNull())
+        }.distinctBy { it.name }.toList()
+    }
+
+    /**
+     * The IMDb title a release is, from its name: the Latin part + year on IMDb's search; else (Arabic-only names) TMDB's
+     * search in Arabic (with your TMDB key). Null = not found.
+     */
+    suspend fun imdbOf(name: String): Pair<String, String>? = withContext(Dispatchers.IO) {
+        val year = Regex("\\b(19[3-9]\\d|20[0-4]\\d)\\b").find(name)?.value?.toIntOrNull()
+        val series = Regex("(?i)\\bS\\d{1,2}(E\\d{1,3})?\\b|season|الموسم|الحلقة|مسلسل").containsMatchIn(name)
+        val cut = name.replace(Regex("[\\[(].*?[\\])]"), " ").split(Regex("(?i)\\b(19[3-9]\\d|20[0-4]\\d|S\\d{1,2}|720p|1080p|2160p|4k|web|bluray|hdtv|x26[45]|hevc)\\b")).first()
+        val latin = cut.replace(Regex("[^A-Za-z0-9' ]"), " ").replace(Regex("\\s+"), " ").trim()
+        if (latin.length >= 2) {
+            val q = java.net.URLEncoder.encode(latin.lowercase(), "UTF-8").replace("+", "%20")
+            runCatching { org.json.JSONObject(com.lekathedon.visionlite.data.Net.get("https://v3.sg.media-imdb.com/suggestion/x/$q.json", 10)).optJSONArray("d") }.getOrNull()?.let { d ->
+                val hits = (0 until d.length()).mapNotNull { d.optJSONObject(it) }.filter { it.optString("id").startsWith("tt") &&
+                    it.optString("qid") in setOf("movie", "tvSeries", "tvMiniSeries", "tvMovie") }
+                (hits.firstOrNull { h -> year == null || kotlin.math.abs(h.optInt("y") - year) <= 1 } ?: hits.firstOrNull())?.let { h ->
+                    return@withContext h.optString("id") to (if (h.optString("qid").startsWith("tv") && h.optString("qid") != "tvMovie") "series" else "movie")
+                }
+            }
+        }
+        val arabic = cut.replace(Regex("[^\\u0621-\\u064A ]"), " ").replace(Regex("\\s+"), " ").trim()
+        if (arabic.length >= 2) {
+            val q = java.net.URLEncoder.encode(arabic, "UTF-8")
+            com.lekathedon.visionlite.home.Tmdb.get("search/${if (series) "tv" else "multi"}?query=$q&language=ar")?.optJSONArray("results")?.let { r ->
+                for (i in 0 until minOf(r.length(), 3)) {
+                    val o = r.optJSONObject(i) ?: continue
+                    val kind = if (series) "tv" else o.optString("media_type").takeIf { it == "tv" || it == "movie" } ?: continue
+                    com.lekathedon.visionlite.home.Tmdb.imdbOf("tmdb:$kind:${o.optInt("id")}")?.let { return@withContext it to (if (kind == "tv") "series" else "movie") }
+                }
+            }
+        }
+        null
+    }
+
     /** Torrent id → hash, kept on disk (a .torrent is ~50 KB; each is fetched once ever). Last 3000. */
     private val hashes: LinkedHashMap<String, String> by lazy {
         val m = object : LinkedHashMap<String, String>(256, 0.75f, true) { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, String>?) = size > 3000 }

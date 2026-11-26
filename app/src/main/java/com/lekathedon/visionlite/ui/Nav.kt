@@ -27,6 +27,8 @@ sealed interface Screen {
     data object Recordings : Screen
     /** Your debrid cloud (streams/Cloud.kt). */
     data object Cloud : Screen
+    /** ArabP2P's own categories (tb/ArabP2PBrowse.kt; off by default). */
+    data object ArabBrowse : Screen
     data object Discover : Screen
     data class Genre(val slug: String) : Screen
     data class Decade(val slug: String) : Screen

@@ -101,7 +101,12 @@ private fun Sources() {
             }
         },
         onCancel = { arab = false })
-    if (arabUser.isNotBlank()) Row("Sign out of ArabP2P", "Stops searching it") { ArabP2P.forget(); arabUser = ""; msg = "" }
+    if (arabUser.isNotBlank()) {
+        var browse by remember { mutableStateOf(App.instance.prefs.arabBrowse.value) }
+        Row("ArabP2P browse page: " + if (browse) "On" else "Off", "Try-out: the site's own categories, newest first, in the Home pill (Films & TV › ArabP2P)") {
+            browse = !browse; App.instance.prefs.arabBrowse.value = browse }
+        Row("Sign out of ArabP2P", "Stops searching it") { ArabP2P.forget(); arabUser = ""; msg = "" }
+    }
     Row("Add an add-on", "From your phone: any Stremio stream add-on (Torrentio, Comet, MediaFusion, AIOStreams…, your own instance)") { adding = true }
     if (msg.isNotEmpty()) Text(msg, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
     if (adding) PhoneBox("Vision TB add-on", listOf(PhoneForm.Field("Add-on URL", "https://…/manifest.json", note = "Configured links are fine; they stay on the TV and are never logged")),
