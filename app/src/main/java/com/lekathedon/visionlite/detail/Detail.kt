@@ -90,7 +90,9 @@ private sealed interface Sheet {
     data class Links(val title: String, val groups: List<Pair<String, List<Imdb.Ref>>>) : Sheet
     data class Text(val title: String, val body: String) : Sheet
     /** A short choice (Trailer: stop / full screen; Production: which company), drawn in the look. */
-    data class Menu(val title: String, val items: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector?, () -> Unit>>) : Sheet
+    data class Menu(val title: String, val items: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector?, () -> Unit>>,
+                    /** Labels that arrive later (Play with VOD: each file's own facts once opened), by item index. */
+                    val live: androidx.compose.runtime.snapshots.SnapshotStateMap<Int, String>? = null) : Sheet
 }
 
 /**
@@ -321,13 +323,26 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                                 val opts = V.sorted(runCatching { V.links(if (isSeries) "series" else "movie", vid, withTech = true) }.getOrDefault(emptyList())).take(12)
                                 hint = null
                                 sheet = if (opts.isEmpty()) Sheet.Menu("Not in your VOD" + (if (isSeries) " for this episode" else ""), listOf(Triple("OK", null) {}))
-                                else Sheet.Menu("Play with VOD · $title", opts.map { l ->
+                                else {
+                                    // Each copy's file is opened (bounded Range reads, 6 at once) and its line updated in place.
+                                    val P = com.lekathedon.visionlite.probe.VodProbe
+                                    val live = androidx.compose.runtime.mutableStateMapOf<Int, String>()
+                                    val shownOpts = opts.map { l -> l.stream.url?.let(P::cached)?.let { l.copy(probe = it) } ?: l }
+                                    shownOpts.forEachIndexed { i, l ->
+                                        val u = l.stream.url.orEmpty()
+                                        if (l.probe == null && u.startsWith("http")) {
+                                            live[i] = V.label(l).let { if ('\n' in it) "$it · checking the file…" else it }
+                                            scope.launch { live[i] = V.label(P.probe(u)?.let { l.copy(probe = it) } ?: l) }
+                                        }
+                                    }
+                                    Sheet.Menu("Play with VOD · $title", shownOpts.map { l ->
                                     Triple(V.label(l), I.Play as androidx.compose.ui.graphics.vector.ImageVector?) {
                                         // Its own source name: never normal Play's resume link, link memory or fallback.
                                         nav.push(Screen.Player(l.stream.url.orEmpty(), title, emptyMap(), if (isSeries) "series" else s.type, id,
                                             listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.title).joinToString("\n"), V.ADDON, l.bytes))
                                     }
-                                })
+                                }, live)
+                                }
                             }
                         }, Modifier.hint("Play with VOD"))
                         // Trailer: a choice, so it can also play full screen instead of behind the page.
@@ -1004,7 +1019,8 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                 is Sheet.Menu -> {
                     com.lekathedon.visionlite.ui.Eyebrow(sh.title, Modifier.padding(bottom = 14.dp))
                     Column(Modifier.heightIn(max = 470.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        sh.items.forEachIndexed { i, (label, icon, act) ->
+                        sh.items.forEachIndexed { i, (label0, icon, act) ->
+                            val label = sh.live?.get(i) ?: label0
                             if ('\n' in label) {
                                 // Two-line option (Play with VOD): the choice in bold, its file facts under it.
                                 Focusable({ act(); onClose() }, (if (i == 0) Modifier.focusRequester(first) else Modifier).fillMaxWidth().padding(vertical = 3.dp),

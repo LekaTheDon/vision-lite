@@ -28,9 +28,9 @@ object DvProfileProbe {
     /** As [probe], with the file's real size from the server's Range answer (null when it gave none). */
     suspend fun probeWithSize(url: String, headers: Map<String, String>): Pair<DvProfileLabel, Long?> =
         withContext(Dispatchers.IO) {
-            val reader = HttpRangeReader(url, headers, thumbnailHttpClient(headers))
+            val reader = HttpRangeReader(url, headers)
             try {
-                inspect(reader) to reader.totalLength.takeIf { it > 0 }
+                inspect(reader).first to reader.totalLength.takeIf { it > 0 }
             } finally {
                 reader.close()
             }
@@ -38,7 +38,7 @@ object DvProfileProbe {
 
     /** Only the file's real size: one 1-byte Range read. Throws as [probe] does. */
     suspend fun probeSize(url: String, headers: Map<String, String>): Long? = withContext(Dispatchers.IO) {
-        val reader = HttpRangeReader(url, headers, thumbnailHttpClient(headers))
+        val reader = HttpRangeReader(url, headers)
         try {
             reader.read(0, 1)
             reader.totalLength.takeIf { it > 0 }
@@ -47,16 +47,32 @@ object DvProfileProbe {
         }
     }
 
-    private fun inspect(r: HttpRangeReader): DvProfileLabel {
+    /** Lite's VOD probe: picture size, the HDR / DV text and the sound + subtitle tracks, from one pass. Blocking. */
+    internal fun full(url: String, headers: Map<String, String>): VodProbe.Result {
+        val reader = HttpRangeReader(url, headers)
+        try {
+            val (label, video, tracks) = inspect(reader)
+            return VodProbe.Result(video.width, video.height, label.text, tracks)
+        } finally {
+            reader.close()
+        }
+    }
+
+    private fun inspect(r: HttpRangeReader): Triple<DvProfileLabel, VideoTrack, List<ProbeTrack>> {
         val head = r.read(0, MkvIndexReader.HEAD_BYTES)
         val mkv = MkvIndexReader.looksLikeMatroska(head)
         if (!mkv && !Mp4IndexReader.looksLikeMp4(head)) throw UnsupportedOperationException("not MKV or MP4")
         var index: MediaIndex? = null
-        val video: VideoTrack = if (mkv) {
-            MkvIndexReader.peek(r, head).video
-        } else {
-            Mp4IndexReader.read(r, head).also { index = it }.video
-        }
+        val video: VideoTrack = if (mkv) MkvIndexReader.peek(r, head).video
+            else Mp4IndexReader.read(r, head).also { index = it }.video
+        val tracks = runCatching {
+            if (mkv) MkvIndexReader.sideTracks(r, head) else Mp4IndexReader.lastMoov.get()?.let(Mp4IndexReader::sideTracks).orEmpty()
+        }.getOrDefault(emptyList())
+        Mp4IndexReader.lastMoov.remove()
+        return Triple(label(r, head, mkv, video, index), video, tracks)
+    }
+
+    private fun label(r: HttpRangeReader, head: ByteArray, mkv: Boolean, video: VideoTrack, index: MediaIndex?): DvProfileLabel {
         val dv = video.dolbyVision
         // Profiles 5, 8 and 10 are fully described by the configuration record.
         if (dv != null && dv.profile != 7) return checked(dvText(dv.profile, dv.blCompatId, null))

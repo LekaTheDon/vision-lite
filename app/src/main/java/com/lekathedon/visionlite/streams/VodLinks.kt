@@ -4,6 +4,7 @@ import com.lekathedon.visionlite.addons.Stream
 import com.lekathedon.visionlite.addons.StreamHints
 import com.lekathedon.visionlite.iptv.Iptv
 import com.lekathedon.visionlite.iptv.Vod
+import com.lekathedon.visionlite.probe.ProbeTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
@@ -47,20 +48,58 @@ object VodLinks {
     fun label(l: Link): String {
         val shown = l.stream.title.orEmpty().substringBefore('\n')
         val t = shown.lowercase()
+        val p = l.probe
         val parts = mutableListOf<String>()
-        parts += l.dub?.let { java.util.Locale(it).getDisplayLanguage(java.util.Locale.ENGLISH) + " dub" }
-            ?: if (Regex("""\b(sub|subbed|subs|vostfr)\b|مترجم""").containsMatchIn(t)) "Subtitled" else "Original audio"
+        parts += l.dub?.let { lang(it) + " dub" }
+            ?: if (Regex("""\b(sub|subbed|subs|vostfr)\b|مترجم""").containsMatchIn(t) || tagSubs(shown) != null) "Subtitled" else "Original audio"
         val more = mutableListOf<String>()
-        if (l.tech != null) { parts += l.tech.substringBefore('\n'); l.tech.substringAfter('\n', "").takeIf { it.isNotBlank() }?.let(more::add) } else {
+        if (p != null) {
+            // The file itself (opened when the list showed): picture, HDR / DV, sound and subtitle tracks.
+            picture(p.width, p.height)?.let(parts::add)
+            hdrWord(p.hdr)?.let(parts::add)
+            val audio = p.tracks.filter { it.kind == 'a' }
+            if (audio.any { it.name.orEmpty().contains("atmos", true) }) parts += "Atmos"
+            audio.take(3).joinToString(" + ") { sound(it) }.takeIf { it.isNotBlank() }?.let(more::add)
+            p.tracks.filter { it.kind == 's' }.mapNotNull { s -> langOrNull(s.lang)?.let { if (s.forced) "$it (forced)" else it } }.distinct()
+                .takeIf { it.isNotEmpty() }?.let { more += "Subs: " + it.take(4).joinToString(", ") + if (it.size > 4) " +${it.size - 4}" else "" }
+        } else if (l.tech != null) { parts += l.tech.substringBefore('\n'); l.tech.substringAfter('\n', "").takeIf { it.isNotBlank() }?.let(more::add) } else {
             when (height(shown)) { 2160 -> "4K"; 1080 -> "1080p"; 720 -> "720p"; else -> null }?.let(parts::add)
             if (Regex("""\b(dv|dolby vision)\b""").containsMatchIn(t)) parts += "Dolby Vision" else if (Regex("""\bhdr(10)?\b""").containsMatchIn(t)) parts += "HDR"
             if ("atmos" in t) parts += "Atmos"
-            if (parts.size == 1) more += "No file details from the provider"
+            if (parts.size == 1) more += "No file details"
         }
+        tagSubs(shown)?.takeIf { p == null || p.tracks.none { it.kind == 's' } }?.let { more += "$it subs" }
         l.stream.title.orEmpty().substringAfter("📺 ", "").substringBefore(" VOD").takeIf { it.isNotBlank() }?.let(more::add)
+        l.group?.takeIf { it.isNotBlank() }?.let { more += "in: $it" }
         shown.takeIf { it.isNotBlank() }?.let(more::add)
         // Two lines: what you choose by (audio · picture), then the file facts, playlist and the provider's name for it.
-        return parts.joinToString(" · ") + "\n" + more.joinToString(" · ")
+        return parts.joinToString(" · ") + "\n" + more.filter { it.isNotBlank() }.joinToString(" · ")
+    }
+
+    private fun lang(code: String) = java.util.Locale(code).getDisplayLanguage(java.util.Locale.ENGLISH).ifBlank { code }
+    private fun langOrNull(code: String?) = code?.substringBefore('-')?.takeIf { it.length in 2..3 && it != "und" && it != "zxx" && it != "mul" }?.let(::lang)
+    private fun picture(w: Int, h: Int) = when { w >= 3200 || h >= 2000 -> "4K"; w >= 1800 || h >= 1000 -> "1080p"; w >= 1200 || h >= 700 -> "720p"; w > 0 -> "SD"; else -> null }
+    /** "Dolby Vision Profile 8.1 · HDR10 base" → "Dolby Vision 8.1"; "No Dolby Vision · HDR10" → "HDR10"; SDR → null. */
+    private fun hdrWord(t: String): String? = when {
+        t.startsWith("Dolby Vision") -> t.substringBefore(" · ").replace("Profile ", "").replace(" (profile unreadable)", "")
+        else -> t.substringAfter(" · ").let { when (it) { "SDR" -> null; "HDR (type unknown)" -> "HDR"; else -> it } }
+    }
+    private fun sound(a: ProbeTrack): String {
+        val c = a.codec.uppercase()
+        val codec = when {
+            "TRUEHD" in c || c == "MLPA" -> "TrueHD"; "EAC3" in c || c == "EC-3" -> "DD+"; "AC3" in c || c == "AC-3" -> "DD"
+            "DTS" in c -> if (a.name.orEmpty().contains("MA", false)) "DTS-HD MA" else "DTS"; "AAC" in c || c == "MP4A" -> "AAC"
+            "OPUS" in c -> "Opus"; "FLAC" in c -> "FLAC"; "MPEG" in c || "MP3" in c -> "MP3"; else -> null
+        }
+        val ch = when (a.channels) { 0 -> null; 1 -> "mono"; 2 -> "stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "${a.channels} ch" }
+        return listOfNotNull(langOrNull(a.lang), codec, ch).joinToString(" ")
+    }
+    /** The provider's tag in front ("AR-SUBS - …", "EN-S - …") naming subtitles: their language, else null. */
+    private fun tagSubs(name: String): String? {
+        val tag = PREFIX.find(name)?.value?.trim()?.trimEnd('-', ':', '|', '•')?.trim() ?: return null
+        val tokens = tag.split('-', '_', ' ').filter { it.isNotBlank() }
+        if (tokens.size < 2 || tokens.drop(1).none { it.equals("SUB", true) || it.equals("SUBS", true) || it.equals("S", true) }) return null
+        return langOrNull(tokens[0].lowercase())
     }
 
     /** The provider's file facts (Xtream info: video / audio / bitrate) as one line; null when it gave none. */
@@ -150,12 +189,12 @@ object VodLinks {
             val films = hits.filter { it.url != null }.take(if (withTech) 12 else Int.MAX_VALUE)
             val infos = if (withTech) kotlinx.coroutines.coroutineScope { films.map { v -> async { Vod.vodInfo(v) } }.map { it.await() } } else films.map { null }
             films.mapIndexed { i, v ->
-                link(v.url!!, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original)).copy(tech = tech(infos[i]))
+                link(v.url!!, titles.first(), year?.toString(), v.name, names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original)).copy(tech = tech(infos[i]), group = v.group)
             }
         } else hits.take(3).flatMap { v ->
             Vod.episodes(v).filter { it.season == target!!.season && it.number == target.episode }.map { e ->
                 link(e.url, titles.first(), "S%02dE%02d".format(e.season, e.number), v.name + (e.title.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), names[v.pl] ?: "IPTV", DubLang.ofVod(v.name, v.group, original))
-                    .copy(tech = tech(e.info))
+                    .copy(tech = tech(e.info), group = v.group)
             }
         }
     }
