@@ -8,16 +8,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * Your own debrid accounts for torrent links (Vision's direct debrid, written small): a torrent row from your add-ons
- * (a hash, no link) becomes playable when Real-Debrid, AllDebrid or Premiumize is set up. Pressing it asks the
+ * (a hash, no link) becomes playable when Real-Debrid, AllDebrid, Premiumize, TorBox or Offcloud is set up (any
+ * number at once, DebridStream's five). Pressing it asks the
  * services in your Debrid order for a ready (cached) copy and plays its file: the right episode by name, else the
  * add-on's file number, else the biggest video. A copy that isn't ready is removed again, never left downloading.
- * Sign-in: Real-Debrid and AllDebrid by a code on their website (DebridSignIn); Premiumize by its key from the phone.
+ * Sign-in: Real-Debrid and AllDebrid by a code on their website (DebridSignIn); Premiumize, TorBox, Offcloud by key.
+ * A service that doesn't have it ready hands over to the next, so several accounts cover each other's gaps.
  * Cost: nothing until a torrent row is pressed; then 2-5 small requests to one service.
  */
 object Debrid {
@@ -25,12 +29,16 @@ object Debrid {
     val RD = Id("realdebrid", "Real-Debrid")
     val AD = Id("alldebrid", "AllDebrid")
     val PM = Id("premiumize", "Premiumize")
-    private val ALL = listOf(RD, AD, PM)
+    val TB = Id("torbox", "TorBox")
+    val OC = Id("offcloud", "Offcloud")
+    val ALL = listOf(RD, AD, PM, TB, OC)
 
     /** Services set up and allowed (Integrations: driver first, then helpers that are on). */
     fun ready(): List<Id> {
         val driver = Integrations.driver(Integrations.Group.LINKS)?.id
-        return ALL.filter { Integrations.active(it.id) }.sortedBy { if (it.id == driver) 0 else 1 }
+        // TorBox plays add-on torrents only while Vision TB is off: with it on, those hashes already go to Vision TB's
+        // TorBox check and come back as its own (cached, verified) rows.
+        return ALL.filter { Integrations.active(it.id) && (it.id != TB.id || !com.lekathedon.visionlite.tb.VisionTb.isOn()) }.sortedBy { if (it.id == driver) 0 else 1 }
     }
     fun any() = ready().isNotEmpty()
     fun names() = ready().joinToString(" / ") { it.name }
@@ -43,6 +51,8 @@ object Debrid {
                 val url = when (s.id) {
                     RD.id -> realDebrid(hash, fileIdx, fileName, t)
                     AD.id -> allDebrid(hash, fileIdx, fileName, t)
+                    TB.id -> torbox(hash, fileIdx, fileName, t)
+                    OC.id -> offcloud(hash, fileIdx, fileName, t)
                     else -> premiumize(hash, fileIdx, fileName, t)
                 }
                 if (url != null) return@withContext Result.success(url)
@@ -140,6 +150,50 @@ object Debrid {
 
     private fun adDrop(key: String, id: Long) {
         runCatching { call(adReq("v4/magnet/delete", key).post(FormBody.Builder().add("id", id.toString()).build()).build()) }
+    }
+
+    // ---- TorBox (add-on torrents; Vision TB keeps its own path) ----
+
+    private const val TB_API = "https://api.torbox.app/v1/api"
+    fun tbKey(): String = App.instance.prefs.torboxKey.value.trim()
+
+    private fun torbox(hash: String, fileIdx: Int?, fileName: String?, t: EpisodeCheck.Target?): String? {
+        val key = tbKey().ifBlank { throw IllegalStateException("no key") }
+        val form = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM).addFormDataPart("magnet", magnet(hash))
+            .addFormDataPart("add_only_if_cached", "true").addFormDataPart("allow_zip", "false").build()
+        val made = JSONObject(call(Request.Builder().url("$TB_API/torrents/createtorrent").header("Authorization", "Bearer $key").post(form).build()).second.ifBlank { "{}" })
+        val d = made.optJSONObject("data")
+        val tid = d?.optInt("torrent_id", 0)?.takeIf { it > 0 } ?: d?.optInt("id", 0)?.takeIf { it > 0 } ?: return null
+        val item = JSONObject(call(Request.Builder().url("$TB_API/torrents/mylist?id=$tid&bypass_cache=true").header("Authorization", "Bearer $key").build()).second.ifBlank { "{}" })
+            .optJSONObject("data") ?: return null
+        val fs = item.optJSONArray("files") ?: JSONArray()
+        val files = (0 until fs.length()).map { i -> fs.getJSONObject(i).let { File(i, it.optString("name"), it.optLong("size"), it.optInt("id")) } }
+        val f = pick(files, fileIdx, fileName, t) ?: return null
+        val link = JSONObject(call(Request.Builder().url("$TB_API/torrents/requestdl?token=$key&torrent_id=$tid&file_id=${f.ref}").header("Authorization", "Bearer $key").build()).second.ifBlank { "{}" })
+        return link.optString("data").takeIf { it.startsWith("http") }
+    }
+
+    // ---- Offcloud ----
+
+    private const val OC_API = "https://offcloud.com/api"
+    private fun ocKey(): String = Integrations.values(Integrations.byId(OC.id)).firstOrNull().orEmpty().trim()
+    private fun ocUrl(path: String) = "$OC_API/$path${if ('?' in path) '&' else '?'}key=${java.net.URLEncoder.encode(ocKey(), "UTF-8")}"
+
+    /** Offcloud: asked for its cache first (nothing is added when it isn't there), then the cloud copy and its files. */
+    private fun offcloud(hash: String, fileIdx: Int?, fileName: String?, t: EpisodeCheck.Target?): String? {
+        if (ocKey().isBlank()) throw IllegalStateException("no key")
+        val json = "application/json".toMediaType()
+        val cache = JSONObject(call(Request.Builder().url(ocUrl("cache")).post(JSONObject().put("hashes", JSONArray().put(hash.lowercase())).toString().toRequestBody(json)).build()).second.ifBlank { "{}" })
+        val cached = cache.optJSONArray("cachedItems")?.let { a -> (0 until a.length()).any { a.optString(it).equals(hash, true) } } ?: false
+        if (!cached) return null
+        val add = JSONObject(call(Request.Builder().url(ocUrl("cloud")).post(FormBody.Builder().add("url", magnet(hash)).build()).build()).second.ifBlank { "{}" })
+        val req = add.optString("requestId").ifBlank { throw IllegalStateException(add.optString("error").ifBlank { "refused" }) }
+        if (add.optString("status") != "downloaded") { runCatching { call(Request.Builder().url(ocUrl("cloud/remove/$req")).build()) }; return null }
+        val urls = runCatching { JSONArray(call(Request.Builder().url(ocUrl("cloud/explore/$req")).build()).second) }.getOrNull()
+        if (urls == null || urls.length() == 0) return add.optString("url").takeIf { it.startsWith("http") }
+        val files = (0 until urls.length()).map { i -> urls.optString(i).let { u -> File(i, java.net.URLDecoder.decode(u.substringAfterLast('/'), "UTF-8"), 0L, u) } }
+        // No sizes from explore: by episode name first, then the add-on's index, then the first video.
+        return (pick(files, fileIdx, fileName, t) ?: files.firstOrNull { VIDEO.containsMatchIn(it.name) })?.ref?.toString()
     }
 
     // ---- Premiumize ----

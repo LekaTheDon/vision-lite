@@ -38,13 +38,16 @@ object Integrations {
     )
 
     val all: List<Service> = listOf(
-        Service("torbox", "TorBox", Group.LINKS, "Vision TB: TorBox-cached links first", "torbox.app → Settings → API key",
+        Service("torbox", "TorBox", Group.LINKS, "Vision TB: TorBox-cached links first; torrent links from your add-ons too", "torbox.app → Settings → API key",
             listOf(Field("TorBox API key", secret = true))) { v -> ok(get("https://api.torbox.app/v1/api/user/me", bearer = v[0])) },
         Service("realdebrid", "Real-Debrid", Group.LINKS, "Torrent links from your add-ons play through it", "Sign in: scan, approve on real-debrid.com", signIn = true),
         Service("alldebrid", "AllDebrid", Group.LINKS, "Torrent links from your add-ons play through it", "Sign in: scan, enter the code on alldebrid.com", signIn = true),
         Service("premiumize", "Premiumize", Group.LINKS, "Torrent links from your add-ons play through it", "premiumize.me/account → API key",
             listOf(Field("Premiumize API key", secret = true))) { v ->
             get("https://www.premiumize.me/api/account/info?apikey=${enc(v[0])}")?.second?.contains("\"success\"") == true },
+        Service("offcloud", "Offcloud", Group.LINKS, "Torrent links from your add-ons play through it", "offcloud.com → Account → API key",
+            listOf(Field("Offcloud API key", secret = true))) { v ->
+            get("https://offcloud.com/api/cloud/history?key=${enc(v[0])}")?.let { it.first in 200..299 && it.second.trimStart().startsWith("[") } == true },
 
         Service("nuvio", "Nuvio account", Group.TRACKING, "Coming up follows your Nuvio library and what you watched in Vision/Nuvio", "Sign in: scan, approve on nuvio.tv", signIn = true),
         Service("trakt", "Trakt", Group.TRACKING, "Continue Watching, Library, scrobbling, resume", "Sign in with the QR", signIn = true),
