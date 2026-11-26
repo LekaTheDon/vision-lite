@@ -232,7 +232,7 @@ private fun Section(t: String) = Text(t, color = Palette.Text, fontSize = 18.sp,
 @Composable
 private fun Item(title: String, sub: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Focusable(onClick, modifier.padding(top = 10.dp).fillMaxWidth(0.6f)) { f ->
-        Column(Modifier.fillMaxWidth().background(if (f) Color(0x33FFFFFF) else Palette.Card).padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.Kit.card2 else com.lekathedon.visionlite.ui.Kit.rowFill).padding(14.dp)) {
             Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             if (sub.isNotEmpty()) Text(sub, color = Palette.TextDim, fontSize = 13.sp)
         }

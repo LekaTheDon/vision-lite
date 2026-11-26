@@ -292,7 +292,7 @@ private fun Drop(label: String, options: List<Pair<String, String>>, current: St
     val shown = options.firstOrNull { it.first == current }?.second ?: options.firstOrNull()?.second ?: "—"
     Focusable({ if (options.isNotEmpty()) open = true }, modifier, shape = RoundedCornerShape(50)) { f ->
         Text("$shown  ▾", color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x26FFFFFF)).padding(horizontal = 18.dp, vertical = 8.dp))
+            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else com.lekathedon.visionlite.ui.Kit.rowFill).padding(horizontal = 18.dp, vertical = 8.dp))
     }
     if (open) Dialog(onDismissRequest = { open = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val reqs = remember(options) { List(options.size) { FocusRequester() } }

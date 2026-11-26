@@ -490,7 +490,7 @@ internal fun Episodes(nav: Nav, s: VodItem) {
         LazyColumn(Modifier.fillMaxSize().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(eps.orEmpty().filter { it.season == sea }) { e ->
                 Focusable({ nav.push(Screen.Player(e.url, "${s.name} · S${e.season}E${e.number}", type = "vod")) }, Modifier.fillMaxWidth()) { f ->
-                    Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x12FFFFFF)).padding(12.dp)) {
+                    Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else com.lekathedon.visionlite.ui.Kit.rowFill).padding(12.dp)) {
                         Text("${e.number}. ${e.title}", color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         e.plot?.let { Text(it, color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else Palette.TextDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                     }

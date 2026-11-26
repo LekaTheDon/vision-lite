@@ -115,7 +115,7 @@ fun LiveTv(nav: Nav) {
                     // Held Up / Down: fast; held Left: back to the top (Favourites), as TiviMate.
                     Focusable({ group = g.ifEmpty { null } }, gFast.mod(i).onPreviewKeyEvent { gFast.onKey(it, i, all.size, leftTop = true) }
                         .padding(bottom = 4.dp).fillMaxWidth()) { f ->
-                        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else if (selected) Color(0x33FFFFFF) else Color.Transparent).padding(10.dp)) {
+                        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else if (selected) com.lekathedon.visionlite.ui.Kit.card2 else Color.Transparent).padding(10.dp)) {
                             Text(name, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else Palette.Text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             Text("$n", color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else Palette.TextDim, fontSize = 12.sp)
                         }
@@ -138,7 +138,7 @@ fun LiveTv(nav: Nav) {
                 }
             }
             // The focused channel's guide: now, what's next, and (with catch-up) what already aired, playable.
-            Column(Modifier.width(380.dp).fillMaxHeight().background(Color(0x14FFFFFF)).padding(18.dp)) {
+            Column(Modifier.width(380.dp).fillMaxHeight().background(com.lekathedon.visionlite.ui.Kit.panel).padding(18.dp)) {
                 val c = focused
                 if (c != null) Schedule(nav, c, minute, version)
             }
@@ -207,7 +207,7 @@ private fun ChannelRow(c: Channel, minute: Long, modifier: Modifier, onFocus: ()
             else -> false
         }
     }, onFocus = onFocus) { f ->
-        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x0FFFFFFF)).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else com.lekathedon.visionlite.ui.Kit.rowFill).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${c.n}", color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else Palette.TextDim, fontSize = 13.sp, modifier = Modifier.width(44.dp))
             Box(Modifier.size(56.dp, 32.dp), contentAlignment = Alignment.Center) { Img(c.logo, 56.dp, 32.dp, Modifier.size(56.dp, 32.dp), ContentScale.Fit) }
             Column(Modifier.padding(start = 12.dp).weight(1f)) {

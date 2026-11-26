@@ -449,7 +449,7 @@ private fun DockButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 private fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Focusable(onClick, modifier, RoundedCornerShape(20.dp)) { f ->
         Text(text, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 15.sp, fontWeight = FontWeight.Medium,
-            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x33FFFFFF)).padding(horizontal = 18.dp, vertical = 9.dp))
+            modifier = Modifier.background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else com.lekathedon.visionlite.ui.Kit.rowFill).padding(horizontal = 18.dp, vertical = 9.dp))
     }
 }
 

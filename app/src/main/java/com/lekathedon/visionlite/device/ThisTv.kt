@@ -1,6 +1,7 @@
 package com.lekathedon.visionlite.device
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,7 +70,7 @@ fun FirstStartCheck(onChoose: () -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(facts) { if (facts != null) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } } }
     Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(660.dp).background(Color(0xFF141418)).padding(28.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.width(660.dp).background(com.lekathedon.visionlite.ui.Kit.panel).border(1.dp, com.lekathedon.visionlite.ui.Kit.line).padding(28.dp).verticalScroll(rememberScrollState())) {
             Text("Setting up for this TV", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
             val f = facts
             if (f == null) { Text(step, color = Palette.TextDim, fontSize = 15.sp); return@Column }

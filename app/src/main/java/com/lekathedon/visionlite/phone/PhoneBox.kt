@@ -69,7 +69,7 @@ fun PhoneBox(title: String, fields: List<PhoneForm.Field>, onSave: (List<String>
                 BasicTextField(values[i].value, { values[i].value = it }, singleLine = true,
                     textStyle = TextStyle(color = Palette.Text, fontSize = 15.sp), cursorBrush = SolidColor(Color.White),
                     visualTransformation = if (f.secret) PasswordVisualTransformation() else VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth().background(Color(0x22FFFFFF)).padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().background(com.lekathedon.visionlite.ui.Kit.rowFill).padding(10.dp),
                     decorationBox = { inner -> if (values[i].value.isEmpty()) Text(f.hint, color = Palette.TextDim, fontSize = 15.sp); inner() })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

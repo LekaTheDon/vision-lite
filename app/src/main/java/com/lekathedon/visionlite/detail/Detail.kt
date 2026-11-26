@@ -846,7 +846,7 @@ private fun EpisodeCard(e: Ep, style: Style, showRating: Boolean, watched: Boole
             }
         }
         Style.HALO -> Focusable({ if (aired) onClick() }, Modifier.width(280.dp), RoundedCornerShape(18.dp), onFocus) { f ->
-            Column(Modifier.fillMaxWidth().background(Kit.card).border(1.dp, Kit.line, RoundedCornerShape(18.dp))) {
+            Column(Modifier.fillMaxWidth().background(Kit.panel).border(1.dp, Kit.line, RoundedCornerShape(18.dp))) {
                 art(280.dp, 150.dp, 0.dp) {
                     Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         KitChip("EPISODE ${e.episode}", strong = isNext)
@@ -985,7 +985,7 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
     val first = remember { FocusRequester() }
     LaunchedEffect(sh) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color(0xD9000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.widthIn(max = 820.dp).clip(RoundedCornerShape(Kit.cardR)).background(Kit.card).padding(24.dp)) {
+        Column(Modifier.widthIn(max = 820.dp).clip(RoundedCornerShape(Kit.cardR)).background(Kit.panel).border(1.dp, Kit.line, RoundedCornerShape(Kit.cardR)).padding(24.dp)) {
             when (sh) {
                 is Sheet.Links -> {
                     Text(sh.title, color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -1009,7 +1009,7 @@ private fun SheetView(sh: Sheet, onClose: () -> Unit, onOpen: (Imdb.Ref) -> Unit
                                 // Two-line option (Play with VOD): the choice in bold, its file facts under it.
                                 Focusable({ act(); onClose() }, (if (i == 0) Modifier.focusRequester(first) else Modifier).fillMaxWidth().padding(vertical = 3.dp),
                                     RoundedCornerShape(10.dp)) { f ->
-                                    Column(Modifier.background(if (f) KitInk.bg else Kit.card2, RoundedCornerShape(10.dp)).fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                    Column(Modifier.background(if (f) KitInk.bg else Kit.rowFill, RoundedCornerShape(10.dp)).fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                                         Text(label.substringBefore('\n'), color = if (f) KitInk.ink else KitInk.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                         Text(label.substringAfter('\n'), color = if (f) KitInk.inkDim else KitInk.dim, fontSize = 13.sp, maxLines = 2, lineHeight = 18.sp)
                                     }

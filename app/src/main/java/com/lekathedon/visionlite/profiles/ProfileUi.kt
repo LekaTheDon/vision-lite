@@ -167,7 +167,7 @@ fun PinPad(title: String, face: Profile? = null, check: ((String) -> Boolean)?, 
                 Focusable({
                     when (k) { "Clear" -> { pin = "" }; "⌫" -> { pin = pin.dropLast(1) }; else -> type(k) }
                 }, if (i == 0) Modifier.focusRequester(first) else Modifier, shape = RoundedCornerShape(12.dp)) { f ->
-                    Box(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x22FFFFFF)).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else com.lekathedon.visionlite.ui.Kit.rowFill).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
                         Text(k, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = if (k.length > 1) 15.sp else 22.sp)
                     }
                 }
@@ -245,7 +245,7 @@ fun ProfileEdit(nav: Nav, id: Int) {
 @Composable
 private fun Line(title: String, sub: String, modifier: Modifier = Modifier, swatch: String? = null, onClick: () -> Unit) {
     Focusable(onClick, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(10.dp)) { f ->
-        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else Color(0x1AFFFFFF)).padding(horizontal = 18.dp, vertical = 12.dp),
+        Row(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.KitInk.bg else com.lekathedon.visionlite.ui.Kit.rowFill).padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 16.sp)

@@ -1,6 +1,7 @@
 package com.lekathedon.visionlite.report
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -165,7 +166,7 @@ fun ProblemPrompt(p: Problems.Problem, onReport: () -> Unit, onLater: () -> Unit
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(620.dp).background(Color(0xFF141418)).padding(28.dp)) {
+        Column(Modifier.width(620.dp).background(com.lekathedon.visionlite.ui.Kit.panel).border(1.dp, com.lekathedon.visionlite.ui.Kit.line).padding(28.dp)) {
             Text(p.title, color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text("Sending a report tells us what happened on this box (details and the app's log; no keys or logins).",
                 color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))

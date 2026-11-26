@@ -97,7 +97,7 @@ internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
     com.lekathedon.visionlite.ui.Inside(true) {
         val K = com.lekathedon.visionlite.ui.Kit
         Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
-            Column(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).background(K.card)
+            Column(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).background(K.panel)
                 .border(1.dp, K.line, androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).padding(horizontal = 36.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 com.lekathedon.visionlite.ui.Eyebrow("Nuvio Vision")

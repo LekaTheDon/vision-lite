@@ -1065,7 +1065,7 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
         val at = options.indexOfFirst { it.first == current }.coerceAtLeast(0)
         LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { reqs[at].requestFocus() } }
         com.lekathedon.visionlite.ui.Inside(true) {
-        Column(Modifier.width(480.dp).clip(RoundedCornerShape(Kit.cardR + 4.dp)).background(Kit.card)
+        Column(Modifier.width(480.dp).clip(RoundedCornerShape(Kit.cardR + 4.dp)).background(Kit.panel)
             .border(1.dp, Kit.accent.copy(alpha = 0.5f), RoundedCornerShape(Kit.cardR + 4.dp)).padding(22.dp)) {
             com.lekathedon.visionlite.ui.DisplayText(title, 22.sp, maxLines = 1)
             if (sub.isNotEmpty()) Text(sub, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
@@ -1283,7 +1283,7 @@ private fun AnimeModeRow(p: Prefs, m: Modifier) {
         val no = remember { FocusRequester() }
         LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { no.requestFocus() } }
         com.lekathedon.visionlite.ui.Inside(true) {
-            Column(Modifier.width(560.dp).clip(RoundedCornerShape(Kit.cardR + 4.dp)).background(Kit.card)
+            Column(Modifier.width(560.dp).clip(RoundedCornerShape(Kit.cardR + 4.dp)).background(Kit.panel)
                 .border(1.dp, Kit.accent.copy(alpha = 0.5f), RoundedCornerShape(Kit.cardR + 4.dp)).padding(22.dp)) {
                 com.lekathedon.visionlite.ui.DisplayText("Turn anime off?", 22.sp, maxLines = 1)
                 Text("Every anime (Japanese, Chinese and Korean animation) disappears from the whole app: Home, pages, " +
