@@ -95,7 +95,7 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
         }
         // A TorBox link that won't come (removed from TorBox meanwhile) moves on to the next pick.
         android.util.Log.i("AutoPick", "try: ${AutoPick.describe(l)}")
-        if (play(nav, s, l, replace = true, order, say)) { say(""); return true }
+        if (play(nav, s, l, replace = true, order, say = say)) { say(""); return true }
         android.util.Log.i("AutoPick", "didn't start, next")
     }
     say("Autoplay: those links were another episode, pick one")

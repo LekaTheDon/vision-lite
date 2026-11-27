@@ -111,7 +111,7 @@ object Released {
                     delay(250)
                     val batch = pending.toList().take(100).also { pending.removeAll(it.toSet()) }
                     val jobs = batch.chunked(10).map { c -> c to async { gate.withPermit { runCatching { check(c) }.onFailure { Log.w(TAG, "check: ${it.message}") }.getOrDefault(false) } } }
-                    jobs.forEach { (c, job) -> val ok = job.await(); c.filter { !ok || it !in known }.forEach { failed += it } }
+                    jobs.forEach { (c, job) -> val ok = job.await(); c.filter { !ok || !known.containsKey(it) }.forEach { failed += it } }
                     _revision.value++
                     save()
                 }
