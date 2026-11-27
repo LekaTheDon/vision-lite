@@ -334,6 +334,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Subtitle language", "", p.subLang, Langs, m) }
         more = true
         row { m -> Choice("If that's missing", "Second subtitle language", p.subLang2, Langs, m) }
+        row { m -> Toggle("Only my subtitle languages", "The subtitle menu lists just your first and second language (Show all is still there)", p.subsOnlyMine, m) }
         row { m -> Toggle("Autoplay picks links with these subtitles", "Links with subtitles in your language are preferred, even over higher quality", p.autoplaySubs, m) }
         row { m -> Toggle("Remove hearing-impaired tags", "Removes sound descriptions and speaker names from add-on subtitles", p.subsStripSdh, m) }
         row { m -> Toggle("Subtitles from OpenSubtitles", "When the file has none in your languages: OpenSubtitles' copies, the one made for the same release first (no account needed)", p.openSubtitles, m) }

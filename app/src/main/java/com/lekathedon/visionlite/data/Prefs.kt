@@ -154,6 +154,8 @@ class Prefs(context: Context) {
     val settingsLevel = Text("settings_level", "")
     /** Autoplay (user 2026-11-26): a link that carries subtitles in your Subtitle language wins over 4K (streams/SubsIn.kt). */
     val autoplaySubs = Flag("autoplay_subs", false)
+    /** Subtitle menu lists only your two subtitle languages (user 2026-11-27); "Show all" in the menu lists the rest. */
+    val subsOnlyMine = Flag("subs_only_mine", true)
     /** ArabP2P browse page in the Home pill (user 2026-11-26: off until the user decides it's worth keeping). */
     val arabBrowse = Flag("arabp2p_browse", false)
     /** "s", "m", "l", "xl". */

@@ -585,13 +585,24 @@ internal fun SidePanel(title: String, items: List<String>, selected: Int, bottom
 internal fun TrackPanel(title: String, player: Player, type: Int, allowOff: Boolean, bottom: Boolean = false,
                         extra: Pair<String, () -> Unit>? = null, extra2: Pair<String, () -> Unit>? = null, close: () -> Unit) {
     val groups = player.currentTracks.groups.filter { it.type == type }
-    val options = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
+    val every = groups.flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { i -> g to i } }
+    // Subtitles: only your two languages (Settings › Subtitles "Only my subtitle languages"), plus the one playing;
+    // "Show all" lists every track. Nothing in your languages = all shown.
+    var showAll by remember(type) { mutableStateOf(false) }
+    val mine = if (type != C.TRACK_TYPE_TEXT) emptySet() else runCatching {
+        val p = com.lekathedon.visionlite.App.instance.prefs
+        if (!p.subsOnlyMine.value) emptySet() else listOf(p.subLang.value, p.subLang2.value).filter { it.length in 2..3 }.map { langKey(it) }.toSet()
+    }.getOrDefault(emptySet())
+    val narrowed = if (mine.isEmpty() || showAll) every else every.filter { (g, i) -> g.isTrackSelected(i) || g.getTrackFormat(i).language?.let { langKey(it) } in mine }
+    val options = if (narrowed.isEmpty()) every else narrowed
+    val hidden = every.size - options.size
+    val more: Pair<String, () -> Unit>? = if (hidden > 0) "Show all subtitles ($hidden more)  ›" to { showAll = true } else null
     val off = allowOff && player.trackSelectionParameters.disabledTrackTypes.contains(type)
     val selected0 = if (off) 0 else options.indexOfFirst { (g, i) -> g.isTrackSelected(i) }.let { if (allowOff && it >= 0) it + 1 else it }
     val labels0 = (if (allowOff) listOf("Off") else emptyList()) + options.map { (g, i) -> trackLabel(g.getTrackFormat(i), type) }
     if (labels0.isEmpty() && extra == null) { SidePanel(title, listOf("None in this file"), -1, bottom) { close() }; return }
     // [extra] (the delay line) on top; the tracks below it.
-    val tops = listOfNotNull(extra, extra2)
+    val tops = listOfNotNull(extra, extra2, more)
     val shift = tops.size
     val labels = tops.map { it.first } + labels0.ifEmpty { listOf("None in this file") }
     val selected = if (selected0 >= 0) selected0 + shift else -1
@@ -673,4 +684,15 @@ internal fun clock(ms: Long): String {
 private fun endsAt(leftMs: Long, speed: Float): String {
     val at = System.currentTimeMillis() + (leftMs / speed).toLong()
     return java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date(at))
+}
+
+/** "en", "eng", "en-US" → "en" (files tag subtitles in 2- or 3-letter codes). */
+private fun langKey(code: String): String {
+    val c = code.lowercase().substringBefore('-').substringBefore('_')
+    if (c.length == 2) return c
+    return when (c) { "fre" -> "fr"; "ger" -> "de"; "chi" -> "zh"; "dut" -> "nl"; "cze" -> "cs"; "gre" -> "el"; "per" -> "fa"; "rum" -> "ro"; "slo" -> "sk"; "alb" -> "sq"; "arm" -> "hy"; "geo" -> "ka"; "ice" -> "is"; "mac" -> "mk"; "may" -> "ms"; "bur" -> "my"
+        else -> iso3[c] ?: c }
+}
+private val iso3: Map<String, String> by lazy {
+    java.util.Locale.getISOLanguages().mapNotNull { l -> runCatching { java.util.Locale(l).isO3Language to l }.getOrNull() }.toMap()
 }
