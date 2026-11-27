@@ -20,10 +20,13 @@ object Our {
     /** The host the network checks time (ours once deployed). */
     val metaHost: String get() = host ?: "v3-cinemeta.strem.io"
 
-    /** GraphQL titles / charts / lists (POST {query, variables}). */
-    val imdb = if (on) "$base/v1/imdb" else "https://api.graphql.imdb.com/"
-    /** Search suggestions: [suggest] + the words + ".json", e.g. "${Our.suggest}matrix.json". */
-    val suggest = if (on) "$base/v1/suggest/" else "https://v3.sg.media-imdb.com/suggestion/x/"
+    /**
+     * GraphQL titles / charts / lists (POST {query, variables}). Asked from the device first (IMDb refuses Cloudflare's
+     * servers, 2026-11-27); when IMDb fails, [Route] asks our server, which answers the same from TMDB.
+     */
+    const val imdb = "https://api.graphql.imdb.com/"
+    /** Search suggestions: [suggest] + the words + ".json"; same rule as [imdb]. */
+    const val suggest = "https://v3.sg.media-imdb.com/suggestion/x/"
     /** The catalog add-on (Stremio protocol: /manifest.json, /catalog/…, /meta/…). */
     val cinemeta = if (on) "$base/v1/cinemeta" else "https://v3-cinemeta.strem.io"
 
@@ -48,10 +51,12 @@ object Our {
     /** The user's own key, else [KEY] when our server is on, else null (that feature stays off). */
     fun keyOr(own: String?): String? = own?.trim()?.takeIf { it.isNotBlank() } ?: if (on) KEY else null
 
-    /** Services our server answers for (its /v1/x route; keep in step with vision-meta/src/proxy.js). */
+    /**
+     * Services that need a key our server holds (its /v1/x route). Free, keyless sources (AniList, Jikan, Kitsu,
+     * TVmaze, ani.zip, IntroDB, AniSkip, SeaDex) stay direct from the device: some ban Cloudflare's servers.
+     */
     private val ROUTED = setOf("api.themoviedb.org", "api4.thetvdb.com", "api.mdblist.com", "api.myanimelist.net",
-        "generativelanguage.googleapis.com", "api.groq.com", "api.mistral.ai", "graphql.anilist.co", "api.ani.zip",
-        "kitsu.io", "kitsu.app", "api.jikan.moe", "api.tvmaze.com", "api.introdb.app", "api.aniskip.com", "seadex.moe")
+        "generativelanguage.googleapis.com", "api.groq.com", "api.mistral.ai")
     private val CRED_PARAMS = listOf("api_key", "apikey", "key")
     private fun blank(v: String?) = v == null || v.isBlank() || v == KEY || v == "server"
 
@@ -63,6 +68,7 @@ object Our {
     object Route : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val r = chain.request()
+            if (on && (r.url.host == "api.graphql.imdb.com" || r.url.host == "v3.sg.media-imdb.com")) return imdbOrOurs(chain, r)
             if (!on || r.url.host !in ROUTED) return chain.proceed(r)
             val auth = r.header("Authorization")?.removePrefix("Bearer")?.trim()
             val goog = r.header("x-goog-api-key")
@@ -80,6 +86,24 @@ object Our {
             if (BuildConfig.META_KEY.isNotBlank()) b.header("x-app-key", BuildConfig.META_KEY)
             return chain.proceed(b.build())
         }
+    }
+
+    /** IMDb from the device; on an error, a block or an answer with no data, the same request to our server. */
+    private fun imdbOrOurs(chain: Interceptor.Chain, r: okhttp3.Request): Response {
+        val first = runCatching { chain.proceed(r) }.getOrNull()
+        if (first != null && first.isSuccessful) {
+            val ok = r.url.host != "api.graphql.imdb.com" || runCatching {
+                val o = org.json.JSONObject(first.peekBody(4L shl 20).string()).optJSONObject("data")
+                o != null && o.keys().asSequence().any { !o.isNull(it) }
+            }.getOrDefault(false)
+            if (ok) return first
+        }
+        first?.close()
+        val to = if (r.url.host == "api.graphql.imdb.com") "$base/v1/imdb"
+            else "$base/v1/suggest/" + r.url.pathSegments.lastOrNull().orEmpty().removeSuffix(".json")
+        val b = r.newBuilder().url(to)
+        if (BuildConfig.META_KEY.isNotBlank()) b.header("x-app-key", BuildConfig.META_KEY)
+        return chain.proceed(b.build())
     }
 
     /** Net's client: requests to our server carry the app's key. */

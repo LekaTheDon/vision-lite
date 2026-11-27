@@ -76,7 +76,7 @@ object OwnScore {
         val al = AnimeMeta.anilistOf(anime)
         val parts = when {
             al == null -> emptyList()
-            Our.on -> server("anime", "$al")
+            // From the device: AniList bans Cloudflare's servers (2026-11-27), so anime is never asked through ours.
             else -> direct(al)
         }
         of(parts).also { synchronized(cache) { cache[key] = it } }
@@ -93,7 +93,10 @@ object OwnScore {
         val out = mutableListOf<Part>()
         m.optInt("averageScore").takeIf { it > 0 }?.let { out += Part("anilist", it / 10.0) }
         val mal = m.optInt("idMal").takeIf { it > 0 } ?: return@coroutineScope out
-        val j = async { runCatching { JSONObject(Net.get("https://api.jikan.moe/v4/anime/$mal", 6)).optJSONObject("data")?.optDouble("score") }.getOrNull() }
+        // MAL: Jikan (its mirror) first; MAL's own API through our server (its app ID) when Jikan is slow or down.
+        val j = async { runCatching { JSONObject(Net.get("https://api.jikan.moe/v4/anime/$mal", 6)).optJSONObject("data")?.optDouble("score") }.getOrNull()
+            ?.takeIf { !it.isNaN() && it > 0 }
+            ?: if (Our.on) runCatching { JSONObject(Net.get("https://api.myanimelist.net/v2/anime/$mal?fields=mean", 6)).optDouble("mean") }.getOrNull() else null }
         val k = async { runCatching {
             JSONObject(Net.get("https://kitsu.io/api/edge/mappings?filter[externalSite]=myanimelist/anime&filter[externalId]=$mal&include=item", 6))
                 .optJSONArray("included")?.optJSONObject(0)?.optJSONObject("attributes")?.optString("averageRating")?.toDoubleOrNull()
