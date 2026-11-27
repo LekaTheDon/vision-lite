@@ -79,7 +79,9 @@ internal class DolbyVisionExtractorsFactory(
         // inactive config the transformer's shouldTransform() returns false,
         // so non-DV HEVC samples stream through
         // the stock write path at no extra cost.
-        if (extractor.javaClass.name == STOCK_MATROSKA_EXTRACTOR) {
+        // By type, never by class name: the release build renames media3's classes, so the old name check never
+        // matched and no MKV was ever converted (TCL C7K, Ray FEL, 2026-11-28: "8.1 converter: not used").
+        if (extractor.underlyingImplementation is androidx.media3.extractor.mkv.MatroskaExtractor) {
             val mkv = DvMatroskaExtractor(
                 subtitleParsers,
                 /* flags= */ 0,
@@ -102,19 +104,15 @@ internal class DolbyVisionExtractorsFactory(
     }
 
     private fun nalFormatFor(extractor: Extractor): NalFormat? {
-        val name = extractor.javaClass.name
-        return when {
-            // RPU is in-band in the sample for these containers, so reachable here.
-            name.contains("FragmentedMp4Extractor") -> NalFormat.LENGTH_DELIMITED
-            name.contains("Mp4Extractor") -> NalFormat.LENGTH_DELIMITED
-            name.contains("TsExtractor") -> NalFormat.ANNEX_B
+        // RPU is in-band in the sample for these containers, so reachable here (by type: names are renamed in release).
+        return when (extractor.underlyingImplementation) {
+            is androidx.media3.extractor.mp4.FragmentedMp4Extractor -> NalFormat.LENGTH_DELIMITED
+            is androidx.media3.extractor.mp4.Mp4Extractor -> NalFormat.LENGTH_DELIMITED
+            is androidx.media3.extractor.ts.TsExtractor -> NalFormat.ANNEX_B
             else -> null
         }
     }
 
-    private companion object {
-        const val STOCK_MATROSKA_EXTRACTOR = "androidx.media3.extractor.mkv.MatroskaExtractor"
-    }
 }
 
 /** How HEVC NAL units are framed in the sample stream for a given container. */

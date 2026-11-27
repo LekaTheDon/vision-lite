@@ -40,7 +40,7 @@ class Server(private val pairing: Pairing, private val commands: Commands) {
     fun stop() { runCatching { socket?.close() }; socket = null }
 
     private fun serve(c: Socket) {
-        c.soTimeout = 5000
+        c.soTimeout = 15000
         val input = BufferedInputStream(c.getInputStream())
         val requestLine = readLine(input) ?: return
         val headers = HashMap<String, String>()
@@ -55,6 +55,12 @@ class Server(private val pairing: Pairing, private val commands: Commands) {
         val body = ByteArray(len)
         var read = 0
         while (read < len) { val n = input.read(body, read, len - read); if (n < 0) break; read += n }
+        if (requestLine.startsWith("GET /face/")) {
+            val (bytes, type) = Faces.serve(requestLine) ?: return reply(c, 404, JSONObject().put("ok", false).put("error", "Not found"))
+            val head = "HTTP/1.1 200 OK\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\nCache-Control: max-age=86400\r\nConnection: close\r\n\r\n"
+            c.getOutputStream().apply { write(head.toByteArray()); write(bytes); flush() }
+            return
+        }
         if (!requestLine.startsWith("POST /cmd ")) return reply(c, 404, JSONObject().put("ok", false).put("error", "Not found"))
 
         val text = String(body, 0, read, Charsets.UTF_8)

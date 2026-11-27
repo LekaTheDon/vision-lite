@@ -12,25 +12,65 @@ import com.lekathedon.visionlite.data.Prefs
 @UnstableApi
 class DvRoute private constructor(internal val config: DolbyVisionConversionConfig, val strip: Boolean, val stripHdr10Plus: Boolean, val injectHdr10: Boolean = false) {
     companion object {
-        /** The route for the current settings, or null when nothing needs Vision's pipeline. */
-        fun of(p: Prefs, nativeFel: Boolean): DvRoute? {
-            if (nativeFel) return null
+        /** What Let the app decide chose for the last play (Stats / play log). */
+        @Volatile var lastWhy: String? = null
+
+        /**
+         * The route for the current settings and this link, or null when nothing needs Vision's pipeline (native FEL,
+         * or "box" on a decoder that lists profile 7). Arc's modes: auto (DvPolicy), fel, dv81, box (= Arc's Off), hdr10.
+         * Rule (user 2026-11-28): profile 7 reaches a decoder untouched only on native FEL or "box" where the decoder
+         * itself lists profile 7. Every other path converts to 8.1, or strips to HDR10 when it can't convert.
+         */
+        fun of(p: Prefs, nativeFel: Boolean, url: String? = null, ctx: android.content.Context = com.lekathedon.visionlite.App.instance): DvRoute? {
+            if (nativeFel) { lastWhy = "Native FEL"; return null }
             val mode = p.dv7.value
             val conv = DoviBridge.isAvailable()
-            val to81 = conv && mode == "dv81"
+            val pol = if (mode == "auto" || mode == "fel") DvPolicy.resolve(ctx, false) else null
+            val forcedHdr10 = url != null && url in DvRetry.hdr10
+            val mode1 = url != null && url in DvRetry.mode1
+            val p7Decoder = mode == "box" && com.lekathedon.visionlite.device.DeviceCheck.saved()?.dv7Decoder == true
+            val to81 = !forcedHdr10 && conv && when (mode) {
+                "auto", "fel" -> pol?.decision == DvPolicy.Decision.CONVERT_81
+                "hdr10" -> false
+                "box" -> !p7Decoder
+                else -> true   // dv81
+            }
+            val strip = !to81 && !(mode == "box" && p7Decoder && !forcedHdr10)
+            lastWhy = when {
+                forcedHdr10 -> "8.1 failed on this link: HDR10 picture"
+                pol != null -> pol.why()
+                to81 -> "Convert to 8.1"
+                strip -> "HDR10 picture (Dolby Vision stripped)"
+                else -> "Profile 7 to the box's own profile 7 decoder"
+            }
             val dv5 = conv && p.dv5To81.value
-            val strip = mode == "hdr10"
             val plus = p.stripHdr10Plus.value
             if (!to81 && !dv5 && !strip && !plus) return null
+            val manual = mode == "dv81" || mode == "box"
+            val override = p.dvConvMode.value.toIntOrNull()?.takeIf { it in 0..4 }
             val cfg = DolbyVisionConversionConfig(
                 active = to81 || dv5,
-                manualDv81 = to81 || dv5,
+                manualDv81 = (to81 && manual && !mode1) || dv5,
+                autoMode2 = to81 && !manual && pol?.mode2 == true && !mode1,
                 dv5Enabled = dv5,
-                // DV5 alone: profile 7 is left to the box.
+                // DV5 alone: profile 7 is left as is only where it is allowed through (see strip above).
                 nativeProfile7 = !to81,
-                forcedMode = p.dvConvMode.value.toIntOrNull()?.takeIf { it in 0..4 } ?: -1,
+                // Arc: the hand-picked mode applies to a hand-picked Convert; a failed mode 2 retries at mode 1.
+                forcedMode = when { mode1 -> 1; manual && override != null -> override; else -> -1 },
             )
-            return DvRoute(cfg, strip && !to81, plus, strip && !to81 && p.dvInjectHdr10.value)
+            return DvRoute(cfg, strip, plus, strip && p.dvInjectHdr10.value)
+        }
+
+        /**
+         * The vendored MKV reader's global switches (Arc sets them per play): on the HDR10 path the track is handed
+         * over as plain HEVC, so no decoder ever sees it as Dolby Vision. Reset for every play.
+         */
+        /** The route of the play in progress (Stats reads it; never recomputed there). */
+        @Volatile var last: DvRoute? = null
+
+        fun arm(r: DvRoute?) {
+            last = r
+            com.lekathedon.visionlite.player.dv.mkv.DolbyVisionCompatibility.setHdr10BaseLayerModeActive(r?.strip == true)
         }
 
         private val dvName = Regex("""(?i)(\bDV\b|\bDoVi\b|dolby[ ._-]?vision|\bDV[ ._-]?HDR)""")

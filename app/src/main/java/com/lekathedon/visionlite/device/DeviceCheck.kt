@@ -234,30 +234,19 @@ object DeviceCheck {
         fun add(c: Choice) { if (c.options.size > 1) this.add(c) }
         val caps = f.capsKnown
 
-        // Picture: Dolby Vision profile 7 (disc remuxes), Vision's table, corrected by what this device really did.
-        val dv81Failed = DeviceProof.dv81 == "fail"
+        // Picture: Dolby Vision profile 7 (disc remuxes). Arc's five modes; Let the app decide is always recommended
+        // (user 2026-11-28): FEL where the whole chain plays it, 8.1 on a Dolby Vision display, else the HDR10 picture.
         run {
+            val pol = com.lekathedon.visionlite.player.dv.DvPolicy.resolve(App.instance, f.fel)
             val opts = buildList {
+                add("auto" to "Let the app decide")
                 if (f.fel) add("fel" to "Native FEL (both layers, this box)")
-                // Never offered once this device showed it can't (a converted film reached HEVC, not Dolby Vision).
-                if (f.converter && f.dvDecoder && (!caps || f.dvTv) && !dv81Failed) add("dv81" to "Convert to Dolby Vision 8.1")
-                add("box" to if (f.dv7Decoder) "The box's Dolby Vision decoder" else "Leave it to the box")
-                if (!caps || f.hdr10) add("hdr10" to "Play the HDR10 base layer")
+                if (f.converter) add("dv81" to "Convert to Dolby Vision 8.1")
+                // Untouched profile 7 only where a decoder lists it (otherwise it would play as HDR10 behind a DV logo).
+                if (f.dv7Decoder) add("box" to "The box's profile 7 decoder (untouched)")
+                add("hdr10" to "Strip Dolby Vision: the HDR10 picture")
             }
-            // Vision's table: FEL box -> native; DV TV without FEL -> 8.1 keeps DV; HDR10 TV -> base layer.
-            val (rec, why) = when {
-                f.fel -> "fel" to "This box plays dual-layer Dolby Vision (FEL kernel found)"
-                caps && f.dvTv && f.converter && f.dvDecoder && !dv81Failed -> "dv81" to "Your TV shows Dolby Vision; this box has no FEL, so 8.1 keeps Dolby Vision" +
-                    if (DeviceProof.dv81 == "ok") " (proven on this TV)" else ""
-                dv81Failed && f.dv7Decoder -> "box" to "8.1 didn't reach the Dolby Vision decoder here (${DeviceProof.dv81Why}); the TV's own decoder takes profile 7"
-                dv81Failed && (!caps || f.hdr10) -> "hdr10" to "8.1 didn't reach the Dolby Vision decoder here (${DeviceProof.dv81Why}): the HDR10 picture is the best this TV shows"
-                caps && f.decodersKnown && !f.dvDecoder && f.hdr10 -> "hdr10" to "This box has no Dolby Vision decoder: the HDR10 picture under it plays"
-                caps && f.dvTv && f.dv7Decoder -> "box" to "Your TV shows Dolby Vision and the box decodes profile 7"
-                caps && f.hdr10 && !f.dvTv -> "hdr10" to "Your TV shows HDR10 but not Dolby Vision"
-                else -> "box" to if (caps) "No HDR10 on the TV: the box tone-maps" else "The TV's HDR list can't be read, so the box decides"
-            }
-            // On a TV without Dolby Vision the same answer covers profile 8 (8.1 / 8.4 play their HDR10 / HLG picture).
-            add(Choice("dv7", "Picture", if (caps && !f.dvTv) "Dolby Vision (profiles 7 and 8)" else "Dolby Vision profile 7", opts, rec, why))
+            add(Choice("dv7", "Picture", if (caps && !f.dvTv) "Dolby Vision (profiles 7 and 8)" else "Dolby Vision profile 7", opts, "auto", pol.why()))
         }
         // Nuvio's Advanced Dolby Vision rows: the converter's mode and HDR10 metadata for the base layer.
         if (f.converter && f.dvDecoder) add(Choice("dv_conv", "Picture", "8.1 conversion mode", listOf(

@@ -8,3 +8,9 @@
 
 # libass: native code calls back into these.
 -keep class io.github.peerless2012.ass.** { *; }
+
+# Dolby Vision converter: the media3 container readers it wraps (matched by type; kept so logs and stack traces name them).
+-keep class androidx.media3.extractor.mkv.MatroskaExtractor
+-keep class androidx.media3.extractor.mp4.Mp4Extractor
+-keep class androidx.media3.extractor.mp4.FragmentedMp4Extractor
+-keep class androidx.media3.extractor.ts.TsExtractor

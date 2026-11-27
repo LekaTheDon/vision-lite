@@ -3991,7 +3991,8 @@ public class MatroskaExtractor implements Extractor {
               }
             }
             if (MimeTypes.VIDEO_DOLBY_VISION.equals(mimeType) && hevcCodecsString != null) {
-              if (DolbyVisionCompatibility.isHdr10BaseLayerModeActive()) {
+              // Profile 5 has no HDR10 picture under its RPU (IPT colours): never handed over as HEVC.
+              if (DolbyVisionCompatibility.isHdr10BaseLayerModeActive() && dolbyVisionConfig.profile != 5) {
                 mimeType = MimeTypes.VIDEO_H265;
                 codecs = hevcCodecsString;
                 dolbyVisionBaseLayerTransfer =

@@ -37,6 +37,18 @@ class App : Application(), SingletonImageLoader.Factory {
         addons = AddonStore(prefs)
         client = AddonClient(addons)
         trakt = com.lekathedon.visionlite.trakt.Trakt(prefs)
+        // 0.41.23: Dolby Vision profile 7 is decided by the app (DvPolicy). Boxes moved over once; FEL stays FEL
+        // (it acts like Let the app decide on a display without Dolby Vision). Picked by hand after this, it stays.
+        getSharedPreferences("vl_device_proof", MODE_PRIVATE).let { sp ->
+            if (!sp.getBoolean("dv7_auto_moved", false)) {
+                com.lekathedon.visionlite.data.Profiles.all().forEach { pr ->
+                    val f = getSharedPreferences(com.lekathedon.visionlite.data.Profiles.prefsName(pr.id), MODE_PRIVATE)
+                    if (f.getString("dv7", "") != "fel") f.edit().putString("dv7", "auto").commit()
+                }
+                if (prefs.dv7.value != "fel") prefs.dv7.value = "auto"
+                sp.edit().putBoolean("dv7_auto_moved", true).apply()
+            }
+        }
         Thread { runCatching { com.lekathedon.visionlite.data.Profiles.keepPictures() }
             // One Trakt call at start, only while the profile in use has no picture.
             runCatching { kotlinx.coroutines.runBlocking { com.lekathedon.visionlite.data.Profiles.traktFace() } } }.start()

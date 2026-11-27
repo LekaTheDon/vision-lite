@@ -26,6 +26,7 @@ object Profiles {
     data class Profile(val id: Int, val name: String, val pic: String = "", val color: String = "#1E88E5", val pin: String = "", val src: String = "") {
         /** The picture another device can load: the original link (a file path here means nothing there). */
         val shareable get() = src.ifBlank { pic.takeIf { it.startsWith("http") }.orEmpty() }
+            .ifBlank { if (pic.startsWith("/")) com.lekathedon.visionlite.link.Faces.url(id, pic).orEmpty() else "" }
         val locked get() = pin.isNotBlank()
     }
 
@@ -120,8 +121,32 @@ object Profiles {
         byId(id)?.let { update(it.copy(pic = f?.path ?: url, src = url)) }
     }
 
-    /** Pictures still kept as links (the first profile's Nuvio picture, older choices) are saved on the box. */
-    fun keepPictures() { all().filter { it.pic.startsWith("http") }.forEach { setPicture(it.id, it.pic) } }
+    /** True when [p]'s picture can be drawn here: a link, or a file that is on this device. */
+    fun hasPicture(p: Profile) = p.pic.startsWith("http") || (p.pic.isNotBlank() && File(p.pic).let { it.isFile && it.length() > 32 })
+
+    /** The profile's Nuvio picture link (each profile kept its own at Join), or "". */
+    private fun nuvioPic(id: Int) = ctx.getSharedPreferences(prefsName(id), Context.MODE_PRIVATE)
+        .getString("si_nuvio_avatar", "").orEmpty().takeIf { it.startsWith("http") }.orEmpty()
+
+    /**
+     * Every start, off the main thread (user 2026-11-28: empty colour circles on the TCL and the phone). A picture is
+     * healed from what is known: links still kept as links are saved on the box; a picture whose file isn't on this
+     * device (or none) is fetched again from its link (the one it came from, else the profile's Nuvio picture); the
+     * link is kept next to the file, so the phone and other devices get the same picture.
+     */
+    fun keepPictures() {
+        all().forEach { p ->
+            val link = p.src.takeIf { it.startsWith("http") } ?: p.pic.takeIf { it.startsWith("http") } ?: nuvioPic(p.id)
+            val ok = hasPicture(p)
+            android.util.Log.i("Profiles", "picture ${p.id} '${p.name}': ${if (ok) "here" else "missing"} (${if (p.pic.startsWith("http")) "link" else if (p.pic.isBlank()) "none" else "file"}) link=${link.isNotBlank()}")
+            when {
+                p.pic.startsWith("http") -> setPicture(p.id, p.pic)
+                !ok && link.isNotBlank() -> setPicture(p.id, link)
+                !ok && p.pic.isNotBlank() -> update(p.copy(pic = "", src = ""))   // a path from another device: colour + initial until picked
+                ok && p.src.isBlank() && link.isNotBlank() -> update(p.copy(src = link))
+            }
+        }
+    }
 
     /**
      * Same face on every device (user 2026-11-27: avatars didn't carry from device to device). Profiles each device
@@ -130,7 +155,7 @@ object Profiles {
      */
     suspend fun traktFace() {
         val me = current()
-        if (me.pic.isNotBlank()) return
+        if (hasPicture(me)) return
         val url = com.lekathedon.visionlite.App.instance.trakt.avatar() ?: return
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { setPicture(me.id, url) }
     }

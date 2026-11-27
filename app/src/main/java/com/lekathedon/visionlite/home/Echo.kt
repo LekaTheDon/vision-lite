@@ -4,6 +4,8 @@
 
 package com.lekathedon.visionlite.home
 
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.animation.animateContentSize
 import com.lekathedon.visionlite.ui.remembersFocus
 import android.graphics.Bitmap
@@ -177,6 +179,32 @@ private class RowSlots(val key: String, val home: Boolean = true) {
     var last: Int
         get() = PageFocus.index[key] ?: 0
         set(v) { PageFocus.index[key] = v }
+}
+
+/**
+ * Up / Down between page rows, the way Home moves (user 2026-11-28: on Netflix / genre / decade pages Down sometimes
+ * didn't land on the row below, so you pressed twice). Compose's own search looked for the card geometrically under
+ * the focused one, which a row still laying out or a card scrolled away didn't have. Now the page row below / above
+ * (by its place on screen) is asked for its entry card directly, a held key carrying on from where the last press went.
+ * One screen is composed at a time, so one registry serves every page.
+ */
+private object PageRows {
+    class Entry(val slots: RowSlots) { var y = Float.NaN }
+    val rows = HashMap<String, Entry>()
+    /** The row the last press sent focus to, until it gets there. */
+    var heading: String? = null
+
+    fun move(from: String, down: Boolean): Boolean {
+        val at = rows[heading ?: from]?.y ?: rows[from]?.y ?: return false
+        if (at.isNaN()) return false
+        val next = rows.entries.filter { !it.value.y.isNaN() && if (down) it.value.y > at + 8 else it.value.y < at - 8 }
+            .minByOrNull { kotlin.math.abs(it.value.y - at) } ?: return false   // none: the page's own (chips, top headings)
+        val sl = next.value.slots
+        sl.entered = true
+        heading = next.key
+        sl.goTo(sl.target)
+        return true
+    }
 }
 
 /** The card last focused in each row of the other pages (by page + row), so going back up lands where you were. */
@@ -1381,16 +1409,31 @@ fun PageRow(
     val state = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
     slots.state = state; slots.scope = scope
+    val entry = remember(slots) { PageRows.Entry(slots) }
+    androidx.compose.runtime.DisposableEffect(entry) { PageRows.rows[key] = entry; onDispose { if (PageRows.rows[key] === entry) PageRows.rows.remove(key) } }
     var rowFocus by remember { mutableStateOf(false) }
     val withSub = metas.any { sub(it) != null }
     EchoRowTitle(title)
     CompositionLocalProvider(LocalBringIntoViewSpec provides remember { snapSpec(0f) }, LocalRowSlots provides slots, LocalTrailer provides look) {
         LazyRow(
             Modifier.fillMaxWidth().height(dims.posterHeight + if (withSub) 44.dp else 0.dp)
-                .onFocusChanged { if (it.hasFocus && !rowFocus) slots.entered = true; rowFocus = it.hasFocus }
+                .onGloballyPositioned { entry.y = it.positionInRoot().y }
+                .onFocusChanged {
+                    if (it.hasFocus && !rowFocus) slots.entered = true
+                    if (it.hasFocus && PageRows.heading == key) PageRows.heading = null
+                    rowFocus = it.hasFocus
+                }
                 .focusRestorer { slots.reqs[slots.target] ?: FocusRequester.Default }
                 .focusGroup()
-                .onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight && slots.last >= metas.size - 1 && metas.isNotEmpty() },
+                .onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) false
+                    else when (e.key) {
+                        Key.DirectionRight -> slots.last >= metas.size - 1 && metas.isNotEmpty()
+                        Key.DirectionDown -> PageRows.move(key, true)
+                        Key.DirectionUp -> PageRows.move(key, false)
+                        else -> false
+                    }
+                },
             state = state,
             // A full screen of room after the last card (600 dp wasn't): the last card can rest on the left like every
             // other, instead of the row stopping short and the previous card's shrink pulling it half off-screen.

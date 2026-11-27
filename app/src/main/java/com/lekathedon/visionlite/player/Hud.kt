@@ -86,12 +86,13 @@ object Hud {
     /** What the 8.1 converter really did this play (frames rewritten), so Stats never claims a conversion that didn't run. */
     fun converterRow(): String? {
         val p = com.lekathedon.visionlite.App.instance.prefs
-        if (p.dv7.value != "dv81" && !p.dv5To81.value) return null
+        val route = "Route  " + (com.lekathedon.visionlite.player.dv.DvRoute.lastWhy ?: "-")
+        if (com.lekathedon.visionlite.player.dv.DvRoute.last?.config?.active != true) return route
         val st = com.lekathedon.visionlite.player.dv.DolbyVisionConversionStats
         val n = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionSuccessCount()
         val tried = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionCallCount()
         val from = st.getLastSourceProfile()
-        return "8.1 converter  " + when {
+        return "$route\n8.1 converter  " + when {
             !com.lekathedon.visionlite.player.dv.DvRoute.converterAvailable() -> "not loaded on this box"
             n > 0 -> "converting" + (from?.let { " profile $it" } ?: "") + " → 8.1 · $n of $tried frames" + (st.getLastSelectedConversionMode()?.let { " · mode $it" } ?: "")
             tried > 0 -> "FAILED · 0 of $tried frames converted"

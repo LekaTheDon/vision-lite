@@ -38,7 +38,8 @@ object DeviceFit {
                 tvH = minOf(it.width, it.height).takeIf { h -> h > 0 } ?: 0,
                 hevc10 = !known || it.hevc10, av1 = !known || it.av1Hw,
                 hdrTv = !it.capsKnown || it.hdr10 || it.hlg || it.dvTv,
-                dv7 = !known || it.fel || it.dv7Decoder || p.dv7.value == "hdr10" || (p.dv7.value == "dv81" && it.converter && com.lekathedon.visionlite.device.DeviceProof.dv81 != "fail"),
+                // Every route plays a DV7 file now (FEL, 8.1, or its HDR10 picture: never profile 7 to a decoder that can't).
+                dv7 = true,
                 dv5 = !known || (it.dvDecoder && (it.dvTv || p.dv5To81.value)) || p.dv5Mpv.value,
                 // The lower of the speed test and what real plays got: a slow evening counts.
                 mbps = com.lekathedon.visionlite.device.DeviceProof.mbps(it.mbps),

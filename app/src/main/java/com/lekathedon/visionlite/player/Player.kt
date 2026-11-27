@@ -216,7 +216,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     // The file itself turned out to be Dolby Vision the DV route converts (DV7 / DV5 not named "DV"): reopened on it.
     var forceDv by remember(s.url) { mutableStateOf(false) }
     val dvOn = remember(s.url) { booleanArrayOf(false) }
-    var felAllowed by remember(s.url) { mutableStateOf(prefs.dv7.value == "fel" && AmlFelSupport.nativeFelUsableOnce()) }
+    // Native FEL: picked (or Let the app decide) on a box whose dual-layer port works AND a display that takes Dolby
+    // Vision (Arc: on any other display FEL acts like Auto).
+    var felAllowed by remember(s.url) { mutableStateOf((prefs.dv7.value == "fel" || prefs.dv7.value == "auto") && AmlFelSupport.nativeFelUsableOnce() &&
+        com.lekathedon.visionlite.player.dv.DvPolicy.resolve(com.lekathedon.visionlite.App.instance, true).decision == com.lekathedon.visionlite.player.dv.DvPolicy.Decision.NATIVE_FEL) }
     // A dead add-on subtitle link must never stop the film: on a load error the file restarts without them.
     var addonSubs by remember(s.url) { mutableStateOf(true) }
     // Any stored choice but Off matches (the old "seamless" never switched an HDMI TV).
@@ -290,7 +293,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             // This TV › Dolby Vision: Vision's converter (DV7/DV5 -> 8.1 via libdovi, HDR10 base layer, HDR10+ strip) reads MKV
             // through Vision's own Matroska extractor. libass needs its own MKV reader, so when both are on, the DV path
             // is taken only for links named as Dolby Vision (anime keeps its styled subtitles).
-            val dv = DvRoute.of(prefs, felAllowed)
+            val dv = DvRoute.of(prefs, felAllowed, s.url)
             // The converter is chosen up front for every film/show that isn't anime (user 2026-11-26: a Xiaomi Box S set to
             // Convert 8.1 never converted, the remux's name didn't say DV and the plain reader didn't flag profile 7).
             // Anime keeps libass's styled subtitles and joins the converter only when its file turns out to be DV.
@@ -298,6 +301,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             val useDv = dv != null && (forceDv || !prefs.libass.value || !anime || s.type == "live" || DvRoute.namedDv(s.name.ifBlank { s.title }))
             if (dv != null) android.util.Log.i("DvRoute", "open: converter ${if (useDv) "on" else "off (anime, libass)"}")
             dvOn[0] = useDv
+            DvRoute.arm(if (useDv) dv else null)
+            android.util.Log.i("DvRoute", "route: ${DvRoute.lastWhy} active=${dv?.config?.active} strip=${dv?.strip} mode2=${dv?.config?.let { it.manualDv81 || it.autoMode2 }} forced=${dv?.config?.forcedMode}")
             val ass = if (prefs.libass.value && s.type != "live" && !useDv) io.github.peerless2012.ass.media.AssHandler(
                 // CUES (user 2026-11-26, anime stuttered on every file, 4K and 90s alike): libass draws each subtitle line
                 // once into a picture the subtitle view shows until the line changes. The old OVERLAY_OPEN_GL mode
@@ -431,7 +436,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     // 6 s into a converted film: frames converted AND the decoder opened as Dolby Vision = proven; otherwise the film
     // is showing HDR10, said so on screen, remembered, and with Let the app decide on This TV moves to the next best.
     androidx.compose.runtime.LaunchedEffect(firstFrame) {
-        if (!firstFrame || current != Engine.EXO || !dvOn[0] || prefs.dv7.value != "dv81") return@LaunchedEffect
+        if (!firstFrame || current != Engine.EXO || !dvOn[0] || DvRoute.of(prefs, felAllowed, s.url)?.config?.active != true ||
+            !com.lekathedon.visionlite.player.dv.DvPolicy.resolve(context, false).displayDv) return@LaunchedEffect
         kotlinx.coroutines.delay(6_000)
         val tried = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionCallCount()
         if (tried == 0L) return@LaunchedEffect   // no profile 7 in this file: nothing to prove
@@ -520,6 +526,21 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                         session.resumeAt = at; addonSubs = false; return
                     }
                     if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) { session.resumeAt = at; felAllowed = false; return }
+                    // Arc's Dolby Vision recovery: a converted picture the decoder refused -> libdovi mode 1 once, then
+                    // the HDR10 picture. Never back to profile 7 untouched.
+                    if (dvOn[0] && s.type != "live" && error.errorCode in 4001..4005) {
+                        val r = DvRoute.of(prefs, felAllowed, s.url)
+                        val step = when {
+                            r?.config?.active == true && (r.config.manualDv81 || r.config.autoMode2) && s.url !in com.lekathedon.visionlite.player.dv.DvRetry.mode1 -> com.lekathedon.visionlite.player.dv.DvRetry.mode1
+                            r?.config?.active == true && s.url !in com.lekathedon.visionlite.player.dv.DvRetry.hdr10 -> com.lekathedon.visionlite.player.dv.DvRetry.hdr10
+                            else -> null
+                        }
+                        if (step != null) {
+                            step += s.url
+                            android.util.Log.w("DvRoute", "decoder refused the converted picture (${error.errorCodeName}): retrying ${if (step === com.lekathedon.visionlite.player.dv.DvRetry.mode1) "at libdovi mode 1" else "as HDR10"}")
+                            session.resumeAt = at.coerceAtLeast(0); gen++; return
+                        }
+                    }
                     // A format ExoPlayer can't show at all goes to MPV (Vision's unsupported-format fallback, once per link).
                     val video = (player as? ExoPlayer)?.videoFormat ?: selectedVideo(player.currentTracks)
                     if (prefs.engineBackup.value && !session.formatFallback && s.type != "live" && EngineRules.exoFatalGoesToMpv(error, video, s.url, firstFrame)) {
@@ -579,7 +600,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 // This TV › Dolby Vision converts, but the file was opened without the converter (libass on and the
                 // name never said DV; UHD Blu-ray remuxes rarely do): reopen it on the DV route once (user 2026-11-26).
                 val prof = Hud.dvProfile(video)?.first
-                if (!dvOn[0] && !forceDv && (prof == 7 || (prof == 5 && prefs.dv5To81.value)) && DvRoute.of(prefs, felAllowed) != null) {
+                if (!dvOn[0] && !forceDv && (prof == 7 || (prof == 5 && prefs.dv5To81.value)) && DvRoute.of(prefs, felAllowed, s.url) != null) {
                     android.util.Log.i("DvRoute", "DV$prof file not opened on the converter: reopening on it")
                     forceDv = true; session.resumeAt = player.currentPosition.coerceAtLeast(0); gen++; return
                 }
