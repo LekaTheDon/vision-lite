@@ -69,10 +69,6 @@ object Integrations {
 
         Service("gemini", "Gemini", Group.AI, "Helps every recommendation and finds the channel for live games", "aistudio.google.com/apikey (free tier)",
             listOf(Field("Gemini API key", secret = true))) { v -> ok(get("https://generativelanguage.googleapis.com/v1beta/models?key=${enc(v[0])}")) },
-        Service("groq", "Groq", Group.AI, "Helps every recommendation", "console.groq.com/keys (free tier)",
-            listOf(Field("Groq API key", secret = true))) { v -> ok(get("https://api.groq.com/openai/v1/models", bearer = v[0])) },
-        Service("mistral", "Mistral", Group.AI, "Helps every recommendation", "console.mistral.ai/api-keys (free tier)",
-            listOf(Field("Mistral API key", secret = true))) { v -> ok(get("https://api.mistral.ai/v1/models", bearer = v[0])) },
 
         Service("plex", "Plex", Group.EXTRAS, "Your Plex files in the links list and a Home row", "Sign in: enter the code at plex.tv/link", signIn = true),
         Service("jellyfin", "Jellyfin", Group.EXTRAS, "Your Jellyfin files in the links list and a Home row",
@@ -82,8 +78,8 @@ object Integrations {
     fun byId(id: String) = all.first { it.id == id }
     /** Nuvio is never listed: it is only the one-time Join import at first start. */
     fun inGroup(g: Group) = all.filter { it.group == g && it.id != "nuvio" && !(it.id in SERVER_KEYS && com.lekathedon.visionlite.data.Our.on) }
-    /** Keys our server holds for everyone (not asked of users once it's deployed); Gemini stays: your own key is optional. */
-    val SERVER_KEYS = setOf("tmdb", "tvdb", "mdblist", "groq", "mistral")
+    /** Keys our server holds for everyone (not asked of users once it's deployed); AI is never shared: Gemini only with your own key. */
+    val SERVER_KEYS = setOf("tmdb", "tvdb", "mdblist")
 
     private val p: Prefs get() = App.instance.prefs
     private val texts = HashMap<String, Prefs.Text>()

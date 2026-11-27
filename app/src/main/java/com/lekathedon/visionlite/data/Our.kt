@@ -56,7 +56,7 @@ object Our {
      * TVmaze, ani.zip, IntroDB, AniSkip, SeaDex) stay direct from the device: some ban Cloudflare's servers.
      */
     private val ROUTED = setOf("api.themoviedb.org", "api4.thetvdb.com", "api.mdblist.com", "api.myanimelist.net",
-        "generativelanguage.googleapis.com", "api.groq.com", "api.mistral.ai")
+    ) // AI is never routed: only the user's own Gemini key, sent straight to Google.
     private val CRED_PARAMS = listOf("api_key", "apikey", "key")
     private fun blank(v: String?) = v == null || v.isBlank() || v == KEY || v == "server"
 

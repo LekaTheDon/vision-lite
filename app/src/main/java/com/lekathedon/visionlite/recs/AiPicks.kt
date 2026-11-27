@@ -44,11 +44,9 @@ object AiPicks {
     private const val RANK_K = 4.0
 
     enum class Ai(val id: String, val label: String, val model: String) {
-        GEMINI("gemini", "Gemini", "gemini-flash-lite-latest"),
-        GROQ("groq", "Groq", "openai/gpt-oss-120b"),
-        MISTRAL("mistral", "Mistral", "mistral-medium-latest");
-        /** Your own key (Gemini only can be added now), else our server's; blank = off. */
-        val key get() = com.lekathedon.visionlite.data.Our.keyOr(if (Integrations.active(id)) Integrations.values(Integrations.byId(id)).firstOrNull() else null).orEmpty()
+        GEMINI("gemini", "Gemini", "gemini-flash-lite-latest");
+        /** Only the key this person added (Settings › Integrations); no key = no AI. Never a shared/server key. */
+        val key get() = (if (Integrations.active(id)) Integrations.values(Integrations.byId(id)).firstOrNull() else null).orEmpty()
         val on get() = key.isNotBlank()
     }
 
@@ -248,11 +246,6 @@ object AiPicks {
                 .post(JSONObject().put("contents", JSONArray().put(JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))))
                     .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0.9)).toString().toRequestBody(json)).build() to
                 { o: JSONObject -> o.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text") }
-            else -> Request.Builder().url(if (a == Ai.GROQ) "https://api.groq.com/openai/v1/chat/completions" else "https://api.mistral.ai/v1/chat/completions")
-                .header("Authorization", "Bearer ${a.key}")
-                .post(JSONObject().put("model", a.model).put("response_format", JSONObject().put("type", "json_object"))
-                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt))).toString().toRequestBody(json)).build() to
-                { o: JSONObject -> o.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content") }
         }
         val text = http.newCall(req).execute().use { r ->
             val b = r.body?.string().orEmpty()

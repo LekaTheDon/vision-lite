@@ -482,12 +482,8 @@ fun Settings(nav: Nav, start: String? = null) {
         head("Adult content")
         row { m -> Toggle("Hide adult content", "Titles with explicit adult content are hidden everywhere in the app. Mature ratings such as R remain visible", p.hideAdult, m) }
         more = true
-        head("AI (free tiers): helps every recommendation, no row of its own")
+        head("AI: your own Gemini key (free tier); without it the app has no AI")
         row { m -> ServiceRow("gemini", nav, m) }
-        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("groq", nav, m) }
-        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("mistral", nav, m) }
-        row { m -> DriverRow(Integrations.Group.AI, "Asked first", m) }
-        row { m -> AiModeRow(m) }
         more = false
     }
     pages += page("Live TV and more", "IPTV playlists and sports", {

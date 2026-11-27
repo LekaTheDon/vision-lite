@@ -123,7 +123,7 @@ internal class Phone(private val secret: () -> String) {
     fun creds(): String {
         val o = JSONObject()
         fun key(id: String) = Integrations.all.firstOrNull { it.id == id }?.let { Integrations.values(it).firstOrNull() }?.takeIf { it.isNotBlank() }
-        listOf("tmdb", "mdblist", "gemini", "groq", "mistral", "torbox", "premiumize").forEach { id -> key(id)?.let { o.put(id, it) } }
+        listOf("tmdb", "mdblist", "gemini", "torbox", "premiumize").forEach { id -> key(id)?.let { o.put(id, it) } }
         key("realdebrid")?.let { o.put("realdebrid", it) }
         val sp = p.sp
         sp.getString("si_anilist_token", "").takeIf { !it.isNullOrBlank() }?.let {
