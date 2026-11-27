@@ -4,6 +4,7 @@
 
 package com.lekathedon.visionlite.home
 
+import androidx.compose.ui.composed
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.animation.animateContentSize
@@ -222,7 +223,7 @@ fun pageRowBelow(y: Float): Boolean {
 }
 
 /** A page header element: Down goes to the first row below it ([pageRowBelow]). */
-fun androidx.compose.ui.Modifier.downToRows(): androidx.compose.ui.Modifier = androidx.compose.ui.composed {
+fun androidx.compose.ui.Modifier.downToRows(): androidx.compose.ui.Modifier = composed {
     val y = remember { floatArrayOf(Float.NaN) }
     this.onGloballyPositioned { y[0] = it.positionInRoot().y }
         .onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && !y[0].isNaN() && pageRowBelow(y[0]) }
