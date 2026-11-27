@@ -44,17 +44,25 @@ class AddonClient(private val store: AddonStore) {
     suspend fun meta(type: String, id: String): Meta? {
         val key = "$type/$id"
         synchronized(metaCache) { metaCache[key] }?.let { return it }
+        // Our own data first (user 2026-11-27: add-ons must never touch metadata). Add-ons only for ids our data can't
+        // read (an add-on's own ids, e.g. Arabic catalogs), and never an add-on's error dressed up as a title.
+        runCatching { nativeMeta(type, id) }.getOrNull()?.let { m ->
+            synchronized(metaCache) { metaCache[key] = m }
+            return m
+        }
         for (a in store.addons.value.filter { it.serves("meta", type, id) }) {
             val m = runCatching { Net.getJson<MetaResponse>("${a.base}/meta/$type/${AddonStore.enc(id)}.json", 12).meta }.getOrNull()
-            if (m != null) {
+            if (m != null && !isAddonError(m)) {
                 synchronized(metaCache) { metaCache[key] = m }
                 return m
             }
         }
-        val m = runCatching { nativeMeta(type, id) }.getOrNull() ?: return null
-        synchronized(metaCache) { metaCache[key] = m }
-        return m
+        return null
     }
+
+    /** AIOStreams & co. answer a failed source with a fake title ("[❌] PenguPlay", id "aiostreamserror…"). */
+    private fun isAddonError(m: Meta): Boolean =
+        m.id.startsWith("aiostreamserror", true) || m.name.orEmpty().trimStart().startsWith("[❌]") || m.name.isNullOrBlank()
 
     private suspend fun nativeMeta(type: String, id: String): Meta? {
         if (com.lekathedon.visionlite.detail.AnimeMeta.isAnimeId(id)) return com.lekathedon.visionlite.detail.AnimeMeta.meta(id, type)
