@@ -155,6 +155,15 @@ object Profiles {
     }
 
     /** Switches to [id] (PIN already checked) and restarts the app in that profile. */
+    /** Starts the app again in the profile in use (after another profile's settings were shared into it). */
+    fun restart(activity: android.app.Activity) {
+        val i = activity.packageManager.getLaunchIntentForPackage(activity.packageName)!!
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        activity.startActivity(i)
+        activity.finishAffinity()
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
     fun switchTo(activity: android.app.Activity, id: Int) {
         if (id == currentId()) return
         base.edit().putInt("lp_current", id).putBoolean("lp_switched", true).commit()
@@ -174,7 +183,59 @@ object Profiles {
         "si_nuvio_token", "si_nuvio_refresh", "si_nuvio_user", "si_nuvio_until", "si_nuvio_faces", "cloud_setup",
         "dns", "quiet_a11y", "full_exit", "fast_horizontal",
     )
-    private val DEVICE_PREFIXES = listOf("lp_", "int_tmdb_", "int_tvdb_", "int_mdblist_", "int_gemini_", "int_groq_", "int_mistral_")
+    // Profiles are fully separate (user 2026-11-27): only this box's own hardware settings and the Nuvio account login
+    // (which holds every profile's setup) are shared. Data keys (TMDB, TVDB, MDBList, Gemini, Groq, Mistral) were shared
+    // until 0.41.10; [separateKeys] copies them once into each profile so nothing is lost.
+    private val DEVICE_PREFIXES = listOf("lp_")
+    private val WAS_SHARED = listOf("int_tmdb_", "int_tvdb_", "int_mdblist_", "int_gemini_", "int_groq_", "int_mistral_")
+
+    /** Once: every profile gets its own copy of the data keys that used to be shared through profile 1's file. */
+    fun separateKeys() {
+        if (base.getBoolean("lp_keys_split", false)) return
+        val shared = base.all.filterKeys { k -> WAS_SHARED.any { k.startsWith(it) } }
+        all().filter { it.id != 1 }.forEach { p ->
+            val e = ctx.getSharedPreferences(prefsName(p.id), Context.MODE_PRIVATE).edit()
+            shared.forEach { (k, v) -> put(e, k, v) }
+            e.commit()
+        }
+        base.edit().putBoolean("lp_keys_split", true).commit()
+    }
+
+    private fun put(e: SharedPreferences.Editor, k: String, v: Any?) {
+        when (v) {
+            is String -> e.putString(k, v); is Boolean -> e.putBoolean(k, v); is Int -> e.putInt(k, v)
+            is Long -> e.putLong(k, v); is Float -> e.putFloat(k, v)
+            is Set<*> -> @Suppress("UNCHECKED_CAST") e.putStringSet(k, v as Set<String>)
+        }
+    }
+
+    /** What a profile can share with another (Manage profiles › Share settings). */
+    enum class Share(val label: String, val sub: String) {
+        LOOK("Look and player", "Skin, look, sizes, Home rows, subtitles and audio choices"),
+        NO_KEYS("Everything except keys and sign-ins", "All settings; no API keys, Trakt, Simkl, debrid or other sign-ins"),
+        NO_WATCHING("Everything except Trakt and Nuvio", "Settings and keys; not Trakt, Simkl or Nuvio watch history and sign-ins"),
+        ALL("Everything", "All settings, keys and sign-ins"),
+    }
+    private val SECRET = Regex("^si_|token|refresh|_key$|^int_[a-z]+_|^arabp2p_|^debrid|^tb_|^rd_|^ad_|^pm_")
+    private val WATCHING = Regex("trakt|simkl|nuvio")
+    private val LOOK = Regex("^(skin|style|ui_size|home_follows|poster_size|ratings|clock|player_buttons|controls_size|row|rows_|home_|sub_|audio_|dub_|subs_|night_mode|dialogue_boost|volume_boost|app_lang|trailer|billboard|screensaver|oled)")
+
+    /** Copies [from]'s settings of the chosen kind into [to] (this box's own settings never move). */
+    fun share(from: Int, to: Int, what: Share): Int {
+        if (from == to) return 0
+        val src = ctx.getSharedPreferences(prefsName(from), Context.MODE_PRIVATE).all.filterKeys { k ->
+            !isDevice(k) && k != "lp_keys_split" && when (what) {
+                Share.ALL -> true
+                Share.NO_KEYS -> !SECRET.containsMatchIn(k)
+                Share.NO_WATCHING -> !WATCHING.containsMatchIn(k)
+                Share.LOOK -> LOOK.containsMatchIn(k)
+            }
+        }
+        val e = ctx.getSharedPreferences(prefsName(to), Context.MODE_PRIVATE).edit()
+        src.forEach { (k, v) -> put(e, k, v) }
+        e.commit()
+        return src.size
+    }
 
     fun isDevice(key: String) = key in DEVICE_KEYS || DEVICE_PREFIXES.any { key.startsWith(it) }
 

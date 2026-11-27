@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 /** Plain shared preferences, read once at start; settings the UI watches are StateFlows. */
 class Prefs(context: Context) {
-    val sp: SharedPreferences = run { Profiles.init(context); Profiles.prefs() }
+    val sp: SharedPreferences = run { Profiles.init(context); runCatching { Profiles.separateKeys() }; Profiles.prefs() }
     /** Every Flag and Text by key, so a change from the phone reaches the screens watching it ([setByKey]). */
     private val byKey = HashMap<String, (String) -> Unit>()
 

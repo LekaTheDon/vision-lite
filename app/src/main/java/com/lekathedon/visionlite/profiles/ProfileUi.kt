@@ -83,7 +83,7 @@ fun ProfileGate(atStart: Boolean, pinOnly: Boolean = false, onManage: (() -> Uni
     fun enter(p: Profile) {
         if (p.id == Profiles.currentId()) onClose() else ctx.activity()?.let { Profiles.switchTo(it, p.id) }
     }
-    Box(Modifier.fillMaxSize().background(if (atStart) LocalLook.current.page else Color.Black.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(LocalLook.current.page), contentAlignment = Alignment.Center) {
         val pf = pinFor
         if (pf != null) {
             PinPad("Enter the PIN for ${pf.name}", face = pf, check = { Profiles.checkPin(pf.id, it) },
@@ -101,52 +101,62 @@ fun ProfileGate(atStart: Boolean, pinOnly: Boolean = false, onManage: (() -> Uni
 private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Profile) -> Unit, onManage: (() -> Unit)? = null) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
-    // The profile in focus: its latest Continue watching title behind the faces (not for PIN profiles).
+    // The profile in focus: its latest Continue watching title behind the faces (not for PIN profiles); none = plain
+    // black page (user 2026-11-27: the page behind showed through). Logo and S·E top right, the progress bar under
+    // the focused face, so it moves along with the focus.
     var at by remember { mutableStateOf<Profile?>(null) }
     val last = remember(at?.id) { at?.takeIf { !it.locked }?.let { LastWatched.of(it.id) } }
-    Box(Modifier.fillMaxSize()) {
+    val K = com.lekathedon.visionlite.ui.Kit
+    val ink = com.lekathedon.visionlite.ui.KitInk
+    Box(Modifier.fillMaxSize().background(LocalLook.current.page)) {
         androidx.compose.animation.Crossfade(last, animationSpec = androidx.compose.animation.core.tween(400), label = "who") { l ->
             if (l != null) Box(Modifier.fillMaxSize()) {
                 coil3.compose.AsyncImage(l.backdrop, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.55f), 0.45f to Color.Black.copy(alpha = 0.7f), 1f to Color.Black)))
-                Column(Modifier.align(Alignment.BottomStart).padding(start = 64.dp, bottom = 56.dp).width(560.dp)) {
-                    Text("Continue watching", color = Color(0xB3FFFFFF), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    coil3.compose.SubcomposeAsyncImage(l.logo, l.name, Modifier.padding(top = 10.dp).then(Modifier.sizeIn(maxWidth = 360.dp, maxHeight = 96.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit, alignment = Alignment.CenterStart,
-                        error = { Text(l.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 2) })
-                    if (l.season != null) Text("S${l.season} · E${l.episode}", color = Color.White, fontSize = 15.sp,
+                    0f to LocalLook.current.page.copy(alpha = 0.5f), 0.5f to LocalLook.current.page.copy(alpha = 0.72f), 1f to LocalLook.current.page)))
+                Column(Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 64.dp).width(420.dp), horizontalAlignment = Alignment.End) {
+                    Text("Continue watching", color = ink.dim, fontSize = 14.sp, fontFamily = K.body, fontWeight = FontWeight.Medium)
+                    coil3.compose.SubcomposeAsyncImage(l.logo, l.name, Modifier.padding(top = 10.dp).sizeIn(maxWidth = 360.dp, maxHeight = 96.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit, alignment = Alignment.CenterEnd,
+                        error = { com.lekathedon.visionlite.ui.DisplayText(l.name, 26.sp) })
+                    if (l.season != null) Text("S${l.season} · E${l.episode}", color = ink.text, fontSize = 15.sp, fontFamily = K.body,
                         fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
-                    val pct = l.progress.coerceIn(0f, 100f)
-                    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.width(320.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x40FFFFFF))) {
-                            Box(Modifier.fillMaxWidth(pct / 100f).height(4.dp).background(Color.White))
+                }
+            }
+        }
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) title.uppercase() else title, 30.sp, maxLines = 1)
+            LazyRow(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                items(list, key = { it.id }) { p ->
+                    val source = remember { MutableInteractionSource() }
+                    val focused by source.collectIsFocusedAsState()
+                    LaunchedEffect(focused) { if (focused) at = p }
+                    val mod = if (p.id == current || (list.none { it.id == current } && p === list.first())) Modifier.focusRequester(first) else Modifier
+                    Column(mod.width(150.dp).clickable(interactionSource = source, indication = null) { onPick(p) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(124.dp).then(if (focused) Modifier.border(K.ringWidth + 1.dp, K.ringColor, CircleShape) else Modifier).padding(6.dp)) {
+                            ProfileFace(p.name, p.pic, p.color, 112.dp)
                         }
-                        Text("${pct.toInt()}% watched", color = Color(0xCCFFFFFF), fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp))
+                        Text(p.name, color = if (focused) ink.text else ink.dim, fontSize = 16.sp, fontFamily = K.body, maxLines = 1,
+                            fontWeight = if (focused || p.id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
+                        Text(if (p.locked) "PIN" else " ", color = ink.dim, fontSize = 12.sp, fontFamily = K.body)
+                        // This profile's progress, under its own face while it has the focus.
+                        val l = if (focused && p.id == at?.id) last else null
+                        androidx.compose.animation.AnimatedVisibility(l != null,
+                            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInHorizontally { -it / 3 },
+                            exit = androidx.compose.animation.fadeOut()) {
+                            val pct = (l ?: last)?.progress?.coerceIn(0f, 100f) ?: 0f
+                            Column(Modifier.padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.width(120.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(K.line)) {
+                                    Box(Modifier.fillMaxWidth(pct / 100f).height(4.dp).background(K.accent))
+                                }
+                                Text("${pct.toInt()}% watched", color = ink.dim, fontSize = 12.sp, fontFamily = K.body, modifier = Modifier.padding(top = 6.dp))
+                            }
+                        }
                     }
                 }
             }
+            if (onManage != null) Button("Manage profiles", onManage, Modifier.padding(top = 36.dp))
         }
-    Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-        LazyRow(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            items(list, key = { it.id }) { p ->
-                val source = remember { MutableInteractionSource() }
-                val focused by source.collectIsFocusedAsState()
-                LaunchedEffect(focused) { if (focused) at = p }
-                val mod = if (p.id == current || (list.none { it.id == current } && p === list.first())) Modifier.focusRequester(first) else Modifier
-                Column(mod.clickable(interactionSource = source, indication = null) { onPick(p) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(124.dp).then(if (focused) Modifier.border(3.dp, Color.White, CircleShape) else Modifier).padding(6.dp)) {
-                        ProfileFace(p.name, p.pic, p.color, 112.dp)
-                    }
-                    Text(p.name, color = if (focused) com.lekathedon.visionlite.ui.KitInk.text else Color(0xB3FFFFFF), fontSize = 16.sp,
-                        fontWeight = if (p.id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
-                    Text(if (p.locked) "🔒 PIN" else " ", color = Color(0x99FFFFFF), fontSize = 12.sp)
-                }
-            }
-        }
-        if (onManage != null) Button("Manage profiles", onManage, Modifier.padding(top = 36.dp))
-    }
     }
 }
 
@@ -217,6 +227,10 @@ fun ProfileEdit(nav: Nav, id: Int) {
     var unlocked by remember(id) { mutableStateOf(!p.locked || id == Profiles.currentId()) }
     var mode by remember(id) { mutableStateOf("") }   // "", name, pic, link, pin-new, pin-confirm, pin-old, delete
     var newPin by remember { mutableStateOf("") }
+    // Share settings (user 2026-11-27): profiles are separate unless one shares its setup with another, by choice.
+    var shareTo by remember(id) { mutableStateOf<Profile?>(null) }
+    var shareWhat by remember(id) { mutableStateOf<Profiles.Share?>(null) }
+    var shared by remember(id) { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize().background(LocalLook.current.page), contentAlignment = Alignment.Center) {
@@ -235,6 +249,43 @@ fun ProfileEdit(nav: Nav, id: Int) {
                     val u = v.firstOrNull().orEmpty(); mode = ""
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) { Profiles.setPicture(id, u) } }, onCancel = { mode = "" })
             }
+            mode == "share-pin" -> shareTo?.let { t -> PinPad("Enter the PIN for ${t.name}", t, check = { Profiles.checkPin(t.id, it) },
+                onOk = { mode = "share-do" }, onCancel = { mode = "" }) }
+            mode == "share-do" -> {
+                val t = shareTo; val w = shareWhat
+                LaunchedEffect(Unit) {
+                    if (t != null && w != null) {
+                        val n = Profiles.share(id, t.id, w)
+                        if (t.id == Profiles.currentId()) { ctx.activity()?.let { Profiles.restart(it) } }
+                        shared = "$n settings shared with ${t.name}"
+                    }
+                    mode = ""
+                }
+            }
+            mode == "share-to" || mode == "share-what" -> {
+                BackHandler { mode = if (mode == "share-what") "share-to" else "" }
+                val first = remember(mode) { FocusRequester() }
+                LaunchedEffect(mode) { withFrameNanos { }; runCatching { first.requestFocus() } }
+                LazyColumn(Modifier.width(560.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    item {
+                        com.lekathedon.visionlite.ui.DisplayText(if (mode == "share-to") "Share ${p.name}'s settings with" else "What to share with ${shareTo?.name}", 24.sp,
+                            Modifier.padding(bottom = 18.dp))
+                    }
+                    if (mode == "share-to") {
+                        val others = Profiles.all().filter { it.id != id }
+                        items(others.size) { i -> val o = others[i]
+                            Line(o.name, if (o.locked) "Its PIN is asked" else "", if (i == 0) Modifier.focusRequester(first) else Modifier) { shareTo = o; mode = "share-what" }
+                        }
+                    } else {
+                        val opts = Profiles.Share.values().toList()
+                        items(opts.size) { i -> val w = opts[i]
+                            Line(w.label, w.sub, if (i == 0) Modifier.focusRequester(first) else Modifier) {
+                                shareWhat = w; mode = if (shareTo?.locked == true && shareTo?.id != Profiles.currentId()) "share-pin" else "share-do"
+                            }
+                        }
+                    }
+                }
+            }
             mode == "pic" -> AvatarPicker(p, onPick = { url -> mode = ""; scope.launch(kotlinx.coroutines.Dispatchers.IO) { Profiles.setPicture(id, url) } }, onLink = { mode = "link" }, onCancel = { mode = "" })
             else -> {
                 BackHandler { nav.pop() }
@@ -246,7 +297,7 @@ fun ProfileEdit(nav: Nav, id: Int) {
                     item {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             ProfileFace(p.name, p.pic, p.color, 120.dp)
-                            Text(p.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 18.dp))
+                            com.lekathedon.visionlite.ui.DisplayText(p.name, 26.sp, Modifier.padding(top = 12.dp, bottom = 18.dp), maxLines = 1)
                         }
                     }
                     item { Line("Name", p.name, Modifier.focusRequester(first)) { mode = "name" } }
@@ -258,6 +309,7 @@ fun ProfileEdit(nav: Nav, id: Int) {
                     item { Line(if (p.locked) "Change PIN" else "Set a PIN", if (p.locked) "Asked when this profile is picked" else "Nobody else can open this profile") {
                         mode = if (p.locked) "pin-old" else "pin-new" } }
                     if (p.locked) item { Line("Remove PIN", "") { mode = "pin-remove" } }
+                    if (Profiles.all().size > 1) item { Line("Share settings with…", shared ?: "Copy this profile's setup to another profile; you choose what") { shared = null; mode = "share-to" } }
                     if (!inUse) item { Line("Switch to this profile", "The app restarts in it") { ctx.activity()?.let { Profiles.switchTo(it, id) } } }
                     if (!inUse && id != 1) item {
                         Line(if (confirmDelete) "OK again to delete" else "Delete profile", "Its sign-ins, library, settings and history go too") {
@@ -279,7 +331,7 @@ private fun Line(title: String, sub: String, modifier: Modifier = Modifier, swat
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, color = if (f) com.lekathedon.visionlite.ui.KitInk.ink else com.lekathedon.visionlite.ui.KitInk.text, fontSize = 16.sp)
-                if (sub.isNotBlank()) Text(sub, color = if (f) Color(0x99000000) else Palette.TextDim, fontSize = 12.sp)
+                if (sub.isNotBlank()) Text(sub, color = if (f) com.lekathedon.visionlite.ui.KitInk.inkDim else Palette.TextDim, fontSize = 12.sp)
             }
             swatch?.let { c ->
                 Box(Modifier.size(22.dp).clip(CircleShape).background(runCatching { Color(android.graphics.Color.parseColor(c)) }.getOrDefault(Color.Gray)))

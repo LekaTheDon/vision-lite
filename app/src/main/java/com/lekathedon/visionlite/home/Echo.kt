@@ -647,7 +647,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (clockOn) ClockPill(
             Modifier.align(Alignment.TopEnd), clockFocus, pillHome, toHero,
             onFocus = { clockFocused = it; if (it) HomeFocus.row = null }, onClick = { clockPanel = true },
-            onLeft = { pillEnd++ }
+            onLeft = { pillEnd++ }, ready = ready
         )
         // Inside the clock the look and skin apply (only the clock itself keeps Home's shape).
         if (clockPanel) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } } }
@@ -1009,7 +1009,7 @@ fun ProfileFace(name: String, url: String, colorHex: String, size: Dp) {
 
 /** Legacy's clock island: the time on a dark capsule, top right; focused, a white ring. OK opens its panel (Live now). */
 @Composable
-private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, onDown: () -> Unit, onFocus: (Boolean) -> Unit, onClick: () -> Unit, onLeft: () -> Unit) {
+private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester, onDown: () -> Unit, onFocus: (Boolean) -> Unit, onClick: () -> Unit, onLeft: () -> Unit, ready: Boolean = true) {
     val context = LocalContext.current
     val fmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
     var now by remember { mutableStateOf(fmt.format(java.util.Date())) }
@@ -1018,8 +1018,13 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
     }
     // Greeting (user 2026-11-27): once per app start the clock opens out to the left with "Welcome back, <profile>"
     // for 5 s, then rolls back into the time.
-    var greet by remember { mutableStateOf(Greeting.take()) }
-    LaunchedEffect(greet) { if (greet != null) { delay(5_000); greet = null } }
+    // Starts only once Home is on screen: Home is built under its loading cover, where 0.41.9's greeting ran out unseen.
+    var greet by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(ready) {
+        if (!ready) return@LaunchedEffect
+        val g = Greeting.take() ?: return@LaunchedEffect
+        delay(700); greet = g; delay(5_000); greet = null
+    }
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
     LaunchedEffect(f) { onFocus(f) }
