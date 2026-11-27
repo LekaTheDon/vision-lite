@@ -2,6 +2,7 @@
 // Home), Scout (the recommendation engine) and Calendar (Trakt). One poster card, one rail, one grid.
 package com.lekathedon.visionlite.browse
 
+import com.lekathedon.visionlite.home.downToRows
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -106,7 +107,7 @@ fun Rail(title: String, metas: List<MetaPreview>, nav: Nav, subOf: (MetaPreview)
 /** A row of choices (Vision's pills): the picked one is filled. */
 @Composable
 fun Chips(options: List<Pair<String, String>>, selected: String?, modifier: Modifier = Modifier, onPick: (String) -> Unit) {
-    LazyRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyRow(modifier.then(Modifier.downToRows()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(options, key = { it.first }) { (key, label) ->
             Focusable({ onPick(key) }, shape = RoundedCornerShape(50)) { f ->
                 Text(label, color = if (f) Color.Black else Color.White, fontSize = 14.sp, fontWeight = if (key == selected) FontWeight.Bold else FontWeight.Normal,
@@ -124,7 +125,7 @@ private fun Page(title: String, note: String? = null, action: (@Composable () ->
             if (note != null) Text(note, color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 14.dp).then(if (action != null) Modifier.weight(1f, fill = false) else Modifier))
             // A tile page's "Add to Home" (the whole page or one of its rows).
-            if (action != null) Box(Modifier.padding(start = 16.dp)) { action() }
+            if (action != null) Box(Modifier.padding(start = 16.dp).then(Modifier.downToRows())) { action() }
         }
         content()
     }

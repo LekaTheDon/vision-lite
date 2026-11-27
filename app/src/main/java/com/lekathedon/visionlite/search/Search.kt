@@ -61,7 +61,8 @@ fun Search(nav: Nav) {
 @Composable
 private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val app = App.instance
-    var q by remember { mutableStateOf("") }
+    // Kept while you open a title and come back (the screen keeps its saved state), so Back shows the same search.
+    var q by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val results = remember { mutableStateListOf<Pair<String, List<MetaPreview>>>() }
     val scope = rememberCoroutineScope()
     var job by remember { mutableStateOf<Job?>(null) }
@@ -70,11 +71,17 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val prefs = app.prefs
     val recentPref = if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) prefs.recentSearchesAnime else prefs.recentSearches
     var recent by remember { mutableStateOf(recentPref.value.split('\n').filter { it.isNotEmpty() }) }
+    // Recent (user 2026-11-28: searches weren't saved): every term you searched or opened a title from, not only
+    // the ones sent with the keyboard's Search key.
+    fun keep(term0: String) {
+        val term = term0.trim().takeIf { it.length >= 2 } ?: return
+        recent = (listOf(term) + recent.filterNot { it.equals(term, true) }).take(8)
+        recentPref.value = recent.joinToString("\n")
+    }
     fun run() {
         job?.cancel(); results.clear()
         val term = q.trim().ifEmpty { return }
-        recent = (listOf(term) + recent.filterNot { it.equals(term, true) }).take(8)
-        recentPref.value = recent.joinToString("\n")
+        keep(term)
         job = scope.launch {
             // Your playlist's VOD (vod.db, no network) and, for a name not in Latin letters (Arabic…), TMDB's own search:
             // the add-ons search in English only, so "الهيبة" found nothing (user 2026-11-23).
@@ -87,6 +94,8 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     // Suggestions as you type: 0.25 s after typing stops, IMDb's feed (see Suggest). Also sent to the keyboard's
     // suggestion bar; picking one there fills the field with that title, which searches it at once.
     var hints by remember { mutableStateOf<List<MetaPreview>>(emptyList()) }
+    // Back from a title: the search you had runs again (its rows aren't kept in memory).
+    LaunchedEffect(Unit) { if (q.isNotBlank() && results.isEmpty()) run() }
     // People for the name typed (IMDb's feed, same request as the title hints): OK opens their page.
     var people by remember { mutableStateOf<List<MetaPreview>>(emptyList()) }
     val view = androidx.compose.ui.platform.LocalView.current
@@ -114,11 +123,11 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
             val hints = com.lekathedon.visionlite.browse.hubOnly(hints)
             Text("Suggestions", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-            com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }, markLeftOut = true) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
+            com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }, markLeftOut = true) { m -> keep(q); nav.push(Screen.Detail(m.type, m.id, m.name)) }
         }
         if (people.isNotEmpty() && q.trim().length >= 2) item(key = "search:people") {
             com.lekathedon.visionlite.home.PageRow("search:people", "People", people, sub = { p -> p.name + (p.description?.substringBefore(",")?.let { "\n$it" } ?: "") }, filter = false, expand = false) { m ->
-                nav.push(Screen.Person(m.id, m.name))
+                keep(q); nav.push(Screen.Person(m.id, m.name))
             }
         }
         if (results.isEmpty() && recent.isNotEmpty() && hints.isEmpty()) item {
@@ -134,6 +143,7 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             val metas = com.lekathedon.visionlite.browse.hubOnly(all)
             if (metas.isEmpty()) return@itemsIndexed
             com.lekathedon.visionlite.home.PageRow("search:$i:$title", title, metas.distinctBy { it.type + it.id }, markLeftOut = true) { m ->
+                keep(q)
                 if (m.id.startsWith("tt") || m.id.startsWith("kitsu:")) nav.push(Screen.Detail(m.type, m.id, m.name))
                 else scope.launch { com.lekathedon.visionlite.home.openTitle(nav, m) }
             }

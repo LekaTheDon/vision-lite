@@ -207,6 +207,27 @@ private object PageRowMoves {
     }
 }
 
+/**
+ * Down from a page's header (Add to Home, the All / Movies / Shows chips) at [y] (its top, in root pixels): straight to
+ * the entry card of the first row below it (user 2026-11-28: focus search picked the card under the button, it opened,
+ * then focus jumped and got lost, and its trailer started unseen). False when no row is below (focus search decides).
+ */
+fun pageRowBelow(y: Float): Boolean {
+    val next = PageRowMoves.rows.entries.filter { !it.value.y.isNaN() && it.value.y > y + 8 }.minByOrNull { it.value.y } ?: return false
+    val sl = next.value.slots
+    sl.entered = true
+    PageRowMoves.heading = next.key
+    sl.goTo(sl.target)
+    return true
+}
+
+/** A page header element: Down goes to the first row below it ([pageRowBelow]). */
+fun androidx.compose.ui.Modifier.downToRows(): androidx.compose.ui.Modifier = androidx.compose.ui.composed {
+    val y = remember { floatArrayOf(Float.NaN) }
+    this.onGloballyPositioned { y[0] = it.positionInRoot().y }
+        .onPreviewKeyEvent { e -> e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown && !y[0].isNaN() && pageRowBelow(y[0]) }
+}
+
 /** The card last focused in each row of the other pages (by page + row), so going back up lands where you were. */
 internal object PageFocus { val index = HashMap<String, Int>() }
 /**
