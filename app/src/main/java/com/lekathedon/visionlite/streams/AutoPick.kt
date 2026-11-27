@@ -456,7 +456,10 @@ object AutoPick {
         // Link memory: a link that failed or kept buffering this week is skipped; your pick for the show goes first.
         val t = EpisodeCheck.targetOf(videoId)
         val ranked = rank(pool(links, t, videoId), minutesFor(videoId, t), audioWanted(videoId)).filter { LinkMemory.bad(it) == null && clashOf(it, videoId, t) == null }
-        val mine = ranked.filter { LinkMemory.pickMatch(videoId, it) > 0 }.sortedByDescending { LinkMemory.pickMatch(videoId, it) }
+        // Your earlier pick only breaks ties (user 2026-11-28: a 720p played once under a wrong speed reading was put
+        // above every 4K link of Ray): it goes first only when it is as good as the best copy here.
+        val top = ranked.firstOrNull()
+        val mine = ranked.filter { LinkMemory.pickMatch(videoId, it) > 0 && top != null && asGood(it, top) }.sortedByDescending { LinkMemory.pickMatch(videoId, it) }
         return mine.take(1) + ranked.filter { it !in mine.take(1) }
     }
 
