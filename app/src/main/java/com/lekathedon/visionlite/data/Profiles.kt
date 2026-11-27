@@ -22,7 +22,10 @@ import java.security.SecureRandom
  * data over. A PIN is kept as a salted SHA-256, on this box only.
  */
 object Profiles {
-    data class Profile(val id: Int, val name: String, val pic: String = "", val color: String = "#1E88E5", val pin: String = "") {
+    /** [pic]: the picture as kept on this device (a file); [src]: the link it came from, what other devices are given. */
+    data class Profile(val id: Int, val name: String, val pic: String = "", val color: String = "#1E88E5", val pin: String = "", val src: String = "") {
+        /** The picture another device can load: the original link (a file path here means nothing there). */
+        val shareable get() = src.ifBlank { pic.takeIf { it.startsWith("http") }.orEmpty() }
         val locked get() = pin.isNotBlank()
     }
 
@@ -38,7 +41,7 @@ object Profiles {
         val list = runCatching {
             val a = JSONArray(raw)
             (0 until a.length()).map { a.getJSONObject(it) }.map {
-                Profile(it.getInt("id"), it.optString("name"), it.optString("pic"), it.optString("color", "#1E88E5"), it.optString("pin"))
+                Profile(it.getInt("id"), it.optString("name"), it.optString("pic"), it.optString("color", "#1E88E5"), it.optString("pin"), it.optString("src"))
             }
         }.getOrDefault(emptyList())
         if (list.isNotEmpty()) return list
@@ -52,7 +55,7 @@ object Profiles {
 
     private fun save(list: List<Profile>) {
         base.edit().putString("lp_profiles", JSONArray().apply {
-            list.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("pic", p.pic).put("color", p.color).put("pin", p.pin)) }
+            list.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("pic", p.pic).put("color", p.color).put("pin", p.pin).put("src", p.src)) }
         }.toString()).commit()
         _version.value++
     }
@@ -105,7 +108,7 @@ object Profiles {
      */
     fun setPicture(id: Int, url: String) {
         val p = byId(id) ?: return
-        if (url.isBlank() || !url.startsWith("http")) { update(p.copy(pic = url)); return }
+        if (url.isBlank() || !url.startsWith("http")) { update(p.copy(pic = url, src = "")); return }
         val f = runCatching {
             Net.http.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { r ->
                 val bytes = r.body?.bytes()
@@ -114,11 +117,23 @@ object Profiles {
                 File(ctx.filesDir, "avatars/$id-${System.currentTimeMillis()}").apply { writeBytes(bytes) }
             }
         }.getOrNull()
-        byId(id)?.let { update(it.copy(pic = f?.path ?: url)) }
+        byId(id)?.let { update(it.copy(pic = f?.path ?: url, src = url)) }
     }
 
     /** Pictures still kept as links (the first profile's Nuvio picture, older choices) are saved on the box. */
     fun keepPictures() { all().filter { it.pic.startsWith("http") }.forEach { setPicture(it.id, it.pic) } }
+
+    /**
+     * Same face on every device (user 2026-11-27: avatars didn't carry from device to device). Profiles each device
+     * keeps on its own, but the one in use without a picture takes its Trakt account's picture, which every device
+     * signed in to that Trakt shows. A picture picked by hand is never replaced. Blocking; off the main thread.
+     */
+    suspend fun traktFace() {
+        val me = current()
+        if (me.pic.isNotBlank()) return
+        val url = com.lekathedon.visionlite.App.instance.trakt.avatar() ?: return
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { setPicture(me.id, url) }
+    }
 
     // ---------------------------------------------------------------- PIN
 
@@ -162,6 +177,21 @@ object Profiles {
         activity.startActivity(i)
         activity.finishAffinity()
         android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
+    /** The phone picked a profile: the reply goes out first, then Vision restarts in it (as the TV's own picker does). */
+    fun switchFromPhone(id: Int): Boolean {
+        val p = byId(id) ?: return false
+        if (p.locked) return false
+        if (id == currentId()) return true
+        base.edit().putInt("lp_current", id).putBoolean("lp_switched", true).commit()
+        Thread {
+            Thread.sleep(500)
+            ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                ?.let { runCatching { ctx.startActivity(it) } }
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }.start()
+        return true
     }
 
     fun switchTo(activity: android.app.Activity, id: Int) {

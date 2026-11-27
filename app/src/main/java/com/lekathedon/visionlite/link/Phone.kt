@@ -48,7 +48,7 @@ internal class Phone(private val secret: () -> String) {
         val profiles = JSONArray().apply {
             val all = com.lekathedon.visionlite.data.Profiles.all()
             if (all.isEmpty()) put(JSONObject().put("id", 1).put("name", "Vision"))
-            all.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("color", it.color).put("avatar", it.pic)) }
+            all.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("color", it.color).put("avatar", it.shareable)) }
         }
         val store = App.instance.addons
         val addons = store.all.value

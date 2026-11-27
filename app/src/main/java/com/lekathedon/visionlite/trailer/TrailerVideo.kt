@@ -3,6 +3,7 @@ package com.lekathedon.visionlite.trailer
 import android.view.TextureView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,11 +25,13 @@ import androidx.media3.ui.AspectRatioFrameLayout
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: String? = null, onEnded: () -> Unit) {
+fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: String? = null, paused: Boolean = false,
+                 resumeKey: String? = null, onEnded: () -> Unit) {
     val context = LocalContext.current
     var shown by remember(url) { mutableStateOf(false) }
     val frame = remember { AspectRatioFrameLayout(context).apply { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM } }
     val texture = remember { TextureView(context).also { frame.addView(it) } }
+    val playerRef = remember { arrayOfNulls<ExoPlayer>(1) }
     DisposableEffect(url) {
         // Vision's fix (f1fa03f77), made strict: trailers decode in software ONLY, so the box's automatic frame
         // rate never switches the TV's refresh rate or resolution when one starts (a format with no software
@@ -67,10 +70,19 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: Stri
             player.setMediaSource(androidx.media3.exoplayer.source.MergingMediaSource(
                 f.createMediaSource(MediaItem.fromUri(url)), f.createMediaSource(MediaItem.fromUri(audioUrl))))
         }
-        player.playWhenReady = true
+        // Home's billboard: back where it stopped (leaving Home or scrolling down freed the player), never from the start.
+        resumeKey?.let { k -> TrailerResume.pos[k]?.let { player.seekTo(it) } }
+        player.playWhenReady = !paused
         player.prepare()
-        onDispose { com.lekathedon.visionlite.ui.Screensaver.untrack(player); player.release() }
+        playerRef[0] = player
+        onDispose {
+            resumeKey?.let { k -> if (player.playbackState != Player.STATE_ENDED) TrailerResume.pos[k] = player.currentPosition }
+            playerRef[0] = null
+            com.lekathedon.visionlite.ui.Screensaver.untrack(player); player.release()
+        }
     }
+    // A menu over the page pauses the trailer; closing it carries on from the same frame.
+    LaunchedEffect(paused) { playerRef[0]?.playWhenReady = !paused }
     AndroidView({ frame }, modifier.clipToBounds().graphicsLayer { alpha = if (shown) 1f else 0f })
 }
 
@@ -79,4 +91,10 @@ fun TrailerVideo(url: String, muted: Boolean, modifier: Modifier, audioUrl: Stri
 private val SoftwareVideoOnly = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mimeType, secure, tunneling ->
     val all = androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mimeType, secure, tunneling)
     if (!mimeType.startsWith("video/")) all else all.filter { it.softwareOnly }
+}
+
+/** Billboard trailers: where each stopped (by title id), and the titles whose trailer already played to the end this app start. */
+object TrailerResume {
+    val pos = HashMap<String, Long>()
+    val done = HashSet<String>()
 }

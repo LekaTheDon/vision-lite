@@ -115,6 +115,15 @@ fun ScreensaverHost(nav: Nav) {
     if (!showing) return
     val view = LocalView.current
     DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
+    // The on-screen keyboard is its own window above the app: it closes when the screensaver starts (user 2026-11-27,
+    // Search's keyboard stayed on top of the slides). The field keeps focus; OK on it opens the keyboard again.
+    LaunchedEffect(Unit) {
+        runCatching {
+            (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .hideSoftInputFromWindow(view.windowToken, 0)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 30) runCatching { view.windowInsetsController?.hide(android.view.WindowInsets.Type.ime()) }
+    }
     val ctx = LocalContext.current
     var slide by remember { mutableStateOf<MetaPreview?>(null) }
     var artUrl by remember { mutableStateOf<String?>(null) }

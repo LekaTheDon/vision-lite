@@ -102,8 +102,8 @@ private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Pro
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     // The profile in focus: its latest Continue watching title behind the faces (not for PIN profiles); none = plain
-    // black page (user 2026-11-27: the page behind showed through). Logo and S·E top right, the progress bar under
-    // the focused face, so it moves along with the focus.
+    // black page (user 2026-11-27: the page behind showed through). The resume details sit under the focused face
+    // and move with the focus.
     var at by remember { mutableStateOf<Profile?>(null) }
     val last = remember(at?.id) { at?.takeIf { !it.locked }?.let { LastWatched.of(it.id) } }
     val K = com.lekathedon.visionlite.ui.Kit
@@ -114,43 +114,40 @@ private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Pro
                 coil3.compose.AsyncImage(l.backdrop, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                     0f to LocalLook.current.page.copy(alpha = 0.5f), 0.5f to LocalLook.current.page.copy(alpha = 0.72f), 1f to LocalLook.current.page)))
-                Column(Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 64.dp).width(420.dp), horizontalAlignment = Alignment.End) {
-                    Text("Continue watching", color = ink.dim, fontSize = 14.sp, fontFamily = K.body, fontWeight = FontWeight.Medium)
-                    coil3.compose.SubcomposeAsyncImage(l.logo, l.name, Modifier.padding(top = 10.dp).sizeIn(maxWidth = 360.dp, maxHeight = 96.dp),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit, alignment = Alignment.CenterEnd,
-                        error = { com.lekathedon.visionlite.ui.DisplayText(l.name, 26.sp) })
-                    if (l.season != null) Text("S${l.season} · E${l.episode}", color = ink.text, fontSize = 15.sp, fontFamily = K.body,
-                        fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
-                }
             }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             com.lekathedon.visionlite.ui.DisplayText(title.uppercase(), 30.sp, maxLines = 1)
-            LazyRow(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            LazyRow(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list, key = { it.id }) { p ->
                     val source = remember { MutableInteractionSource() }
                     val focused by source.collectIsFocusedAsState()
                     LaunchedEffect(focused) { if (focused) at = p }
                     val mod = if (p.id == current || (list.none { it.id == current } && p === list.first())) Modifier.focusRequester(first) else Modifier
-                    Column(mod.width(150.dp).clickable(interactionSource = source, indication = null) { onPick(p) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(mod.width(200.dp).clickable(interactionSource = source, indication = null) { onPick(p) }, horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.size(124.dp).then(if (focused) Modifier.border(K.ringWidth + 1.dp, K.ringColor, CircleShape) else Modifier).padding(6.dp)) {
                             ProfileFace(p.name, p.pic, p.color, 112.dp)
                         }
-                        Text(p.name, color = if (focused) ink.text else ink.dim, fontSize = 16.sp, fontFamily = K.body, maxLines = 1,
-                            fontWeight = if (focused || p.id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
-                        Text(if (p.locked) "PIN" else " ", color = ink.dim, fontSize = 12.sp, fontFamily = K.body)
-                        // This profile's progress, under its own face while it has the focus.
+                        // The focused profile with something to resume (user 2026-11-27, this order exactly): picture,
+                        // "Continue watching", the title, the season and episode, the bar, the percentage. The backdrop stays.
                         val l = if (focused && p.id == at?.id) last else null
-                        androidx.compose.animation.AnimatedVisibility(l != null,
-                            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInHorizontally { -it / 3 },
-                            exit = androidx.compose.animation.fadeOut()) {
-                            val pct = (l ?: last)?.progress?.coerceIn(0f, 100f) ?: 0f
-                            Column(Modifier.padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(Modifier.width(120.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(K.line)) {
-                                    Box(Modifier.fillMaxWidth(pct / 100f).height(4.dp).background(K.accent))
-                                }
-                                Text("${pct.toInt()}% watched", color = ink.dim, fontSize = 12.sp, fontFamily = K.body, modifier = Modifier.padding(top = 6.dp))
+                        if (l == null) {
+                            Text(p.name, color = if (focused) ink.text else ink.dim, fontSize = 16.sp, fontFamily = K.body, maxLines = 1,
+                                fontWeight = if (focused || p.id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 10.dp))
+                            Text(if (p.locked) "PIN" else " ", color = ink.dim, fontSize = 12.sp, fontFamily = K.body)
+                        } else Column(Modifier.padding(top = 10.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Continue watching", color = ink.dim, fontSize = 13.sp, fontFamily = K.body, fontWeight = FontWeight.Medium)
+                            coil3.compose.SubcomposeAsyncImage(l.logo, l.name, Modifier.padding(top = 8.dp).sizeIn(maxWidth = 190.dp, maxHeight = 60.dp),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                error = { Text(l.name, color = ink.text, fontSize = 18.sp, fontFamily = K.body, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center) })
+                            if (l.season != null) Text("Season ${l.season} · Episode ${l.episode}", color = ink.text, fontSize = 14.sp, fontFamily = K.body,
+                                fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+                            val pct = l.progress.coerceIn(0f, 100f)
+                            Box(Modifier.padding(top = 10.dp).width(160.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(K.line)) {
+                                Box(Modifier.fillMaxWidth(pct / 100f).height(4.dp).background(K.accent))
                             }
+                            Text("${pct.toInt()}%", color = ink.dim, fontSize = 12.sp, fontFamily = K.body, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
                 }

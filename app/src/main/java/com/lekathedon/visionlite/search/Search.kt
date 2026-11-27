@@ -117,7 +117,7 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }, markLeftOut = true) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
         }
         if (people.isNotEmpty() && q.trim().length >= 2) item(key = "search:people") {
-            com.lekathedon.visionlite.home.PageRow("search:people", "People", people, sub = { it.description }, filter = false, expand = false) { m ->
+            com.lekathedon.visionlite.home.PageRow("search:people", "People", people, sub = { p -> p.name + (p.description?.substringBefore(",")?.let { "\n$it" } ?: "") }, filter = false, expand = false) { m ->
                 nav.push(Screen.Person(m.id, m.name))
             }
         }

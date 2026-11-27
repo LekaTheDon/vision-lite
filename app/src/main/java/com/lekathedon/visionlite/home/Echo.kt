@@ -114,6 +114,7 @@ import com.lekathedon.visionlite.ui.snapSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.async
@@ -543,12 +544,19 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     val trailerLook = remember(trailersOn, delayText, sound, clockPanel) {
         TrailerLook(trailersOn && !clockPanel, ((delayText.toDoubleOrNull() ?: 5.0) * 1000).toLong(), !sound, paused = clockPanel)
     }
+    // The billboard's trailer (user 2026-11-27): plays only while you're at the top (billboard, pill, clock button);
+    // any menu over Home (clock, account, hold menus, Leave?) pauses it and closing carries on from the same frame;
+    // scrolling down or opening a screen keeps its place too. It plays once per title: at its end it's done.
+    val menuOpen = clockPanel || HomeMenus.account || cwHold != null || hold != null || askExit
+    val menuNow = androidx.compose.runtime.rememberUpdatedState(menuOpen)
+    val heroNow = androidx.compose.runtime.rememberUpdatedState(heroFocused)
     var heroTrailer by remember { mutableStateOf<Pair<String, com.lekathedon.visionlite.trailer.Trailer>?>(null) }
-    LaunchedEffect(heroFocused, heroEntry?.m?.id, trailerLook) {
+    LaunchedEffect(heroEntry?.m?.id, trailersOn, delayText, sound) {
         heroTrailer = null
         val hm = heroEntry?.m ?: return@LaunchedEffect
         val id = hm.id
-        if (!heroFocused || !trailerLook.on) return@LaunchedEffect
+        if (!trailersOn || id in com.lekathedon.visionlite.trailer.TrailerResume.done) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { heroNow.value && !menuNow.value }.first { it }
         heroTrailer = trailerAfterRest(hm, trailerLook.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))?.let { id to it }
     }
 
@@ -564,7 +572,9 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (atTop && !look.oled) AmbientPageWash(art, Modifier.fillMaxSize())
         // The billboard's art, wall to wall, fading as the page scrolls past it (read while drawing only).
         if (atTop) EchoBackdrop(art, heroTrailer?.takeIf { heroFocused && it.first == entry?.m?.id }?.second, trailerLook.muted,
-            onEnded = { heroTrailer = null }, modifier = Modifier.graphicsLayer {
+            paused = menuOpen, resumeKey = heroTrailer?.first,
+            onEnded = { heroTrailer?.first?.let { com.lekathedon.visionlite.trailer.TrailerResume.done += it; com.lekathedon.visionlite.trailer.TrailerResume.pos.remove(it) }; heroTrailer = null },
+            modifier = Modifier.graphicsLayer {
             alpha = if (listState.firstVisibleItemIndex > 0) 0f
             else (1f - listState.firstVisibleItemScrollOffset / heroPx).coerceIn(0f, 1f)
         })
@@ -676,6 +686,9 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (askExit) ExitAsk(onLeave = { leaveApp(activity) }, onStay = { askExit = false; LastFocus?.let { runCatching { it.requestFocus() } } })
     }
 }
+
+/** Menus opened from parts of Home that keep their own state (the pill's account menu). */
+internal object HomeMenus { var account by mutableStateOf(false) }
 
 /** Cards that aren't a title (no billboard, details line or hold menu). */
 private val NotTitles = setOf("service", "person", "genre", "decade", "mood")
@@ -937,6 +950,8 @@ fun BoxScope.TopPill(
         item("settings", null) { nav.push(Screen.Settings) }
         item("account", account, face = avatar) { picking = true }
     }
+    // The account menu open pauses Home's billboard trailer.
+    androidx.compose.runtime.DisposableEffect(picking) { HomeMenus.account = picking; onDispose { HomeMenus.account = false } }
     // OK on the profile: Who's watching? over the page; another profile restarts the app in it.
     if (picking) com.lekathedon.visionlite.profiles.ProfileGate(atStart = false, onManage = { picking = false; nav.push(Screen.Profiles) }) {
         picking = false; entering = true; pending = "account"
@@ -1544,11 +1559,13 @@ private fun RatingBadge() {
 // ---- The billboard's art (NetflixLegacyBackdrop): wall to wall, darkened on the left and at the bottom ----
 
 @Composable
-private fun EchoBackdrop(url: String?, trailer: com.lekathedon.visionlite.trailer.Trailer?, muted: Boolean, onEnded: () -> Unit, modifier: Modifier) {
+private fun EchoBackdrop(url: String?, trailer: com.lekathedon.visionlite.trailer.Trailer?, muted: Boolean, paused: Boolean = false, resumeKey: String? = null,
+                         onEnded: () -> Unit, modifier: Modifier) {
     url ?: return
     Box(modifier.fillMaxSize()) {
         Img(url, 960.dp, 540.dp, Modifier.fillMaxSize())
-        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer.url, muted, Modifier.fillMaxSize(), trailer.audio, onEnded = onEnded)
+        if (trailer != null) com.lekathedon.visionlite.trailer.TrailerVideo(trailer.url, muted, Modifier.fillMaxSize(), trailer.audio,
+            paused = paused, resumeKey = resumeKey, onEnded = onEnded)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xE6000000), 0.35f to Color(0x80000000), 0.7f to Color.Transparent)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 0.9f to Color(0xE6000000), 1f to Color.Black)))
     }

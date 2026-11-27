@@ -60,7 +60,7 @@ object PlayerReturn {
  * decoders (DTS / TrueHD / anything the soundbar can't take and the box can't decode becomes PCM).
  */
 @OptIn(UnstableApi::class)
-private class Renderers(context: Context, private val fel: Boolean, private val blocked: Set<String> = emptySet()) : DefaultRenderersFactory(context) {
+private class Renderers(context: Context, private val fel: Boolean, private val blocked: Set<String> = emptySet(), private val dv81: Boolean = false) : DefaultRenderersFactory(context) {
     /** Sync (Vision's SubtitleOffsetRenderer): text is drawn at the position moved by the audio and subtitle delays. */
     override fun buildTextRenderers(context: Context, output: androidx.media3.exoplayer.text.TextOutput, outputLooper: android.os.Looper,
                                     extensionRendererMode: Int, out: ArrayList<Renderer>) {
@@ -71,7 +71,11 @@ private class Renderers(context: Context, private val fel: Boolean, private val 
                 super.render((positionUs + Sync.audioMs * 1000 - (Sync.subMs + Sync.autoSubMs) * 1000).coerceAtLeast(0L), elapsedRealtimeUs)
         }
     }
-    init { setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON) }
+    init {
+        setEnableDecoderFallback(true); setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
+        // Convert to 8.1: the TV's Dolby Vision decoder takes the converted picture (Vision's fallback selector).
+        if (dv81) setMediaCodecSelector(com.lekathedon.visionlite.player.dv.DvDecoders.selector(true))
+    }
     /** This TV › Sound: a format set to "Decode in the box" is never sent as a bitstream; FFmpeg/MediaCodec decode it. */
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? {
         // Sound.kt: stereo mix, night mode, dialogue and volume boost (inactive while all off or on a bitstream).
@@ -91,7 +95,14 @@ private class Renderers(context: Context, private val fel: Boolean, private val 
     ) {
         // Vision's FEL renderer, ahead of MediaCodec so it wins the DV7 track.
         if (fel) out.add(AmlDvFelVideoRenderer(eventHandler, eventListener))
+        val start = out.size
         super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
+        // Convert to 8.1: the stock video renderer swapped for one that puts the Dolby Vision decoder first.
+        if (dv81) for (i in start until out.size) if (out[i].javaClass == androidx.media3.exoplayer.video.MediaCodecVideoRenderer::class.java)
+            out[i] = com.lekathedon.visionlite.player.dv.DvFirstVideoRenderer(androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
+                .setCodecAdapterFactory(codecAdapterFactory).setMediaCodecSelector(mediaCodecSelector)
+                .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs).setEnableDecoderFallback(enableDecoderFallback)
+                .setEventHandler(eventHandler).setEventListener(eventListener).setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY))
     }
 }
 
@@ -295,7 +306,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 io.github.peerless2012.ass.media.type.AssRenderType.CUES,
                 io.github.peerless2012.ass.media.AssHandlerConfig(maxRenderPixels = 1920 * 1080)) else null
             assRef[0] = ass
-            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed, decodedInBox(prefs, Sound.stereo(context))).let { r ->
+            val renderers: androidx.media3.exoplayer.RenderersFactory = Renderers(context, felAllowed, decodedInBox(prefs, Sound.stereo(context)), dv81 = useDv && dv!!.config.active).let { r ->
                 if (ass != null) io.github.peerless2012.ass.media.factory.AssRenderersFactory(ass, r) else r }
             // MKV: the file's declared frame rate goes to the decoder (MkvFrameRate), libass reader when styled subs are on.
             val base = androidx.media3.extractor.DefaultExtractorsFactory()
@@ -416,6 +427,25 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         return true
     }
     androidx.compose.runtime.LaunchedEffect(firstFrame) { if (firstFrame && s.type == "live") { everPlayed = true; failNote = null } }
+    // Convert to 8.1 proven or not on this device (user rule 2026-11-27: never promise what the TV doesn't do).
+    // 6 s into a converted film: frames converted AND the decoder opened as Dolby Vision = proven; otherwise the film
+    // is showing HDR10, said so on screen, remembered, and with Let the app decide on This TV moves to the next best.
+    androidx.compose.runtime.LaunchedEffect(firstFrame) {
+        if (!firstFrame || current != Engine.EXO || !dvOn[0] || prefs.dv7.value != "dv81") return@LaunchedEffect
+        kotlinx.coroutines.delay(6_000)
+        val tried = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionCallCount()
+        if (tried == 0L) return@LaunchedEffect   // no profile 7 in this file: nothing to prove
+        val done = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionSuccessCount()
+        val dvDec = com.lekathedon.visionlite.player.dv.DvDecoders.reachedDv
+        val ok = done > 0 && dvDec
+        val why = when { done == 0L -> "the converter failed on every frame"; !dvDec -> "the TV opened its HEVC decoder (${exoStats.videoDecoder ?: "?"}), not Dolby Vision"; else -> "Dolby Vision decoder ${exoStats.videoDecoder}" }
+        com.lekathedon.visionlite.device.DeviceProof.dv81Result(ok, why)
+        if (!ok) {
+            failNote = "Dolby Vision 8.1 didn't work on this TV: playing HDR10"
+            if (prefs.tvAuto.value) com.lekathedon.visionlite.device.DeviceCheck.saved()?.let { com.lekathedon.visionlite.device.DeviceCheck.useRecommended(it) }
+            kotlinx.coroutines.delay(6_000); if (failNote?.startsWith("Dolby Vision 8.1") == true) failNote = null
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(s.url, gen, firstFrame) {
         if (s.type != "live" || !firstFrame) return@LaunchedEffect
         var stuck = 0
@@ -579,6 +609,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         onDispose {
             session.resumeAt = player.currentPosition
             // One line per play in files/reports/playback.log (last 60): what played how, so a stutter is measured next time.
+            // What this play really downloaded at: the internet speed autoplay plans with next time.
+            if (current == Engine.EXO && s.type != "live" && exoStats.bandwidth > 0) com.lekathedon.visionlite.device.DeviceProof.playSpeed(exoStats.bandwidth / 1e6)
             if (current == Engine.EXO && s.type != "live") PlayLog.add(title, s.name.lineSequence().firstOrNull().orEmpty(), session.reason,
                 exoStats.videoDecoder, myAss?.renderType?.name, dvOn[0], felNow.get(), exoStats.dropped, exoStats.rebuffers, player.currentPosition,
                 subs = picked(player, androidx.media3.common.C.TRACK_TYPE_TEXT), audio = picked(player, androidx.media3.common.C.TRACK_TYPE_AUDIO))

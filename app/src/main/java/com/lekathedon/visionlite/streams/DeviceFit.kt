@@ -28,7 +28,7 @@ object DeviceFit {
 
     fun can(): Can? {
         val p = App.instance.prefs
-        val key = p.tvFacts.value + p.dv7.value + p.dv5To81.value + p.dv5Mpv.value + p.hdrOnSdr.value
+        val key = p.tvFacts.value + p.dv7.value + p.dv5To81.value + p.dv5Mpv.value + p.hdrOnSdr.value + com.lekathedon.visionlite.device.DeviceProof.dv81 + com.lekathedon.visionlite.device.DeviceProof.mbps(null)
         cache?.takeIf { it.first == key }?.let { return it.second }
         val f = DeviceCheck.saved()
         val c = f?.let {
@@ -38,9 +38,10 @@ object DeviceFit {
                 tvH = minOf(it.width, it.height).takeIf { h -> h > 0 } ?: 0,
                 hevc10 = !known || it.hevc10, av1 = !known || it.av1Hw,
                 hdrTv = !it.capsKnown || it.hdr10 || it.hlg || it.dvTv,
-                dv7 = !known || it.fel || it.dv7Decoder || p.dv7.value == "hdr10" || (p.dv7.value == "dv81" && it.converter),
+                dv7 = !known || it.fel || it.dv7Decoder || p.dv7.value == "hdr10" || (p.dv7.value == "dv81" && it.converter && com.lekathedon.visionlite.device.DeviceProof.dv81 != "fail"),
                 dv5 = !known || (it.dvDecoder && (it.dvTv || p.dv5To81.value)) || p.dv5Mpv.value,
-                mbps = it.mbps,
+                // The lower of the speed test and what real plays got: a slow evening counts.
+                mbps = com.lekathedon.visionlite.device.DeviceProof.mbps(it.mbps),
             )
         }
         cache = key to c

@@ -88,6 +88,12 @@ class Trakt(private val prefs: Prefs) {
         Net.http.newCall(b.build()).execute().use { r -> r.code to (r.body?.string() ?: "") }
     }
 
+    /** The Trakt account's own picture (users/settings), the same on every device signed in to it; null when none. */
+    suspend fun avatar(): String? = if (!on()) null else runCatching {
+        val o = org.json.JSONObject(get<kotlinx.serialization.json.JsonObject>("users/settings").toString())
+        o.optJSONObject("user")?.optJSONObject("images")?.optJSONObject("avatar")?.optString("full")?.takeIf { it.startsWith("http") && !it.contains("placeholder", true) }
+    }.getOrNull()
+
     private suspend inline fun <reified T> get(path: String): T {
         val (code, text) = call("GET", path)
         if (code == 401) save(null)

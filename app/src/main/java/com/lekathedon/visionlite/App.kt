@@ -37,7 +37,9 @@ class App : Application(), SingletonImageLoader.Factory {
         addons = AddonStore(prefs)
         client = AddonClient(addons)
         trakt = com.lekathedon.visionlite.trakt.Trakt(prefs)
-        Thread { runCatching { com.lekathedon.visionlite.data.Profiles.keepPictures() } }.start()
+        Thread { runCatching { com.lekathedon.visionlite.data.Profiles.keepPictures() }
+            // One Trakt call at start, only while the profile in use has no picture.
+            runCatching { kotlinx.coroutines.runBlocking { com.lekathedon.visionlite.data.Profiles.traktFace() } } }.start()
         // Service intro clips are gone (0.41.15): the 20-40 MB they kept on the box goes too.
         Thread { runCatching { java.io.File(filesDir, "service_clips").takeIf { it.exists() }?.deleteRecursively() } }.start()
         // A Nuvio / Stremio import still waiting for Trakt or Simkl (nothing when there's none).

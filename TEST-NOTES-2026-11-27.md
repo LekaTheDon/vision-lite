@@ -45,3 +45,13 @@ No builds/installs until the user says so. Fixes are kept as uncommitted edits.
       for non-OLED backgrounds and apply the app's OLED background everywhere.
 
 ## Status: items 2-10 done in 0.41.8 (105), installed 2026-11-27 (wip-041 @ 5ac39a7). Item 1 = new HDR default 30 + panel. Not verified on TV.
+
+## TCL TV report (2026-11-27, Lite 0.41.21 / phone 0.6.1) — not started
+1. Account avatars don't carry from device to device.
+2. Phone app: login screen with Continue watching etc.; replicate everything the TV app does minus playback, incl. trailers; hubs look like the TV app.
+3. Search "ray": Ray (2004, Jamie Foxx) missing, only 2 shows + people. People results show "actor played in this movie" instead of the person's name.
+4. Screensaver starts (5 s idle on search) with the on-screen keyboard still on top of it.
+5. Profile/login Continue watching order: avatar (GIF animates) → "Continue watching" → title → season (TV/anime) → bar → percentage; backdrop still shows the content.
+6. Hero trailer keeps playing behind the account menu. Play only while at the top of Home (pill moves OK); any menu/clock/scroll = pause, then resume (play once, never restart).
+7. Clock on TV shows only Sports — where is everything else?
+8. Ray FEL link: the menu recommended "Convert to 8.1" (green), but playback came out as HDR10. Must follow its own pick; offer all of Nuvio's DV options, auto-choose best for the TV.

@@ -84,7 +84,7 @@ object Hud {
     }
 
     /** What the 8.1 converter really did this play (frames rewritten), so Stats never claims a conversion that didn't run. */
-    private fun converterRow(): String? {
+    fun converterRow(): String? {
         val p = com.lekathedon.visionlite.App.instance.prefs
         if (p.dv7.value != "dv81" && !p.dv5To81.value) return null
         val st = com.lekathedon.visionlite.player.dv.DolbyVisionConversionStats

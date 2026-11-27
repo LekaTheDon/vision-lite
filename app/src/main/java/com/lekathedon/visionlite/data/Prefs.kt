@@ -56,6 +56,10 @@ class Prefs(context: Context) {
     val cwDropped = Text("cw_dropped", "")
     /** Dolby Vision 7: "fel" = native FEL port (AM9 FEL kernel), "box" = the box's normal decoder, "dv81" = converted to 8.1 (libdovi), "hdr10" = HDR10 base layer only. */
     val dv7 = Text("dv7", "box")
+    /** Convert to 8.1: libdovi conversion mode ("auto" = 2 with fallback to 1, as Vision; "0".."4" forced, Vision's Advanced override). */
+    val dvConvMode = Text("dv_conv_mode", "auto")
+    /** HDR10 base layer: HDR10 metadata written into the picture when the file carries none (Vision's injectHdr10MetadataOnStrip). */
+    val dvInjectHdr10 = Flag("dv_inject_hdr10", true)
     /** Frame-rate matching: "off" or "always" (an old "seamless" counts as on). */
     val afr = Text("afr", "off")
     /** Match resolution: the TV takes the smallest mode that fits the video (never below 720p). */

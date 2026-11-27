@@ -234,18 +234,23 @@ object DeviceCheck {
         fun add(c: Choice) { if (c.options.size > 1) this.add(c) }
         val caps = f.capsKnown
 
-        // Picture: Dolby Vision profile 7 (disc remuxes), Vision's table.
+        // Picture: Dolby Vision profile 7 (disc remuxes), Vision's table, corrected by what this device really did.
+        val dv81Failed = DeviceProof.dv81 == "fail"
         run {
             val opts = buildList {
                 if (f.fel) add("fel" to "Native FEL (both layers, this box)")
-                if (f.converter && f.dvDecoder && (!caps || f.dvTv)) add("dv81" to "Convert to Dolby Vision 8.1")
+                // Never offered once this device showed it can't (a converted film reached HEVC, not Dolby Vision).
+                if (f.converter && f.dvDecoder && (!caps || f.dvTv) && !dv81Failed) add("dv81" to "Convert to Dolby Vision 8.1")
                 add("box" to if (f.dv7Decoder) "The box's Dolby Vision decoder" else "Leave it to the box")
                 if (!caps || f.hdr10) add("hdr10" to "Play the HDR10 base layer")
             }
             // Vision's table: FEL box -> native; DV TV without FEL -> 8.1 keeps DV; HDR10 TV -> base layer.
             val (rec, why) = when {
                 f.fel -> "fel" to "This box plays dual-layer Dolby Vision (FEL kernel found)"
-                caps && f.dvTv && f.converter && f.dvDecoder -> "dv81" to "Your TV shows Dolby Vision; this box has no FEL, so 8.1 keeps Dolby Vision"
+                caps && f.dvTv && f.converter && f.dvDecoder && !dv81Failed -> "dv81" to "Your TV shows Dolby Vision; this box has no FEL, so 8.1 keeps Dolby Vision" +
+                    if (DeviceProof.dv81 == "ok") " (proven on this TV)" else ""
+                dv81Failed && f.dv7Decoder -> "box" to "8.1 didn't reach the Dolby Vision decoder here (${DeviceProof.dv81Why}); the TV's own decoder takes profile 7"
+                dv81Failed && (!caps || f.hdr10) -> "hdr10" to "8.1 didn't reach the Dolby Vision decoder here (${DeviceProof.dv81Why}): the HDR10 picture is the best this TV shows"
                 caps && f.decodersKnown && !f.dvDecoder && f.hdr10 -> "hdr10" to "This box has no Dolby Vision decoder: the HDR10 picture under it plays"
                 caps && f.dvTv && f.dv7Decoder -> "box" to "Your TV shows Dolby Vision and the box decodes profile 7"
                 caps && f.hdr10 && !f.dvTv -> "hdr10" to "Your TV shows HDR10 but not Dolby Vision"
@@ -254,6 +259,13 @@ object DeviceCheck {
             // On a TV without Dolby Vision the same answer covers profile 8 (8.1 / 8.4 play their HDR10 / HLG picture).
             add(Choice("dv7", "Picture", if (caps && !f.dvTv) "Dolby Vision (profiles 7 and 8)" else "Dolby Vision profile 7", opts, rec, why))
         }
+        // Nuvio's Advanced Dolby Vision rows: the converter's mode and HDR10 metadata for the base layer.
+        if (f.converter && f.dvDecoder) add(Choice("dv_conv", "Picture", "8.1 conversion mode", listOf(
+            "auto" to "Auto (8.1, falls back per frame)", "2" to "8.1 always", "1" to "MEL (drop the FEL curves)", "4" to "8.4 (HLG base)", "0" to "Lossless (keep profile 7 RPU)"),
+            "auto", "Vision's default: 8.1 with the colour curves kept, MEL only for frames 8.1 can't take"))
+        if (!caps || f.hdr10) add(Choice("dv_hdr10meta", "Picture", "HDR10 metadata when playing the base layer",
+            listOf("on" to "Add it when the file has none", "off" to "Leave the file as is"), "on",
+            "Some remuxes have no HDR10 brightness data; without it the TV guesses and the picture can look dim"))
         // Dolby Vision 5 has no HDR10 picture under it: without the box's DV decoder only MPV (libplacebo) gets its colours right.
         val noDvDecoder = f.decodersKnown && !f.dvDecoder
         if ((caps && !f.dvTv) || noDvDecoder) run {
@@ -400,6 +412,8 @@ object DeviceCheck {
 
     fun current(key: String): String = when (key) {
         "dv7" -> p.dv7.value
+        "dv_conv" -> p.dvConvMode.value
+        "dv_hdr10meta" -> on(p.dvInjectHdr10.value)
         "afr" -> if (p.afr.value == "off") "off" else "always"
         "res" -> if (p.matchRes.value) "on" else "off"
         "dv5" -> if (p.dv5Mpv.value) "mpv" else on(p.dv5To81.value)
@@ -426,6 +440,8 @@ object DeviceCheck {
     fun set(key: String, v: String) {
         when (key) {
             "dv7" -> p.dv7.value = v
+            "dv_conv" -> p.dvConvMode.value = v
+            "dv_hdr10meta" -> p.dvInjectHdr10.value = v == "on"
             "afr" -> p.afr.value = v
             "res" -> p.matchRes.value = v == "on"
             "dv5" -> { p.dv5To81.value = v == "on"; p.dv5Mpv.value = v == "mpv" }

@@ -10,7 +10,7 @@ import com.lekathedon.visionlite.data.Prefs
  * stripped, HDR10 colour signalled), and HDR10+ strip. Native FEL and "the box decides" keep Lite's plain path.
  */
 @UnstableApi
-class DvRoute private constructor(internal val config: DolbyVisionConversionConfig, val strip: Boolean, val stripHdr10Plus: Boolean) {
+class DvRoute private constructor(internal val config: DolbyVisionConversionConfig, val strip: Boolean, val stripHdr10Plus: Boolean, val injectHdr10: Boolean = false) {
     companion object {
         /** The route for the current settings, or null when nothing needs Vision's pipeline. */
         fun of(p: Prefs, nativeFel: Boolean): DvRoute? {
@@ -28,16 +28,17 @@ class DvRoute private constructor(internal val config: DolbyVisionConversionConf
                 dv5Enabled = dv5,
                 // DV5 alone: profile 7 is left to the box.
                 nativeProfile7 = !to81,
+                forcedMode = p.dvConvMode.value.toIntOrNull()?.takeIf { it in 0..4 } ?: -1,
             )
-            return DvRoute(cfg, strip && !to81, plus)
+            return DvRoute(cfg, strip && !to81, plus, strip && !to81 && p.dvInjectHdr10.value)
         }
 
         private val dvName = Regex("""(?i)(\bDV\b|\bDoVi\b|dolby[ ._-]?vision|\bDV[ ._-]?HDR)""")
         fun namedDv(name: String) = dvName.containsMatchIn(name)
 
         fun factory(base: ExtractorsFactory, r: DvRoute): ExtractorsFactory {
-            DolbyVisionConversionStats.reset(); DoviBridge.resetRuntimeCounters()
-            return DolbyVisionExtractorsFactory(base, r.config, stripDvRpu = r.strip, stripHdr10PlusSei = r.stripHdr10Plus)
+            DolbyVisionConversionStats.reset(); DoviBridge.resetRuntimeCounters(); DvDecoders.openedAs = null
+            return DolbyVisionExtractorsFactory(base, r.config, stripDvRpu = r.strip, stripHdr10PlusSei = r.stripHdr10Plus, injectHdr10Sei = r.injectHdr10)
         }
 
         /** The converter's native library is in this build and loads on this box. */

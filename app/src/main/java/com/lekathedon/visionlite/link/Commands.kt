@@ -24,6 +24,12 @@ class Commands(private val ctx: Context) {
         "start" -> open(null)
         "play" -> play(a)
         "details" -> details(a)
+        // The phone's Who's watching (user 2026-11-27): every profile with its picture link and its last title.
+        "profiles" -> profiles()
+        // A title's trailer for the phone to play itself (the TV keeps playing what it plays). 12 s at most.
+        "trailer" -> trailer(a)
+        "use_profile" -> if (com.lekathedon.visionlite.data.Profiles.switchFromPhone(a.optInt("id"))) ok()
+            else err("That profile has a PIN: pick it on the TV")
         "media" -> media(a)
         "watch" -> watch(a)
         "rows" -> LinkState.rows?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")).put("hubs", it.optJSONArray("hubs")) }
@@ -120,6 +126,28 @@ class Commands(private val ctx: Context) {
         val name = a.optString("title").ifBlank { id }
         val streamId = if (a.has("season") && a.has("episode")) "$id:${a.getInt("season")}:${a.getInt("episode")}" else id
         return open(Screen.Streams(type, streamId, name, id))
+    }
+
+    private fun profiles(): JSONObject {
+        val P = com.lekathedon.visionlite.data.Profiles
+        val list = JSONArray()
+        P.all().forEach { p ->
+            val o = JSONObject().put("id", p.id).put("name", p.name).put("color", p.color).put("avatar", p.shareable).put("locked", p.locked)
+            if (!p.locked) com.lekathedon.visionlite.profiles.LastWatched.of(p.id)?.let { l ->
+                o.put("last", JSONObject().put("type", l.type).put("id", l.imdb).put("name", l.name).put("logo", l.logo).put("backdrop", l.backdrop)
+                    .put("season", l.season ?: JSONObject.NULL).put("episode", l.episode ?: JSONObject.NULL).put("progress", l.progress.toDouble()))
+            }
+            list.put(o)
+        }
+        return ok().put("active", P.currentId()).put("profiles", list)
+    }
+
+    private fun trailer(a: JSONObject): JSONObject {
+        val id = a.optString("id").ifBlank { return err("No title id") }
+        val m = com.lekathedon.visionlite.addons.MetaPreview(id, a.optString("type", "movie"), a.optString("name"))
+        val t = kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(12_000) { com.lekathedon.visionlite.trailer.TrailerChain.find(m, 1080) } }
+            ?: return err("No trailer for this title")
+        return ok().put("url", t.url).put("audio", t.audio ?: JSONObject.NULL)
     }
 
     private fun details(a: JSONObject): JSONObject {
