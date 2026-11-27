@@ -104,23 +104,32 @@ object Scores {
      */
     suspend fun pass(day: LocalDate, force: Boolean, only: Set<String>? = null) {
         val now = System.currentTimeMillis()
-        val leagues = shownLeagues().map { it.key }.filter { only == null || it in only }
+        // TheSportsDB leagues only for their own region or when followed (its free tier allows ~30 asks a minute).
+        val r = region(); val f = follows.value; val mine = f.bar().toSet() + f.leagues + f.teams.map { it.league }
+        val leagues = shownLeagues().filter { !it.tsdb || it.key in mine || r.uppercase() in it.regions.split(',') }.map { it.key }.filter { only == null || it in only }
         val due = leagues.flatMap { l -> easternDates(day).map { "$l|$it" } }.filter { k ->
             val b = synchronized(boards) { boards[k] }
+            val tsdb = k.startsWith("tsdb/")
+            if (tsdb && b != null && !force && now - b.first < 900_000) return@filter false
             force || b == null || b.second.any { it.state == State.LIVE } || now - b.first > 300_000 ||
                 b.second.any { it.state == State.PRE && it.startMs in (b.first)..now }
         }
         coroutineScopeAll(due) { k ->
             val (league, date) = k.split('|').let { it[0] to LocalDate.parse(it[1]) }
-            val raw = runCatching { Net.get("https://site.api.espn.com/apis/site/v2/sports/$league/scoreboard?dates=${date.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)}&limit=300", 15) }.getOrNull()
+            val raw = runCatching { Net.get(boardUrl(league, date), 15) }.getOrNull()
                 ?: return@coroutineScopeAll
-            val list = runCatching { Espn.parseBoard(league, JSONObject(raw)) }.getOrNull() ?: return@coroutineScopeAll
+            val list = runCatching { parse(league, JSONObject(raw)) }.getOrNull() ?: return@coroutineScopeAll
             synchronized(boards) { boards[k] = System.currentTimeMillis() to list }
             runCatching { File(dir, "b_${k.replace('/', '_').replace('|', '_')}.json").writeText(raw) }
         }
         publish()
         updatedAt.value = System.currentTimeMillis()
     }
+
+    /** ESPN, or TheSportsDB for "tsdb/…" leagues (asked at most every 15 min: its free tier has no live feed). */
+    private fun boardUrl(league: String, date: LocalDate) = if (league.startsWith("tsdb/")) Tsdb.dayUrl(league, date)
+        else "https://site.api.espn.com/apis/site/v2/sports/$league/scoreboard?dates=${date.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)}&limit=300"
+    private fun parse(league: String, o: JSONObject) = if (league.startsWith("tsdb/")) Tsdb.parseBoard(league, o) else Espn.parseBoard(league, o)
 
     private suspend fun coroutineScopeAll(keys: List<String>, f: suspend (String) -> Unit) = withContext(Dispatchers.IO) {
         keys.map { k -> async { gate.withPermit { f(k) } } }.awaitAll()
@@ -133,7 +142,7 @@ object Scores {
             if (synchronized(boards) { k in boards }) return@forEach
             val f = File(dir, "b_${k.replace('/', '_').replace('|', '_')}.json")
             if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 7 * 86_400_000L) return@forEach
-            runCatching { Espn.parseBoard(l.key, JSONObject(f.readText())) }.getOrNull()?.let { synchronized(boards) { boards[k] = f.lastModified() to it }; any = true }
+            runCatching { parse(l.key, JSONObject(f.readText())) }.getOrNull()?.let { synchronized(boards) { boards[k] = f.lastModified() to it }; any = true }
         } }
         if (any) publish()
     }
@@ -164,7 +173,7 @@ object Scores {
     }
     suspend fun season(t: Team): List<Game> {
         synchronized(seasons) { seasons[t.key] }?.takeIf { System.currentTimeMillis() - it.first < 3_600_000 }?.let { return it.second }
-        val list = runCatching { Espn.schedule(t.league, t.id) }.getOrDefault(emptyList())
+        val list = runCatching { if (t.league.startsWith("tsdb/")) Tsdb.schedule(t.league, t.id) else Espn.schedule(t.league, t.id) }.getOrDefault(emptyList())
         synchronized(seasons) { seasons[t.key] = System.currentTimeMillis() to list }
         looked.value = (looked.value + list.associateBy { it.key }).let { m -> if (m.size > 400) list.associateBy { it.key } else m }
         return list
@@ -176,7 +185,7 @@ object Scores {
         if (f.exists() && System.currentTimeMillis() - f.lastModified() < 7 * 86_400_000L)
             runCatching { org.json.JSONArray(f.readText()).objs().map { Team(league, it.optString("id"), it.optString("n"), it.optString("a"),
                 if (it.has("c")) it.optLong("c") else null, it.optString("logo").ifBlank { null }) } }.getOrNull()?.let { return@withContext it }
-        val list = runCatching { Espn.teams(league) }.getOrDefault(emptyList())
+        val list = runCatching { if (league.startsWith("tsdb/")) Tsdb.teams(league) else Espn.teams(league) }.getOrDefault(emptyList())
         if (list.isNotEmpty()) runCatching { f.writeText(org.json.JSONArray(list.map { JSONObject().put("id", it.id).put("n", it.name).put("a", it.abbr).put("c", it.color).put("logo", it.logo) }).toString()) }
         list
     }
@@ -185,7 +194,7 @@ object Scores {
     private val tables = HashMap<String, Pair<Long, List<Espn.Group>>>()
     suspend fun table(l: League): List<Espn.Group> {
         synchronized(tables) { tables[l.key] }?.takeIf { System.currentTimeMillis() - it.first < 3_600_000 }?.let { return it.second }
-        val g = runCatching { Espn.standings(l) }.getOrDefault(emptyList())
+        val g = runCatching { if (l.tsdb) Tsdb.standings(l) else Espn.standings(l) }.getOrDefault(emptyList())
         if (g.isNotEmpty()) synchronized(tables) { tables[l.key] = System.currentTimeMillis() to g }
         return g
     }

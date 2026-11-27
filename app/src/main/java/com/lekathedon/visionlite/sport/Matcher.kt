@@ -18,7 +18,7 @@ import java.text.Normalizer
  */
 object Matcher {
     data class Hit(val channel: Channel, val why: Why, val score: Int)
-    enum class Why(val label: String) { YOURS("Your pick"), GUIDE("In the guide"), NETWORK("Network"), LEAGUE("League channel") }
+    enum class Why(val label: String) { YOURS("Your pick"), GUIDE("In the guide"), AI("Found by Gemini"), NETWORK("Network"), LEAGUE("League channel") }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -72,7 +72,21 @@ object Matcher {
         var any = false
         games.take(80).forEach { if (cached(it) == null) { channels(it); any = true } }
         if (any) changed.value++
+        // "Gemini helps find channels" on: games live or starting within 2 h that found nothing ask it (budgeted in AiMatch).
+        if (Scores.settings.value.backgroundGeminiMatching && AiMatch.available()) {
+            val soon = System.currentTimeMillis() + 2 * 3_600_000L
+            games.filter { it.state == State.LIVE || it.state == State.PRE && it.startMs < soon }.filter { cached(it).isNullOrEmpty() && AiMatch.cached(it) == null }
+                .take(6).forEach { g -> if (AiMatch.find(g).isNotEmpty()) { forget(g); channels(g); changed.value++ } }
+        }
     }
+
+    /** Ask Gemini now for one game (game page's "Find with Gemini"); true when it found channels. */
+    suspend fun askAi(g: Game): Boolean {
+        val found = AiMatch.find(g).isNotEmpty()
+        if (found) { forget(g); channels(g); changed.value++ }
+        return found
+    }
+    private fun forget(g: Game) = synchronized(cache) { cache.remove(g.key) }
 
     private fun find(g: Game): List<Hit> {
         val s = Scores.settings.value
@@ -93,6 +107,10 @@ object Matcher {
         add(s.leagueChannels[g.league], Why.YOURS, 700)
         // 2. The guide.
         guide(g, all, s.matchCategories).forEach { (k, sc) -> add(k, Why.GUIDE, sc) }
+        // 2b. Gemini: what it found for this game, and what it taught for this league + network.
+        AiMatch.cached(g)?.forEach { add(it.key, Why.AI, 330 + it.sure) }
+        val taught = AiMatch.learned()
+        (g.networks.ifEmpty { listOf("") }).forEach { n -> add(taught["${g.league}|$n"], Why.AI, 420) }
         // 3. Networks by name; then the league's own channel.
         val league = Leagues.byKey(g.league)
         (g.networks + listOfNotNull(league?.network)).forEach { net ->
@@ -193,7 +211,7 @@ object Matcher {
             else -> s.copy(eventChannels = s.eventChannels + (g.key to c.key))
         })
     }
-    fun block(c: Channel) { val s = Scores.settings.value; Scores.save(s.copy(blocked = s.blocked + c.key)) }
+    fun block(c: Channel) { AiMatch.forget(c.key); val s = Scores.settings.value; Scores.save(s.copy(blocked = s.blocked + c.key)) }
 
     // ---- Refresh channels: one shared job for the Sports page, game pages and the clock ----
 

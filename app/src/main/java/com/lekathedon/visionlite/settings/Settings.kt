@@ -537,6 +537,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> SportsSwitch("Video window", "Games on the left, the channel playing on the right (off: two cards a row, games open full screen)", m, { it.videoWindow }) { s, v -> s.copy(videoWindow = v) } }
         row { m -> SportsSwitch("Best channel first", "A game's channels best match first (off: by channel number)", m, { it.bestChannelFirst }) { s, v -> s.copy(bestChannelFirst = v) } }
         row { m -> SportsSwitch("Score on the info bar", "The game and its score over a channel started from Sports", m, { it.scoreOnInfoBar }) { s, v -> s.copy(scoreOnInfoBar = v) } }
+        if (com.lekathedon.visionlite.recs.AiPicks.Ai.GEMINI.on) row { m -> SportsSwitch("Gemini helps find channels", "For games starting soon that found no channel: Gemini reads your channel names and guide and picks; what it learns needs no call next time", m, { it.backgroundGeminiMatching }) { s, v -> s.copy(backgroundGeminiMatching = v) } }
         row { m -> SportsSwitch("Use the guide's categories", "A sports category in the guide counts towards a match", m, { it.matchCategories }) { s, v -> s.copy(matchCategories = v) } }
         row { m -> SportsSwitch("Show Sports in the IPTV menu", "Off: Sports leaves the hub menu (the clock's Live now stays)", m, { it.showInSidebar }) { s, v -> s.copy(showInSidebar = v) } }
         row { m ->
@@ -1021,9 +1022,13 @@ private suspend fun clearImages(): String = kotlinx.coroutines.withContext(kotli
 }
 
 private val AlertDelays = listOf("0" to "No delay", "15" to "15 s", "30" to "30 s", "60" to "1 min", "90" to "1.5 min")
-private val Regions = listOf("" to "This TV's country", "GB" to "UK & Ireland", "US" to "USA", "CA" to "Canada", "SA" to "Gulf (Saudi, Qatar, UAE…)",
-    "ES" to "Spain", "IT" to "Italy", "DE" to "Germany", "FR" to "France", "PT" to "Portugal", "NL" to "Netherlands", "TR" to "Türkiye",
-    "MX" to "Mexico", "BR" to "Brazil", "AR" to "Argentina", "AU" to "Australia")
+/** A country's flag (regional-indicator letters). */
+private fun flag(cc: String) = if (cc.length != 2) "" else cc.uppercase().map { String(Character.toChars(0x1F1E6 + (it - 'A'))) }.joinToString("") + "  "
+private val Regions = listOf("" to "This TV's country") + listOf(
+    "QA" to "Qatar", "SA" to "Saudi Arabia", "AE" to "UAE", "KW" to "Kuwait", "BH" to "Bahrain", "OM" to "Oman", "EG" to "Egypt",
+    "JO" to "Jordan", "MA" to "Morocco", "GB" to "UK & Ireland", "US" to "USA", "CA" to "Canada", "ES" to "Spain", "IT" to "Italy",
+    "DE" to "Germany", "FR" to "France", "PT" to "Portugal", "NL" to "Netherlands", "TR" to "Türkiye", "MX" to "Mexico",
+    "BR" to "Brazil", "AR" to "Argentina", "AU" to "Australia").map { (c, n) -> c to flag(c) + n }
 
 /** Preferred channel groups for Sports: a group's channels come first when a game has several. */
 @Composable

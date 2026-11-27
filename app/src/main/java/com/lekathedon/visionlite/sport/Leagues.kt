@@ -8,9 +8,11 @@ package com.lekathedon.visionlite.sport
 data class League(
     val key: String, val name: String, val short: String, val sport: Sport, val regions: String = "",
     val usStyle: Boolean = false, val minutes: Int = 120, val words: List<String> = emptyList(), val network: String? = null,
-    val table: Table = Table.POINTS,
+    val table: Table = Table.POINTS, val badge: String? = null,
 ) {
-    val logo get() = "https://a.espncdn.com/i/leaguelogos/${sport.logoPath}/500/${key.substringAfter('/')}.png"
+    /** From TheSportsDB (key "tsdb/<id>") instead of ESPN. */
+    val tsdb get() = key.startsWith("tsdb/")
+    val logo get() = badge ?: if (tsdb) null else "https://a.espncdn.com/i/leaguelogos/${sport.logoPath}/500/${key.substringAfter('/')}.png"
 }
 
 enum class Table { POINTS, US, HOCKEY, DRIVERS, NONE }
@@ -34,6 +36,9 @@ enum class Sport(val label: String, val logoPath: String, val words: List<String
 object Leagues {
     private fun s(key: String, name: String, short: String, regions: String = "", words: List<String> = emptyList(), minutes: Int = 120, table: Table = Table.POINTS) =
         League(key, name, short, Sport.SOCCER, regions, words = words, minutes = minutes, table = table)
+    private const val GULF = "QA,SA,AE,KW,BH,OM"
+    private fun t(id: String, name: String, short: String, regions: String, words: List<String>, badge: String? = null, table: Table = Table.POINTS) =
+        League("tsdb/$id", name, short, Sport.SOCCER, regions, words = words, table = table, badge = badge)
     private fun us(key: String, name: String, short: String, sport: Sport, minutes: Int, network: String? = null, table: Table = Table.US, words: List<String> = emptyList()) =
         League(key, name, short, sport, "US,CA", usStyle = true, minutes = minutes, words = listOf(short.lowercase()) + words, network = network, table = table)
 
@@ -59,6 +64,22 @@ object Leagues {
         s("soccer/tur.1", "Süper Lig", "Süper Lig", "TR", listOf("super lig", "süper lig")),
         s("soccer/ksa.1", "Saudi Pro League", "SPL", "SA,AE,QA,KW,BH,OM,EG", listOf("saudi pro league", "roshn")),
         s("soccer/afc.champions", "AFC Champions League", "ACL", "SA,AE,QA,KW,BH,OM,JP,KR,AU", listOf("afc champions league"), table = Table.NONE),
+        s("soccer/afc.cup", "AFC Champions League Two", "ACL2", GULF, listOf("afc champions league two", "acl two"), table = Table.NONE),
+        s("soccer/afc.asian.cup", "AFC Asian Cup", "Asian Cup", GULF + ",JP,KR,AU,IR,IQ,JO,SY,LB,PS", listOf("asian cup"), table = Table.NONE),
+        s("soccer/afc.cupq", "Asian Cup qualifying", "ACQ", GULF, listOf("asian cup qualif"), table = Table.NONE),
+        s("soccer/fifa.worldq.afc", "World Cup qualifying (Asia)", "WCQ", GULF + ",JP,KR,AU,IR,IQ,JO", listOf("world cup qualifier"), table = Table.NONE),
+        s("soccer/caf.champions", "CAF Champions League", "CAF CL", "EG,MA,DZ,TN,LY,NG,ZA", listOf("caf champions league"), table = Table.NONE),
+        // Arab leagues ESPN doesn't carry: TheSportsDB.
+        t("4663", "Qatar Stars League", "QSL", "QA", listOf("qatar stars league", "expo stars league", "stars league", "دوري نجوم"), "https://r2.thesportsdb.com/images/media/league/badge/hekdan1784606842.png"),
+        t("4971", "Emir Cup", "Emir Cup", "QA", listOf("emir cup", "amir cup", "كأس الأمير"), "https://r2.thesportsdb.com/images/media/league/badge/qjh10v1707589746.png", Table.NONE),
+        t("5192", "QSL Cup", "QSL Cup", "QA", listOf("qsl cup", "ooredoo cup"), table = Table.NONE),
+        t("4678", "UAE Pro League", "UAE PL", "AE", listOf("uae pro league", "adnoc pro league", "دوري أدنوك"), "https://r2.thesportsdb.com/images/media/league/badge/95pes01643234997.png"),
+        t("4829", "Egyptian Premier League", "EPL Egypt", "EG", listOf("egyptian premier league", "egyptian league", "الدوري المصري")),
+        t("4823", "Kuwait Premier League", "KPL", "KW", listOf("kuwait premier league", "kuwaiti league")),
+        t("4826", "Bahrain Premier League", "BPL", "BH", listOf("bahrain premier league")),
+        t("5250", "Oman Professional League", "OPL", "OM", listOf("oman professional league", "omantel league")),
+        t("5055", "Jordanian Pro League", "JPL", "JO", listOf("jordanian pro league", "jordan league")),
+        t("4520", "Botola Pro", "Botola", "MA", listOf("botola", "moroccan league")),
         s("soccer/usa.1", "MLS", "MLS", "US,CA", listOf("mls", "major league soccer")),
         s("soccer/mex.1", "Liga MX", "Liga MX", "MX,US", listOf("liga mx")),
         s("soccer/bra.1", "Brasileirão", "Série A", "BR", listOf("brasileirao", "brasileirão")),

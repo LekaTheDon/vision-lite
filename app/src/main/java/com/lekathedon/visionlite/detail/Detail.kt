@@ -863,10 +863,9 @@ private fun PosterRow(items: List<Imdb.Ref>, firstFocus: FocusRequester? = null,
     }
 }
 
-/** Reviews: IMDb or Trakt (the chips switch; Settings picks the first), read only when this row is reached. */
+/** Reviews from Trakt, read only when this row is reached. */
 @Composable
 private fun Reviews(imdbId: String, series: Boolean, open: (Sheet) -> Unit) {
-    val prefs = App.instance.prefs
     // Trakt's reviews only (2026-11-27: IMDb reviews dropped; one keyless call, no sign-in needed).
     data class R(val author: String, val rating: Int?, val summary: String, val text: String, val spoiler: Boolean, val likes: Int, val date: String?)
     var items by remember(imdbId) { mutableStateOf<List<R>?>(null) }

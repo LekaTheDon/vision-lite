@@ -42,13 +42,9 @@ fun SignInScreen(nav: Nav, id: String, firstStart: Boolean = false, onDone: () -
     var round by remember { mutableStateOf(if (firstStart) 1 else 0) }
     var code by remember { mutableStateOf<SignIns.Code?>(null) }
     var pasting by remember { mutableStateOf(false) }
-    val nuvio = id == "nuvio"
     val debrid = id in Integrations.DEBRID
     val server = id in Integrations.SERVERS
-    val qr = id == "simkl" || nuvio || debrid || server
-    var profiles by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
-    var prof by remember { mutableStateOf(SignIns.nuvioProfile()) }
-    LaunchedEffect(nuvio) { if (nuvio && SignIns.signedIn("nuvio")) profiles = SignIns.nuvioProfiles() }
+    val qr = id == "simkl" || debrid || server
     val first = remember { FocusRequester() }
     LaunchedEffect(code != null, pasting, msg) { runCatching { first.requestFocus() } }
     LaunchedEffect(round) {
@@ -69,22 +65,9 @@ fun SignInScreen(nav: Nav, id: String, firstStart: Boolean = false, onDone: () -
             else { code = null; msg = "The code expired or was refused. Try again." }
             return@LaunchedEffect
         }
-        val c = runCatching { if (nuvio) SignIns.nuvioStart() else SignIns.simklStart() }.getOrElse { msg = "${s.name} not reachable (${it.message})"; return@LaunchedEffect }
+        val c = runCatching { SignIns.simklStart() }.getOrElse { msg = "${s.name} not reachable (${it.message})"; return@LaunchedEffect }
         code = c; msg = ""
-        if (if (nuvio) SignIns.nuvioWait(c) else SignIns.simklWait(c)) {
-            Integrations.touch()
-            if (nuvio) App.instance.prefs.sp.edit().putBoolean("comingup_v3", false).apply()
-            if (nuvio) { profiles = SignIns.nuvioProfiles(); profiles.firstOrNull()?.let { if (SignIns.nuvioProfileName().isBlank()) SignIns.setNuvioProfile(it.first, it.second) } }
-            // Keys saved in Nuvio itself (TorBox, Premiumize, MDBList) fill blank ones here.
-            if (nuvio) runCatching { SignIns.importNuvioKeys(SignIns.nuvioProfile()) }
-            // Your setup from the account (keys, sign-ins, profiles, rows): taken whole, then the app starts fresh with it.
-            if (nuvio && App.instance.prefs.cloudSetup.value) {
-                msg = "Bringing your setup from your Nuvio account…"
-                val restored = runCatching { com.lekathedon.visionlite.integrations.CloudSetup.pull(firstTime = true) }.getOrDefault(false)
-                if (restored) { com.lekathedon.visionlite.integrations.Integrations.setupDone.value = true; msg = "Your setup is back. Restarting…"; kotlinx.coroutines.delay(1200); com.lekathedon.visionlite.integrations.CloudSetup.restart(ctx) }
-                else msg = ""
-            }
-            else onDone()
+        if (SignIns.simklWait(c)) { Integrations.touch(); onDone() }
         } else { code = null; msg = "The code expired or was refused. Try again." }
     }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp)) {
@@ -96,14 +79,6 @@ fun SignInScreen(nav: Nav, id: String, firstStart: Boolean = false, onDone: () -
             }
             (if (debrid) com.lekathedon.visionlite.streams.DebridSignIn.signedIn(id) else if (server) com.lekathedon.visionlite.streams.MediaServers.signedIn(id) else SignIns.signedIn(id)) -> {
                 Text("Signed in${(if (debrid) com.lekathedon.visionlite.streams.DebridSignIn.user(id) else if (server) com.lekathedon.visionlite.streams.MediaServers.user(id) else SignIns.user(id)).takeIf { it.isNotBlank() }?.let { " as $it" } ?: ""}.", color = Palette.Text, fontSize = 16.sp)
-                if (nuvio && profiles.isNotEmpty()) {
-                    Text("Coming up follows this profile:", color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(top = 12.dp))
-                    Row { profiles.forEach { (n, name) ->
-                        Button(if (n == prof) "✓ $name" else name, {
-                            prof = n; SignIns.setNuvioProfile(n, name); App.instance.prefs.sp.edit().putBoolean("comingup_v3", false).apply()
-                        }, Modifier.padding(top = 8.dp, end = 10.dp))
-                    } }
-                }
                 Row {
                     Button(if (firstStart) "Continue" else "Done", onDone, Modifier.padding(top = 16.dp, end = 10.dp).focusRequester(first))
                     Button("Sign out", { Integrations.clear(s) }, Modifier.padding(top = 16.dp))
@@ -149,34 +124,3 @@ fun SignInScreen(nav: Nav, id: String, firstStart: Boolean = false, onDone: () -
     }
 }
 
-/** First start: Nuvio's QR straight away, with a way past it for people without a Nuvio account. */
-@Composable
-fun NuvioFirst(nav: Nav, onPast: () -> Unit) {
-    // Or the whole setup from the phone app: pair it here; when the phone finishes, the TV goes on by itself.
-    var phone by remember { mutableStateOf(false) }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    if (phone) {
-        androidx.activity.compose.BackHandler { phone = false }
-        LaunchedEffect(Unit) { App.instance.prefs.phoneLink.value = true; com.lekathedon.visionlite.link.LinkService.sync(ctx) }
-        Column(Modifier.fillMaxSize().background(LocalLook.current.page)) {
-            Text("Set up from your phone: scan this with the Vision Lite phone app, then follow it there. Keys, sign-ins, YouTube, IPTV " +
-                "and your taste all go to this TV; it moves on by itself when the phone says Done. Back = set up here instead.",
-                color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.fillMaxWidth(0.85f).padding(start = 56.dp, top = 32.dp))
-            com.lekathedon.visionlite.link.PhoneLinkScreen()
-        }
-        return
-    }
-    Column(Modifier.fillMaxSize().background(LocalLook.current.page)) {
-        Column(Modifier.padding(start = 48.dp, top = 48.dp, end = 48.dp)) {
-            Text("Sign in with your Nuvio account", color = Palette.Text, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text("Used Vision before? Everything comes back: keys, sign-ins, profiles, Home and your settings. " +
-                "Keys you saved in Nuvio (TorBox, MDBList…) come too. This TV's own picture and sound settings stay per device.",
-                color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.fillMaxWidth(0.8f).padding(top = 6.dp))
-            Row {
-                Button("I don't use Nuvio", onPast, Modifier.padding(top = 12.dp, end = 12.dp))
-                Button("Set up from your phone", { phone = true }, Modifier.padding(top = 12.dp))
-            }
-        }
-        SignInScreen(nav, "nuvio", firstStart = true, onDone = onPast)
-    }
-}

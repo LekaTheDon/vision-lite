@@ -15,11 +15,11 @@ snappy in every hub. Audit: ~/work/lite-audit/REPORT.md (re-scan: `python3 ~/wor
 ## Order
 1. [ ] **Sports** — rewrite first, in the app's look and skin (replaces 36 files / 12,806 lines; target ≤ 3,500).
    - [x] Spec: spec/SPORTS.md (2026-11-27), all features kept + Refresh channels everywhere.
-   - [ ] Replace the 345 KB ReSeq vocabulary (resources/sports-taxonomy.json) with our own ≤ 30 KB data.
-   - [ ] Replace the nuvio-data source (non-league football, wrestling) with our own data / TheSportsDB.
-   - [ ] Data: ESPN scoreboard only for followed leagues + on-screen league, one loop, stops when off screen.
-   - [ ] Channel matching: own matcher (guide → channel name → league network), no Gemini unless switched on.
-   - [ ] Screens on Kit: Live now / Today rows, game page, My Teams picker, tables — same cards, rows, focus as Home.
+   - [x] Replace the 345 KB ReSeq vocabulary (resources/sports-taxonomy.json) with our own ≤ 30 KB data.
+   - [x] Replace the nuvio-data source (non-league football, wrestling) with our own data / TheSportsDB.
+   - [x] Data: ESPN scoreboard only for followed leagues + on-screen league, one loop, stops when off screen.
+   - [x] Channel matching: own matcher (guide → channel name → league network), no Gemini unless switched on.
+   - [x] Screens on Kit: Live now / Today rows, game page, My Teams picker, tables — same cards, rows, focus as Home.
    - [ ] Delete old sports/ package; re-scan 0%; build; user tests on TV.
 1b. [ ] **Home rewrite: flash-fast Up/Down** (user 2026-11-27: "a full up and down uninterrupted" is the goal; also
        removes the Echo-copied Home code). Spec to write: spec/HOME.md. Causes found in Echo.kt today:
@@ -53,18 +53,18 @@ snappy in every hub. Audit: ~/work/lite-audit/REPORT.md (re-scan: `python3 ~/wor
 - [ ] Licences before selling: TMDB / IMDb commercial or free-to-sell sources only; Vision TB torrent search legal check.
 
 ## Sports features (user 2026-11-27: keep ALL, every one rewritten in the app's look)
-- [ ] Live now + day list (also feeds the clock panel's Live now tab)
-- [ ] My Teams: follow teams / leagues / sports, rows per team and league
-- [ ] Pick Your Teams picker (sport → league → teams)
-- [ ] Game page: score, scoring plays, team stats, pre-game (place, last five, win chance)
-- [ ] League tables (ESPN; TheSportsDB for others; F1 / NASCAR / IndyCar)
-- [ ] Channel finder for each game (guide, channel name, league networks) + failover to the next channel
-- [ ] Gemini guide matching (opt-in, uses the AI key)
-- [ ] Goal alerts for followed teams (shown anywhere)
-- [ ] Pinned scores
-- [ ] Record a game (Live TV recordings)
-- [ ] Region (which leagues show) + flags
-- [ ] NEW: **Refresh channels** everywhere, not only the clock panel: a button on the Sports page and on every live
+- [x] Live now + day list (also feeds the clock panel's Live now tab)
+- [x] My Teams: follow teams / leagues / sports, rows per team and league
+- [x] Pick Your Teams picker (sport → league → teams)
+- [x] Game page: score, scoring plays, team stats, pre-game (place, last five, win chance)
+- [x] League tables (ESPN; TheSportsDB for Qatar/UAE/Egypt/Kuwait/Bahrain/Oman/Jordan/Morocco + Emir Cup; F1 / NASCAR / IndyCar)
+- [x] Channel finder for each game (guide, channel name, league networks) + failover to the next channel
+- [x] Gemini channel finder (2026-11-27, sport/AiMatch.kt): reads only your channel names + guide, never the web; "Find with Gemini" on a game page, or by itself when switched on; what it finds is learned per league + network so later games need no call; 30 calls/h max
+- [x] Goal alerts for followed teams (shown anywhere)
+- [x] Pinned scores
+- [x] Record a game (Live TV recordings)
+- [x] Region (which leagues show) + flags
+- [x] NEW: **Refresh channels** everywhere, not only the clock panel: a button on the Sports page and on every live
       game's page. On a game page it looks again for that game only (fresh TV guide + scores + channel match, each step
       shown, "Updated 14:05 · 3 channels"); on the Sports page it does all live games. One shared refresh job, so
       pressing it in two places never runs it twice.

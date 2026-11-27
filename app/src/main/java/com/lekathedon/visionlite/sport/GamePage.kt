@@ -55,7 +55,7 @@ fun GamePage(nav: Nav, key: String) {
     var sum by remember(g.key) { mutableStateOf<Espn.Summary?>(null) }
     LaunchedEffect(g.key, g.state, g.home?.score, g.away?.score) {
         while (true) {
-            runCatching { Espn.summary(g.league, g.id) }.getOrNull()?.let { sum = it }
+            if (!g.league.startsWith("tsdb/")) runCatching { Espn.summary(g.league, g.id) }.getOrNull()?.let { sum = it }
             if (g.state != State.LIVE) break; delay(30_000)
         }
     }
@@ -123,6 +123,15 @@ fun GamePage(nav: Nav, key: String) {
             item(key = "chh") { Row(verticalAlignment = Alignment.CenterVertically) {
                 KitHeader("Channels", by = if (channels.isEmpty()) "none found yet" else "${channels.size}")
                 Spacer(Modifier.width(16.dp)); KitButton("Fix channel", Icons.Search, { fix = true })
+                // Gemini reads your channel names and guide (never the web) and says which carry this game.
+                if (g.state != State.DONE && AiMatch.available() && hits.none { it.why == Matcher.Why.GUIDE || it.why == Matcher.Why.YOURS }) {
+                    var busy by remember(g.key) { mutableStateOf(false) }
+                    var none by remember(g.key) { mutableStateOf(false) }
+                    Spacer(Modifier.width(10.dp))
+                    KitButton(when { busy -> "Gemini is looking…"; none -> "Gemini found none"; else -> "Find with Gemini" }, Icons.Search, {
+                        if (!busy) { busy = true; scope.launch { none = !Matcher.askAi(g); hits = Matcher.channels(g); busy = false } }
+                    })
+                }
             } }
             items(hits, key = { "c" + it.channel.key }) { h ->
                 val c = h.channel

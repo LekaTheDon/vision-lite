@@ -194,7 +194,7 @@ object SignIns {
         return name.ifBlank { "signed in" }
     }
 
-    // ---- Nuvio account (Vision's TV sign-in: scan, approve on nuvio.tv, nothing typed) ----
+    // ---- Nuvio account: only for the one-time Join import (scan, approve on nuvio.tv, nothing typed) ----
     private const val NUVIO = "https://api.nuvio.tv"
     private var nuvioNonce = ""
     private val JSON = "application/json".toMediaType()
@@ -207,7 +207,7 @@ object SignIns {
         val b = ByteArray(16).also { SecureRandom().nextBytes(it) }
         nuvioNonce = b.joinToString("") { "%02x".format(it) }
         val body = JSONObject().put("p_device_nonce", nuvioNonce).put("p_redirect_base_url", "https://nuvio.tv/link")
-            .put("p_device_type", "tv").put("p_device_name", "Nuvio Vision").toString()
+            .put("p_device_type", "tv").put("p_device_name", "Vision Lite").toString()
         val (c, r) = call(nuvioReq("/rest/v1/rpc/start_device_login_session", body))
         val j = runCatching { org.json.JSONArray(r).getJSONObject(0) }.getOrNull()
         if (c !in 200..299 || j == null || j.optString("device_code").isBlank()) throw java.io.IOException("Nuvio $c")
@@ -262,27 +262,6 @@ object SignIns {
         return call(nuvioReq(path, body, tk))
     }
 
-    /**
-     * Keys you saved in Nuvio itself (its provider credentials for [profile]): TorBox, Premiumize, MDBList. They fill
-     * only blank keys here, so a Vision setup from the account is never overwritten. One call, at Nuvio sign-in.
-     */
-    suspend fun importNuvioKeys(profile: Int): Int {
-        val tk = nuvioToken().ifBlank { return 0 }
-        val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_provider_credentials", JSONObject().put("p_profile_id", profile).toString(), tk))
-        if (c !in 200..299) return 0
-        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return 0
-        val map = mapOf("debrid:torbox" to "torbox", "debrid:premiumize" to "premiumize", "mdblist" to "mdblist")
-        var n = 0
-        for (i in 0 until a.length()) {
-            val row = a.optJSONObject(i) ?: continue
-            val id = map[row.optString("provider").lowercase()] ?: continue
-            val key = row.optJSONObject("credential_json")?.optString("api_key").orEmpty().trim()
-            val svc = Integrations.byId(id)
-            if (key.isBlank() || Integrations.isSet(svc)) continue
-            Integrations.save(svc, listOf(key)); n++
-        }
-        return n
-    }
 
     /** The account's profiles: (number, name). */
     suspend fun nuvioProfiles(): List<Pair<Int, String>> {
@@ -294,141 +273,15 @@ object SignIns {
             .map { it.optInt("profile_index", 1) to it.optString("name").ifBlank { "Profile ${it.optInt("profile_index", 1)}" } }
             .sortedBy { it.first }
     }
-    /**
-     * The chosen profile's picture, as Vision draws it in its pill: the profile's own avatar_url, else its avatar_id
-     * looked up in Nuvio's avatar catalog (public bucket), else in the supporter catalog (signed link, a day). Saved in
-     * si_nuvio_avatar / si_nuvio_avatar_color; asked again after 12 h or when the profile changes (2-3 small calls).
-     */
-    suspend fun refreshNuvioAvatar(force: Boolean = false) {
-        val prof = nuvioProfile().toString()
-        val at = t("si_nuvio_avatar_at").toLongOrNull() ?: 0L
-        if (!force && t("si_nuvio_avatar_for") == prof && System.currentTimeMillis() - at < 12 * 3600_000L) return
-        val all = nuvioFaces()
-        if (all.isEmpty()) return
-        val me = all.firstOrNull { it.index == nuvioProfile() } ?: return
-        put("si_nuvio_avatar" to me.picture, "si_nuvio_avatar_color" to me.color, "si_nuvio_avatar_for" to prof,
-            "si_nuvio_avatar_at" to System.currentTimeMillis().toString())
-    }
 
-    /** A Nuvio profile as Vision's profile picker shows it. */
-    data class Face(val index: Int, val name: String, val color: String, val picture: String)
 
-    /**
-     * Every profile of the account with its picture: its own avatar_url, else its avatar_id in Nuvio's avatar catalog
-     * (public bucket), else in the supporter catalog (signed link, a day). Saved (si_nuvio_faces) for the picker.
-     */
-    suspend fun nuvioFaces(): List<Face> {
-        val tk = nuvioToken().ifBlank { return emptyList() }
-        val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_profiles", "{}", tk))
-        if (c !in 200..299) return cachedFaces()
-        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return cachedFaces()
-        fun s(j: JSONObject, k: String) = if (j.isNull(k)) "" else j.optString(k)
-        var std: String? = null
-        var member: String? = null
-        fun pathIn(body: String?, id: String) = runCatching { org.json.JSONArray(body) }.getOrNull()?.let { arr ->
-            (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.firstOrNull { it.optString("id") == id }?.optString("storage_path")
-        }?.trim()?.trimStart('/')?.takeIf { it.isNotBlank() }
-        val out = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { j ->
-            val idx = j.optInt("profile_index", 1)
-            val avatarId = s(j, "avatar_id")
-            var url = s(j, "avatar_url")
-            if (url.isBlank() && avatarId.isNotBlank()) {
-                if (std == null) std = call(nuvioReq("/rest/v1/rpc/get_avatar_catalog", "{}", tk)).second
-                val path = pathIn(std, avatarId)
-                url = when {
-                    path == null -> {
-                        if (member == null) member = call(nuvioReq("/rest/v1/rpc/get_member_profile_avatar_catalog", "{}", tk)).second
-                        val mp = pathIn(member, avatarId)
-                        if (mp == null) "" else {
-                            val (sc, sb) = call(nuvioReq("/storage/v1/object/sign/membership-profile-avatars/$mp", "{\"expiresIn\":86400}", tk))
-                            val signed = runCatching { JSONObject(sb).optString("signedURL") }.getOrDefault("")
-                            if (sc in 200..299 && signed.isNotBlank()) "$NUVIO/storage/v1/" + signed.trimStart('/') else ""
-                        }
-                    }
-                    path.startsWith("http") -> path
-                    else -> "$NUVIO/storage/v1/object/public/avatars/$path"
-                }
-            }
-            Face(idx, s(j, "name").ifBlank { "Profile $idx" }, s(j, "avatar_color_hex").ifBlank { "#1E88E5" }, url)
-        }.sortedBy { it.index }
-        put("si_nuvio_faces" to org.json.JSONArray().apply {
-            out.forEach { f -> put(JSONObject().put("i", f.index).put("n", f.name).put("c", f.color).put("p", f.picture)) }
-        }.toString())
-        return out
-    }
 
-    /** Nuvio's standard avatar pictures (public bucket; some are animated), for a Lite profile's picture. One call. */
-    suspend fun nuvioAvatarCatalog(): List<String> {
-        val tk = nuvioToken().ifBlank { return emptyList() }
-        val (c, r) = call(nuvioReq("/rest/v1/rpc/get_avatar_catalog", "{}", tk))
-        if (c !in 200..299) return emptyList()
-        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return emptyList()
-        return (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("storage_path")?.trim()?.trimStart('/')?.takeIf { p -> p.isNotBlank() } }
-            .map { if (it.startsWith("http")) it else "$NUVIO/storage/v1/object/public/avatars/$it" }
-    }
 
-    fun cachedFaces(): List<Face> = runCatching {
-        val a = org.json.JSONArray(t("si_nuvio_faces"))
-        (0 until a.length()).map { a.getJSONObject(it) }.map { Face(it.optInt("i"), it.optString("n"), it.optString("c"), it.optString("p")) }
-    }.getOrDefault(emptyList())
 
-    /** Switches to another Nuvio profile (Coming up re-reads that profile's shows). */
-    fun switchNuvioProfile(f: Face) {
-        setNuvioProfile(f.index, f.name)
-        put("si_nuvio_avatar" to f.picture, "si_nuvio_avatar_color" to f.color, "si_nuvio_avatar_for" to f.index.toString(),
-            "si_nuvio_avatar_at" to System.currentTimeMillis().toString())
-        p.sp.edit().putBoolean("comingup_v3", false).apply()
-    }
 
-    fun nuvioAvatar(): String = t("si_nuvio_avatar")
-    fun nuvioAvatarColor(): String = t("si_nuvio_avatar_color")
 
     fun nuvioProfile(): Int = t("si_nuvio_profile").toIntOrNull() ?: 1
-    fun nuvioProfileName(): String = t("si_nuvio_profile_name")
-    fun setNuvioProfile(n: Int, name: String) = put("si_nuvio_profile" to n.toString(), "si_nuvio_profile_name" to name)
 
-    /**
-     * For Coming up: the shows in the Nuvio library and every show with a watched episode in the Nuvio account
-     * (what Vision and Nuvio save there), for the chosen profile. (IMDb id, title). A few requests; nothing when
-     * not signed in.
-     */
-    /**
-     * The Nuvio account, for Coming up: every show in its library or watched there (Vision / Nuvio progress), and the
-     * films saved in its library (watched films are done). Ids as [Followed].
-     */
-    suspend fun nuvioFollowed(): List<Followed> {
-        val tk = nuvioToken().ifBlank { return emptyList() }
-        val prof = nuvioProfile()
-        val out = LinkedHashMap<String, Followed>()
-        fun take(a: org.json.JSONArray, title: String, films: Boolean) {
-            for (i in 0 until a.length()) {
-                val o = a.optJSONObject(i) ?: continue
-                val type = when (o.optString("content_type")) { "series", "tv", "anime" -> "series"; "movie" -> if (films) "movie" else continue; else -> continue }
-                val raw = o.optString("content_id")
-                val id = raw.substringBefore(':').takeIf { it.startsWith("tt") }
-                    ?: raw.removePrefix("tmdb:").substringBefore(':').takeIf { raw.startsWith("tmdb:") && it.isNotBlank() && it.all(Char::isDigit) }?.let { "tmdb:$it" }
-                    ?: continue
-                if (id !in out) out[id] = Followed(type, id, o.optString(title))
-            }
-        }
-        var offset = 0
-        while (offset < 5000) {
-            val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_library",
-                JSONObject().put("p_profile_id", prof).put("p_limit", 500).put("p_offset", offset).toString(), tk))
-            val a = runCatching { org.json.JSONArray(r) }.getOrNull()
-            if (c !in 200..299 || a == null) break
-            take(a, "name", films = true); if (a.length() < 500) break; offset += 500
-        }
-        var page = 1
-        while (page <= 20) {
-            val (c, r) = call(nuvioReq("/rest/v1/rpc/sync_pull_watched_items",
-                JSONObject().put("p_profile_id", prof).put("p_page", page).put("p_page_size", 900).toString(), tk))
-            val a = runCatching { org.json.JSONArray(r) }.getOrNull()
-            if (c !in 200..299 || a == null) break
-            take(a, "title", films = false); if (a.length() < 900) break; page++
-        }
-        return out.values.toList()
-    }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
     private fun dec(s: String) = URLDecoder.decode(s, "UTF-8")
