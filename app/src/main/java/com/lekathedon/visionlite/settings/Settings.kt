@@ -278,7 +278,6 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Accounts")
         row { m -> ServiceRow("trakt", nav, m) }
-        row { m -> ServiceRow("nuvio", nav, m) }
         more = true
         row { m -> DriverRow(Integrations.Group.TRACKING, "Continue watching from", m) }
         more = false
