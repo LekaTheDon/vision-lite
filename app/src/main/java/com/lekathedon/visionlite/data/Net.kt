@@ -22,6 +22,14 @@ object Net {
         .addInterceptor(Our.Key)
         // Calls without the user's own key go to our server, which adds ours (the app ships with none).
         .addInterceptor(Our.Route)
+        // Slow calls (> 0.8 s) to logcat -s VisionNet: which service holds Home / Play up (no URLs' keys: host + path only).
+        .addInterceptor { c ->
+            val t = System.nanoTime(); val r = c.request()
+            val res = c.proceed(r)
+            val ms = (System.nanoTime() - t) / 1_000_000
+            if (ms > 800) android.util.Log.i("VisionNet", "$ms ms ${res.code} ${r.url.host}${r.url.encodedPath.take(80)}")
+            res
+        }
         .build()
 
     suspend fun get(url: String, timeoutSec: Long = 0): String = withContext(Dispatchers.IO) {

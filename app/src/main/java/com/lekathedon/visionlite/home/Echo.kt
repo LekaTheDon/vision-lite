@@ -487,13 +487,16 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         if (ready) return@LaunchedEffect
         val started = System.currentTimeMillis()
         val cap = 30_000L
+        val rowAt = HashMap<String, Long>() // when each visible row was ready (timing log, see below)
         while (System.currentTimeMillis() - started < cap) {
             val keys = visibleKeys
             keys.forEach { vm.prefetch(it) }
             val byKey = vm.rows.value.associateBy { it.key }
+            keys.forEach { k -> if (k !in rowAt && byKey[k]?.let { it.done || it.items.isNotEmpty() } == true) rowAt[k] = System.currentTimeMillis() - started }
             if (keys.isNotEmpty() && keys.all { k -> byKey[k]?.let { it.done || it.items.isNotEmpty() } != false }) break
             delay(100)
         }
+        val rowsMs = System.currentTimeMillis() - started
         val px = with(density) { dims.posterWidth.roundToPx() to dims.posterHeight.roundToPx() }
         val wide = with(density) { dims.cwWidth.roundToPx() to dims.cwHeight.roundToPx() }
         val hi = with(density) { dims.highlightWidth.roundToPx() to dims.highlightHeight.roundToPx() }
@@ -524,6 +527,9 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                 }
             }
         }
+        // Hub open timing (2026-11-27, "hubs open slower"): rows wait, then pictures, slowest rows first. logcat -s VisionHub
+        android.util.Log.i("VisionHub", "${hub.key}: rows ${rowsMs} ms, pictures ${System.currentTimeMillis() - started - rowsMs} ms (${urls.size}), " +
+            "slowest " + rowAt.entries.sortedByDescending { it.value }.take(5).joinToString { "${it.key}=${it.value}" })
         HomeReady.done += hub; ready = true
     }
     val heroPx = with(density) { 470.dp.toPx() }
