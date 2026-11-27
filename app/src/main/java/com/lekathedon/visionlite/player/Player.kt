@@ -631,7 +631,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             session.resumeAt = player.currentPosition
             // One line per play in files/reports/playback.log (last 60): what played how, so a stutter is measured next time.
             // What this play really downloaded at: the internet speed autoplay plans with next time.
-            if (current == Engine.EXO && s.type != "live" && exoStats.bandwidth > 0) com.lekathedon.visionlite.device.DeviceProof.playSpeed(exoStats.bandwidth / 1e6)
+            // Only a play that really struggled (rebuffered after 2+ minutes of watching) says the line is too slow; its
+            // best speed is then the limit. Smooth plays teach nothing (user 2026-11-28: last estimates at Back, taken
+            // with a full buffer, sank the TCL to 720p links).
+            if (current == Engine.EXO && s.type != "live" && exoStats.rebuffers >= 2 && player.currentPosition > 120_000 && exoStats.peakBandwidth > 0)
+                com.lekathedon.visionlite.device.DeviceProof.playSpeed(exoStats.peakBandwidth / 1e6)
             if (current == Engine.EXO && s.type != "live") PlayLog.add(title, s.name.lineSequence().firstOrNull().orEmpty(), session.reason,
                 exoStats.videoDecoder, myAss?.renderType?.name, dvOn[0], felNow.get(), exoStats.dropped, exoStats.rebuffers, player.currentPosition,
                 subs = picked(player, androidx.media3.common.C.TRACK_TYPE_TEXT), audio = picked(player, androidx.media3.common.C.TRACK_TYPE_AUDIO))

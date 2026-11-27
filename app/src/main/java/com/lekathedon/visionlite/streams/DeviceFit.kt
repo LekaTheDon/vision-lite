@@ -42,7 +42,7 @@ object DeviceFit {
                 dv7 = true,
                 dv5 = !known || (it.dvDecoder && (it.dvTv || p.dv5To81.value)) || p.dv5Mpv.value,
                 // The lower of the speed test and what real plays got: a slow evening counts.
-                mbps = com.lekathedon.visionlite.device.DeviceProof.mbps(it.mbps),
+                mbps = it.mbps,
             )
         }
         cache = key to c
@@ -76,12 +76,17 @@ object DeviceFit {
         // 4K on a TV that shows 1080p: no gain, four times the data.
         if (h >= 2160 && c.tvH in 1..1200) out = POOR
         // The internet: the file's average rate against the measured speed (peaks run about twice the average).
-        val mbps = c.mbps
+        // Plays that really stalled (2+ rebuffers after 2 min) rule a file out; the one-off 6 s speed test (one
+        // connection, often slower than a debrid CDN) only moves a file down when it is far too slow for it.
+        val proven = com.lekathedon.visionlite.device.DeviceProof.provenMbps()
+        val test = c.mbps
         val rate = if (bytes > 0) bytes * 8.0 / ((if (minutes > 0) minutes else 110) * 60.0) / 1e6 else 0.0
         // Over 150 Mb/s on average is no single film (a 4K remux runs 40-80): a season pack's size, so not judged.
-        if (mbps != null && mbps > 0 && rate in 0.1..150.0) {
-            if (rate > mbps * 1.2) return NO
-            if (rate > mbps * 0.6) out = POOR
+        if (rate in 0.1..150.0) {
+            if (proven != null && proven > 0) {
+                if (rate > proven * 1.2) return NO
+                if (rate > proven * 0.8) out = POOR
+            } else if (test != null && test > 0 && rate > test * 3) out = POOR
         }
         return out
     }

@@ -29,10 +29,13 @@ object DeviceProof {
     fun playSpeed(mbps: Double) {
         if (mbps <= 0.5) return
         val list = (seen() + mbps).takeLast(5)
-        sp.edit().putString("mbps_seen", list.joinToString(",") { "%.1f".format(java.util.Locale.ROOT, it) }).apply()
+        sp.edit().putString("mbps_seen2", list.joinToString(",") { "%.1f".format(java.util.Locale.ROOT, it) }).apply()
     }
 
-    private fun seen(): List<Double> = sp.getString("mbps_seen", "").orEmpty().split(',').mapNotNull { it.toDoubleOrNull() }
+    private fun seen(): List<Double> = sp.getString("mbps_seen2", "").orEmpty().split(',').mapNotNull { it.toDoubleOrNull() }
+
+    /** What plays that really stalled reached (median), null when none did: the only speed that rules links out. */
+    fun provenMbps(): Double? = seen().sorted().takeIf { it.isNotEmpty() }?.let { it[it.size / 2] }
 
     /** The internet speed to plan with: the lower of the speed test and what plays really got (median), null = unknown. */
     fun mbps(test: Double?): Double? {

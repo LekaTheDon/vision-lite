@@ -80,9 +80,16 @@ fun best(links: List<Link>, id: String = ""): Link? = AutoPick.order(links, id).
 /** True when it started a link; false leaves the list (with a note) for you to pick. */
 private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: (String) -> Unit): Boolean {
     val target = EpisodeCheck.targetOf(s.id)
-    val order = AutoPick.order(all, s.id)
-    if (order.isEmpty()) { say(if (all.any { it.playable }) "Autoplay: no link is surely this episode, pick one" else ""); return false }
-    LinkLog.add("${s.title}: ${order.size} safe links of ${all.size}; top: " + order.take(5).mapIndexed { i, l -> "\n  ${i + 1}. ${AutoPick.describe(l)}" }.joinToString(""))
+    val order0 = AutoPick.order(all, s.id)
+    if (order0.isEmpty()) { say(if (all.any { it.playable }) "Autoplay: no link is surely this episode, pick one" else ""); return false }
+    LinkLog.add("${s.title}: ${order0.size} safe links of ${all.size} (speed test ${DeviceFit.can()?.mbps?.let { "%.0f".format(it) } ?: "-"} Mb/s, stalled plays ${com.lekathedon.visionlite.device.DeviceProof.provenMbps()?.let { "%.0f".format(it) } ?: "none"}); top: " + order0.take(5).mapIndexed { i, l -> "\n  ${i + 1}. ${AutoPick.describe(l)}" }.joinToString(""))
+    // Resume: the saved file first when it is as good as the best one here.
+    val order = ResumeLinks.savedKey(s.id)?.let { key ->
+        val saved = order0.firstOrNull { LinkMemory.keyOf(it) == key }
+        val keep = saved != null && AutoPick.asGood(saved, order0.first())
+        LinkLog.add("resume: saved link ${if (saved == null) "not in the results" else if (keep) "is as good as the best: kept" else "is worse than the best: better copy plays"}")
+        if (keep) listOf(saved!!) + order0.filter { it !== saved } else order0
+    } ?: order0
     var wrong = 0
     for (l in order.take(4)) {
         val url = l.stream.url
@@ -136,14 +143,9 @@ fun Streams(nav: Nav, s: Screen.Streams,
         }
         // Hand fixes for titles (TitleFixes): a newer signed copy, at most every 12 h, only when FIXES_URL is set.
         launch { com.lekathedon.visionlite.tb.TitleFixes.refresh() }
-        // Resume on the exact link: a title stopped part-way plays the same file again, no search (falls through if it won't come).
-        if (auto && ResumeLinks.has(s.id)) {
-            getting = "Resuming on the same link…"
-            val back = ResumeLinks.screen(s)
-            if (back != null) com.lekathedon.visionlite.addons.Subs.await(s.type, s.id)
-            if (back != null) { LinkFallback.set(s, emptyList()); nav.replace(back); return@LaunchedEffect }
-            getting = ""
-        }
+        // Resume (user 2026-11-28): the same file only when it is still the best copy for this device. The sources are
+        // asked like Play; autoplay keeps the saved file when it is as good as the top pick (AutoPick.asGood), else
+        // the better copy plays from the same place. Cost: Resume waits for the search like Play (a few seconds).
         val tbOn = com.lekathedon.visionlite.tb.VisionTb.isOn()
         val servers = MediaServers.plexOn() || MediaServers.jellyfinOn()
         // IPTV VOD in Vision TB's group (user 2026-11-22): only when a playlist listed films / series.

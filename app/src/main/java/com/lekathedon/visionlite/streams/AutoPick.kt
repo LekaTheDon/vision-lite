@@ -439,6 +439,19 @@ object AutoPick {
     }
 
     /** The order autoplay tries links in (the manual list keeps every row). */
+    /**
+     * [l] is as good as [top] here: same fit, same 4K, same Dolby Vision tier (FEL on a FEL box), and at least 90 % of
+     * its size. Resume keeps its saved file only then (user 2026-11-28: never locked out of the best copy).
+     */
+    fun asGood(l: Link, top: Link, minutes: Int = 0): Boolean {
+        if (l === top) return true
+        val ql = ReleaseQuality.parse(textFor(l)); val qt = ReleaseQuality.parse(textFor(top))
+        val fl = DeviceFit.fit(textFor(l), ql, l.bytes, minutes, l.height); val ft = DeviceFit.fit(textFor(top), qt, top.bytes, minutes, top.height)
+        val k4l = ql.resolution == 2160 || l.height == 2160; val k4t = qt.resolution == 2160 || top.height == 2160
+        val dvl = if (felBox) dvTier(textFor(l), ql) else 0; val dvt = if (felBox) dvTier(textFor(top), qt) else 0
+        return fl >= ft && (k4l || !k4t) && dvl >= dvt && (top.bytes <= 0 || l.bytes >= top.bytes * 0.9)
+    }
+
     fun order(links: List<Link>, videoId: String): List<Link> {
         // Link memory: a link that failed or kept buffering this week is skipped; your pick for the show goes first.
         val t = EpisodeCheck.targetOf(videoId)

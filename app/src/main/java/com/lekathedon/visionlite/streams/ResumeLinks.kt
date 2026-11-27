@@ -39,7 +39,10 @@ object ResumeLinks {
             !st.url.isNullOrBlank() -> j.put("url", st.url)
             else -> return
         }
-        val o = all(); o.put(videoId, j); save(o)
+        val o = all()
+        // Resume on a better copy: the place you stopped stays (a new link doesn't start the film over).
+        o.optJSONObject(videoId)?.optDouble("pct", 0.0)?.takeIf { it in 2.0..92.0 }?.let { j.put("pct", it) }
+        o.put(videoId, j); save(o)
     }
 
     /** The player's position when it closes: finished (80 %+) drops the link, else its % is kept. */
@@ -58,6 +61,9 @@ object ResumeLinks {
 
     /** The % saved with the link (Resume without Trakt), or -1. */
     fun pct(videoId: String): Float = all().optJSONObject(videoId)?.optDouble("pct", -1.0)?.toFloat() ?: -1f
+
+    /** The saved link's key (LinkMemory.keyOf), or null. */
+    fun savedKey(videoId: String): String? = entry(videoId)?.optString("key")?.ifBlank { null }
 
     /** True when [videoId] has a link to resume on (stopped part-way, not marked bad). */
     fun has(videoId: String): Boolean = entry(videoId) != null

@@ -83,6 +83,8 @@ class ExoStats : AnalyticsListener {
     var underruns = 0; var underrunAt = 0L
     var loadErrors = 0
     var bandwidth = 0L
+    /** The highest estimate this play reached (the last one, taken when the buffer is full, says nothing of the line). */
+    var peakBandwidth = 0L
     var videoDecoder: String? = null
     var audioDecoder: String? = null
     var rebuffers = 0; var rebufferAt = 0L
@@ -95,7 +97,7 @@ class ExoStats : AnalyticsListener {
     override fun onDroppedVideoFrames(t: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) { dropped += droppedFrames; droppedAt = SystemClock.elapsedRealtime(); hitch(t, "$droppedFrames frames dropped in ${elapsedMs} ms") }
     override fun onAudioUnderrun(t: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) { underruns++; underrunAt = SystemClock.elapsedRealtime(); hitch(t, "audio ran dry (buffer ${bufferSizeMs} ms, last feed ${elapsedSinceLastFeedMs} ms ago)") }
     override fun onLoadError(t: AnalyticsListener.EventTime, l: LoadEventInfo, m: MediaLoadData, e: java.io.IOException, wasCanceled: Boolean) { loadErrors++; if (!wasCanceled) hitch(t, "download error: ${e.javaClass.simpleName}") }
-    override fun onBandwidthEstimate(t: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) { bandwidth = bitrateEstimate }
+    override fun onBandwidthEstimate(t: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) { bandwidth = bitrateEstimate; if (bitrateEstimate > peakBandwidth) peakBandwidth = bitrateEstimate }
     override fun onVideoDecoderInitialized(t: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) { videoDecoder = decoderName }
     override fun onAudioDecoderInitialized(t: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) { audioDecoder = decoderName }
     override fun onPlaybackStateChanged(t: AnalyticsListener.EventTime, state: Int) {
