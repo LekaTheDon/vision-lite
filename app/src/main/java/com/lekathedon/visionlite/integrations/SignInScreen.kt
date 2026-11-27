@@ -68,7 +68,7 @@ fun SignInScreen(nav: Nav, id: String, firstStart: Boolean = false, onDone: () -
         val c = runCatching { SignIns.simklStart() }.getOrElse { msg = "${s.name} not reachable (${it.message})"; return@LaunchedEffect }
         code = c; msg = ""
         if (SignIns.simklWait(c)) { Integrations.touch(); onDone() }
-        } else { code = null; msg = "The code expired or was refused. Try again." }
+        else { code = null; msg = "The code expired or was refused. Try again." }
     }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp)) {
         Text(s.name, color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 14.dp))

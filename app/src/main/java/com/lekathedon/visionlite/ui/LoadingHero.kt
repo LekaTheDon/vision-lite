@@ -46,7 +46,7 @@ fun LoadingHero(id: String, title: String, status: String, sub: String = "", mod
             Spacer(Modifier.height(12.dp))
             var logoFailed by remember(imdb) { mutableStateOf(imdb == null) }
             val name = title.replace(Regex("""\s+S\d+E\d+$"""), "")
-            if (!logoFailed) coil3.compose.AsyncImage(com.lekathedon.visionlite.data.Our.logo(imdb, "medium"), name,
+            if (!logoFailed) coil3.compose.AsyncImage(com.lekathedon.visionlite.data.Our.logo(imdb.orEmpty(), "medium"), name,
                 Modifier.sizeIn(maxWidth = 380.dp, maxHeight = 110.dp), contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
                 onError = { logoFailed = true })
             else DisplayText(name.uppercase(), 32.sp, maxLines = 2)

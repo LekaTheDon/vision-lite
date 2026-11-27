@@ -58,7 +58,7 @@ object OwnScore {
         val key = "f:$imdb:${more.hashCode()}:$trakt"
         synchronized(cache) { if (cache.containsKey(key)) return@withContext cache[key] }
         val local = buildList {
-            t?.rating?.let { add(Part("imdb", it)) }
+            t?.rating?.let { add(Part("imdb", it.toDouble())) }
             more.tmdb?.toDoubleOrNull()?.let { add(Part("tmdb", it / 10)) }
             trakt?.let { add(Part("trakt", it)) }
             t?.metascore?.let { add(Part("metacritic", it / 10.0)) }
