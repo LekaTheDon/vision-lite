@@ -370,7 +370,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     fun sportsFailover(): Boolean {
         if (s.type != "live") return false
         val key = com.lekathedon.visionlite.iptv.Iptv.byUrl(s.url)?.key ?: return false
-        val (game, ch) = com.lekathedon.visionlite.sports.SportsFailover.next(key) ?: return false
+        val (game, ch) = com.lekathedon.visionlite.sport.Host.next(key) ?: return false
         failNote = "This channel won't play · trying ${ch.name} for $game"
         com.lekathedon.visionlite.iptv.Iptv.channelsByKey(listOf(ch.key)).firstOrNull()?.let { com.lekathedon.visionlite.iptv.Iptv.played(it) }
         nav.replace(Screen.Player(ch.url, ch.name, ch.headers, type = "live"))

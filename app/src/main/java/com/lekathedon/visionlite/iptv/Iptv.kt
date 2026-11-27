@@ -499,20 +499,6 @@ object Iptv {
         return CatchupUrlBuilder.build(c.url, cu, pr.startMs, pr.stopMs, now)
     }
 
-    // ---- for Sports: every channel, and the guide in the shape Vision's matcher reads ----
-
-    @Volatile private var liveCache: Pair<Int, List<com.lekathedon.visionlite.sports.LiveChannel>>? = null
-    fun liveChannels(): List<com.lekathedon.visionlite.sports.LiveChannel> {
-        val v = _version.value
-        liveCache?.takeIf { it.first == v }?.let { return it.second }
-        val names = playlists().associate { it.id to it.name }
-        val list = channels(null).map { c ->
-            com.lekathedon.visionlite.sports.LiveChannel(c.key, c.pl, names[c.pl].orEmpty(), c.name, c.tvg, c.tvg, c.logo,
-                c.pl + "|" + c.group, c.group, c.n, c.url, c.headers, c.catchup)
-        }
-        liveCache = v to list
-        return list
-    }
 
     internal fun guideRevision(): String? = db.readableDatabase.rawQuery("SELECT v FROM meta WHERE k='guide_rev'", null).use { if (it.moveToFirst()) it.getString(0) else null }
     internal fun guideDb(): SQLiteDatabase = db.readableDatabase

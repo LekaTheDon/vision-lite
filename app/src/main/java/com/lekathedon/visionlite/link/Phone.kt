@@ -51,7 +51,7 @@ internal class Phone(private val secret: () -> String) {
         }
         val store = App.instance.addons
         val addons = store.all.value
-        val sports = com.lekathedon.visionlite.sports.Sports.follows.reminders
+        val sports = com.lekathedon.visionlite.sport.Scores.follows.value.reminders
         val state = JSONObject()
             .put("profile", active).put("active", active).put("profiles", profiles)
             .put("addons", JSONObject().put("urls", JSONArray(addons.map { it.manifestUrl() })).put("enabled", JSONObject().apply { addons.forEach { put(it.manifestUrl(), store.isOn(it.base)) } }))
@@ -60,7 +60,7 @@ internal class Phone(private val secret: () -> String) {
                 .put("bells", JSONArray(bells().toList()))
                 .put("live", runCatching { JSONArray(p.phoneLive.value) }.getOrDefault(JSONArray()))
                 .put("sports", JSONObject().put("reminders", JSONArray().apply {
-                    sports.forEach { put(JSONObject().put("e", it.eventId).put("t", it.title).put("s", it.startMs)) }
+                    sports.forEach { put(JSONObject().put("e", it.game).put("t", it.title).put("s", it.startMs)) }
                 })))
             .put("scoutRatings", JSONArray().apply {
                 Recs.feedback().filter { !it.watched }.sortedByDescending { it.at }.forEach { f ->
@@ -216,12 +216,12 @@ internal class Phone(private val secret: () -> String) {
                 p.phoneLive.value = kept.toString()
             }
             "sportsReminder" -> {
-                val f = com.lekathedon.visionlite.sports.Sports.follows
+                val f = com.lekathedon.visionlite.sport.Scores.follows.value
                 val e = o.optString("eventId").ifBlank { error("no game") }
-                val rest = f.reminders.filter { it.eventId != e }
+                val rest = f.reminders.filter { it.game != e }
                 val next = if (o.optString("op") == "add")
-                    rest + com.lekathedon.visionlite.sports.SportsReminder(e, o.optString("title"), o.optLong("startMs")) else rest
-                com.lekathedon.visionlite.sports.SportsMine.save(f.copy(reminders = next))
+                    rest + com.lekathedon.visionlite.sport.Reminder(e, o.optString("title"), o.optLong("startMs")) else rest
+                com.lekathedon.visionlite.sport.Scores.save(f.copy(reminders = next))
             }
             "addon" -> {
                 val store = App.instance.addons

@@ -659,7 +659,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             onLeft = { pillEnd++ }, ready = ready
         )
         // Inside the clock the look and skin apply (only the clock itself keeps Home's shape).
-        if (clockPanel) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.sports.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } } }
+        if (clockPanel) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.sport.ClockPanel(nav) { clockPanel = false; runCatching { clockFocus.requestFocus() } } }
         hold?.let { (row, m) -> HoldMenu(row, m, scope) { removed ->
             hold = null
             val old = LastFocus

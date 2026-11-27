@@ -31,6 +31,7 @@ import com.lekathedon.visionlite.ui.Look
 import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
+import com.lekathedon.visionlite.ui.skinPage
 
 class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
@@ -161,12 +162,11 @@ class MainActivity : ComponentActivity() {
                         Screen.ThisTv -> Settings(nav, start = "This TV")
                         Screen.Library -> com.lekathedon.visionlite.library.Library(nav)
                         Screen.LiveTv -> com.lekathedon.visionlite.iptv.LiveTv(nav)
-                        Screen.Sports -> com.lekathedon.visionlite.sports.SportsScreen(nav)
-                        // Vision's hub has the game page, Pick Your Teams and the tables inside it: these open it there.
-                        Screen.SportsTeams -> { androidx.compose.runtime.remember(s) { com.lekathedon.visionlite.sports.SportsLaunch.openPicker() }; com.lekathedon.visionlite.sports.SportsScreen(nav) }
-                        Screen.SportsMyTeams -> { androidx.compose.runtime.remember(s) { com.lekathedon.visionlite.sports.SportsLaunch.openArrange() }; com.lekathedon.visionlite.sports.SportsScreen(nav) }
-                        is Screen.SportsGame -> { androidx.compose.runtime.remember(s) { com.lekathedon.visionlite.sports.SportsLaunch.openEvent(s.id) }; com.lekathedon.visionlite.sports.SportsScreen(nav) }
-                        is Screen.Standings -> com.lekathedon.visionlite.sports.SportsScreen(nav)
+                        Screen.Sports -> com.lekathedon.visionlite.sport.SportPage(nav)
+                                                Screen.SportsTeams -> com.lekathedon.visionlite.sport.Picker(nav, arrange = false)
+                        Screen.SportsMyTeams -> com.lekathedon.visionlite.sport.Picker(nav, arrange = true)
+                        is Screen.SportsGame -> com.lekathedon.visionlite.sport.GamePage(nav, s.id)
+                        is Screen.Standings -> com.lekathedon.visionlite.ui.Inside(true) { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().skinPage().padding(start = 40.dp, end = 32.dp, top = 24.dp)) { com.lekathedon.visionlite.sport.Tables(nav, s.leagueId.ifBlank { null }) } }
                         Screen.Vod -> com.lekathedon.visionlite.iptv.VodScreen(nav)
                         Screen.Recordings -> com.lekathedon.visionlite.iptv.RecordingsScreen(nav)
                         Screen.Cloud -> com.lekathedon.visionlite.streams.CloudScreen(nav)
@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
                     }
                   }
                   // Sports wherever you are: reminders, scoring cards, pinned scores (dormant until Live TV / Sports opened).
-                  com.lekathedon.visionlite.sports.SportsHost(nav)
+                  com.lekathedon.visionlite.sport.SportsHost(nav)
                   com.lekathedon.visionlite.home.TasteMenuHost()
                   com.lekathedon.visionlite.home.RateHost()
                   // Vision TB: a source that stopped working (or came back), told once.

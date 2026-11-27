@@ -526,9 +526,9 @@ fun Settings(nav: Nav, start: String? = null) {
         more = true
         row { m -> SportsSwitch("Remind me of my teams' games", "A card a few minutes before they start", m, { it.remindMyTeams }) { s, v -> s.copy(remindMyTeams = v) } }
         row { m ->
-            var v by remember { mutableStateOf(com.lekathedon.visionlite.sports.Sports.settings.remindMinutes.toString()) }
+            var v by remember { mutableStateOf(com.lekathedon.visionlite.sport.Scores.settings.value.remindMinutes.toString()) }
             ChoiceOf("Remind me", "How long before the start", v, RemindOpts, m) { pick -> v = pick
-                com.lekathedon.visionlite.sports.SportsMine.saveSettings(com.lekathedon.visionlite.sports.Sports.settings.copy(remindMinutes = pick.toInt())) }
+                com.lekathedon.visionlite.sport.Scores.save(com.lekathedon.visionlite.sport.Scores.settings.value.copy(remindMinutes = pick.toInt())) }
         }
         row { m -> SportsSwitch("Switch to the game by itself", "When a reminder is up: its best channel a minute before the start (10 s to cancel)", m, { it.autoSwitch }) { s, v -> s.copy(autoSwitch = v) } }
         row { m -> SportsSwitch("Scoring alerts", "A card when a team you follow scores (waits 30 s so it never beats your stream)", m, { it.scoringAlerts }) { s, v -> s.copy(scoringAlerts = v) } }
@@ -1043,10 +1043,10 @@ private val RemindOpts = listOf("0" to "At the start", "5" to "5 min before", "1
 
 /** A Sports setting (kept in Sports' own settings, as Vision). */
 @Composable
-private fun SportsSwitch(title: String, sub: String, modifier: Modifier, get: (com.lekathedon.visionlite.sports.SportsSettings) -> Boolean,
-                         set: (com.lekathedon.visionlite.sports.SportsSettings, Boolean) -> com.lekathedon.visionlite.sports.SportsSettings) {
-    var on by remember { mutableStateOf(get(com.lekathedon.visionlite.sports.Sports.settings)) }
-    Focusable({ on = !on; com.lekathedon.visionlite.sports.SportsMine.saveSettings(set(com.lekathedon.visionlite.sports.Sports.settings, on)) },
+private fun SportsSwitch(title: String, sub: String, modifier: Modifier, get: (com.lekathedon.visionlite.sport.Settings) -> Boolean,
+                         set: (com.lekathedon.visionlite.sport.Settings, Boolean) -> com.lekathedon.visionlite.sport.Settings) {
+    var on by remember { mutableStateOf(get(com.lekathedon.visionlite.sport.Scores.settings.value)) }
+    Focusable({ on = !on; com.lekathedon.visionlite.sport.Scores.save(set(com.lekathedon.visionlite.sport.Scores.settings.value, on)) },
         modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f -> RowText(title, sub, null, f, switch = on) }
 }
 
