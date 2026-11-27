@@ -87,11 +87,14 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
     // Suggestions as you type: 0.25 s after typing stops, IMDb's feed (see Suggest). Also sent to the keyboard's
     // suggestion bar; picking one there fills the field with that title, which searches it at once.
     var hints by remember { mutableStateOf<List<MetaPreview>>(emptyList()) }
+    // People for the name typed (IMDb's feed, same request as the title hints): OK opens their page.
+    var people by remember { mutableStateOf<List<MetaPreview>>(emptyList()) }
     val view = androidx.compose.ui.platform.LocalView.current
     LaunchedEffect(q) {
-        if (q.trim().length < 2) { hints = emptyList(); return@LaunchedEffect }
+        if (q.trim().length < 2) { hints = emptyList(); people = emptyList(); return@LaunchedEffect }
         kotlinx.coroutines.delay(250)
         hints = Suggest.of(q)
+        people = Suggest.people(q)
     }
     LaunchedEffect(hints) {
         val imm = view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
@@ -105,13 +108,18 @@ private fun SearchOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
                 textStyle = TextStyle(color = Palette.Text, fontSize = 18.sp), cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { run() }),
                 modifier = Modifier.fillMaxWidth(0.6f).focusRequester(field).background(Palette.Card).padding(14.dp),
-                decorationBox = { inner -> if (q.isEmpty()) Text(if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "Search anime" else "Search movies and series",
+                decorationBox = { inner -> if (q.isEmpty()) Text(if (hub == com.lekathedon.visionlite.anime.Hub.ANIME) "Search anime or people" else "Search movies, series and people",
                     color = Palette.TextDim, fontSize = 18.sp); inner() })
         }
         if (results.isEmpty() && hints.isNotEmpty() && q.trim().length >= 2) item {
             val hints = com.lekathedon.visionlite.browse.hubOnly(hints)
             Text("Suggestions", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
             com.lekathedon.visionlite.home.PageRow("search:hints", "", hints, sub = { it.releaseInfo }, markLeftOut = true) { m -> nav.push(Screen.Detail(m.type, m.id, m.name)) }
+        }
+        if (people.isNotEmpty() && q.trim().length >= 2) item(key = "search:people") {
+            com.lekathedon.visionlite.home.PageRow("search:people", "People", people, sub = { it.description }, filter = false) { m ->
+                nav.push(Screen.Person(m.id, m.name))
+            }
         }
         if (results.isEmpty() && recent.isNotEmpty() && hints.isEmpty()) item {
             Text("Recent", color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))

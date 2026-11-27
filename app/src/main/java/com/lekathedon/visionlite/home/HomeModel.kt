@@ -50,7 +50,14 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private val state = MutableStateFlow<List<Row>>(emptyList())
     /** Each row's items as their source gave them; the row shows only this hub's ([keep]). */
     private val raw = HashMap<String, List<MetaPreview>>()
-    private fun keep(list: List<MetaPreview>) = list.filter { Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) }
+    private fun keep(list: List<MetaPreview>, key: String = ""): List<MetaPreview> {
+        val upcoming = key.isNotEmpty() && com.lekathedon.visionlite.recs.Released.upcomingRow(key, state.value.firstOrNull { it.key == key }?.title)
+        // A row that is mostly a left-out country / language ("Korean" picks with no Korean in its name) goes whole
+        // (user 2026-11-27: a whole Korean row showed with Korean left out).
+        if (list.size >= 4 && com.lekathedon.visionlite.recs.LeaveOut.on() && list.count { com.lekathedon.visionlite.recs.LeaveOut.placeOut(it.id) } * 2 >= list.size) return emptyList()
+        return list.filter { Hubs.keeps(hub, it) && !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) &&
+            (upcoming || !com.lekathedon.visionlite.recs.Released.hides(it)) }
+    }
     /** Leave out: a left-out title, or a tile about something left out (a Horror genre tile, a "Korean" mood). */
     private fun leftOut(m: MetaPreview) = com.lekathedon.visionlite.recs.LeaveOut.on() && (if (m.type == "movie" || m.type == "series") com.lekathedon.visionlite.recs.LeaveOut.hides(m) else com.lekathedon.visionlite.recs.LeaveOut.rowHidden(m.name, m.id))
     private val rowOrder get() = Hubs.rowOrder(hub)
@@ -135,8 +142,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch { combine(Recs.pool(hub), Recs.changed, AiPicks.picks(hub)) { _, _, _ -> }.collect { engineKeys.forEach { fill(it) } } }
         // Hide adult titles: a title found out to be adult leaves every row at once.
         viewModelScope.launch {
-            combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow, com.lekathedon.visionlite.recs.LeaveOut.revision, app.prefs.leaveOut.flow) { a, b, _, _ -> a to b }.collect {
-                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it).let { k -> if (r.key in VisionRows.ranked) k.take(20) else k }) } ?: r }
+            combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow, com.lekathedon.visionlite.recs.LeaveOut.revision, app.prefs.leaveOut.flow,
+                combine(com.lekathedon.visionlite.recs.Released.revision, app.prefs.hideUnreleased.flow) { x, y -> x to y }) { a, b, _, _, _ -> a to b }.collect {
+                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it, r.key).let { k -> if (r.key in VisionRows.ranked) k.take(20) else k }) } ?: r }
                 cwState.value = cwRaw.filter { cwKeeps(it) }
             }
         }
@@ -159,7 +167,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         viewModelScope.launch {
             AnimeIds.changed.collect { n ->
                 if (n == 0) return@collect
-                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it).let { k -> if (r.key in VisionRows.ranked) k.take(20) else k }) } ?: r }
+                state.value = state.value.map { r -> raw[r.key]?.let { r.copy(items = keep(it, r.key).let { k -> if (r.key in VisionRows.ranked) k.take(20) else k }) } ?: r }
                 cwState.value = cwRaw.filter { cwKeeps(it) }
             }
         }
@@ -196,7 +204,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         val rotating = Rotation.rows(hub).value.map { r ->
             val key = Rotation.key(r.id)
             raw[key] = r.items
-            Row(key, r.title, null, null, keep(r.items), done = true)
+            Row(key, r.title, null, null, keep(r.items, key), done = true)
         }
         val addons = if (!app.prefs.addonRows.value) emptyList() else list.filter { com.lekathedon.visionlite.addons.AddonRoles.allows(it.base, "catalog") }.flatMap { a ->
             a.manifest.catalogs.filter { it.isBoardRow }.map { c ->
@@ -366,7 +374,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     private fun set(key: String, items: List<MetaPreview>, title: String? = null) {
         raw[key] = items
         // VOD rows were already split by hub (their TMDB ids aren't known to the anime lists).
-        val kept = (if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) } else keep(items))
+        val kept = (if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) } else keep(items, key))
             // Top 20 Today: its source gives 40, so 20 are still there after the filters.
             .let { if (key in VisionRows.ranked) it.take(20) else it }
         state.value = state.value.map { r -> if (r.key == key) r.copy(items = kept, done = true, title = title ?: r.title) else r }
@@ -387,7 +395,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 val add = page.orEmpty().filter { seen.add(it.id) }
                 raw[row.key] = before + add
                 val ended = page == null || add.isEmpty()
-                val kept = keep(add)
+                val kept = keep(add, row.key)
                 state.value = state.value.map { r -> if (r.key != row.key) r else r.copy(items = r.items + kept, done = ended) }
                 if (ended || kept.isNotEmpty() || !def.supportsSkip) break
                 at = raw[row.key].orEmpty().size

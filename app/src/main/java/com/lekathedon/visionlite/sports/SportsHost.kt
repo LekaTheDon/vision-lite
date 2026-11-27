@@ -1,6 +1,7 @@
 package com.lekathedon.visionlite.sports
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -213,7 +214,7 @@ private fun Reminders(nav: Nav) {
 private fun Card(title: String, sub: String, buttons: List<Pair<String, () -> Unit>>) {
     val first = remember { FocusRequester() }
     LaunchedEffect(title) { delay(50); runCatching { first.requestFocus() } }
-    Column(Modifier.widthIn(max = 460.dp).background(Color(0xF2101114), RoundedCornerShape(14.dp)).padding(18.dp)) {
+    Column(Modifier.widthIn(max = 460.dp).background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.96f), RoundedCornerShape(14.dp)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(14.dp)).padding(18.dp)) {
         Text("Sports", color = com.lekathedon.visionlite.ui.KitInk.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
         Text(sub, color = Color(0xB3FFFFFF), fontSize = 14.sp)
@@ -236,7 +237,7 @@ private fun ScoringCard() {
     LaunchedEffect(alert.id) { delay(8_000); Sports.clearAlert() }
     val ev = Sports.event(alert.event.id) ?: alert.event
     val word = when (alert.league.sport) { Sport.FOOTBALL -> "GOAL"; Sport.HOCKEY -> "GOAL"; Sport.AMERICAN_FOOTBALL -> "SCORE"; else -> "SCORE" }
-    Row(Modifier.width(420.dp).background(Color(0xF2101114), RoundedCornerShape(14.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.width(420.dp).background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.96f), RoundedCornerShape(14.dp)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(14.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Img(alert.team.logo, 44.dp, 44.dp, Modifier.size(44.dp), ContentScale.Fit)
         Column(Modifier.padding(start = 12.dp)) {
             Text("$word · ${alert.team.name}", color = com.lekathedon.visionlite.ui.KitInk.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)

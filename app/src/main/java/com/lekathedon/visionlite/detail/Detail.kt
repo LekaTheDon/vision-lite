@@ -492,7 +492,16 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                 }
                 if (epRule != "off" && eps.any { it.rating != null }) item(key = "ratings") {
                     Header("Ratings")
-                    RatingsGrid(eps.filter { it.season in seasons && it.season > 0 }, ::showRating) { n ->
+                    // The show's overall average first (user 2026-11-27); OK opens every season and episode, Back folds it again.
+                    var open by remember { mutableStateOf(false) }
+                    val tile = remember { FocusRequester() }
+                    val firstSeason = remember { FocusRequester() }
+                    val rated = eps.filter { it.season in seasons && it.season > 0 }
+                    BackHandler(enabled = open) { open = false; scope.launch { delay(30); runCatching { tile.requestFocus() } } }
+                    LaunchedEffect(open) { if (open) { delay(30); runCatching { firstSeason.requestFocus() } } }
+                    if (!open) RatingsAverage(rated, ::showRating, Modifier.focusRequester(tile)) { open = true }
+                    else RatingsGrid(rated, ::showRating, firstSeason) { n ->
+                        open = false
                         season = n
                         scope.launch { list.animateScrollToItem(1) }
                     }
@@ -935,11 +944,12 @@ private fun Pill(t: String, bg: Color, fg: Color) =
 
 /** Every season at a glance (Vision's Ratings tab): one row per season, one coloured cell per episode. OK opens the season. */
 @Composable
-private fun RatingsGrid(eps: List<Ep>, show: (Ep) -> Boolean, onSeason: (Int) -> Unit) {
+private fun RatingsGrid(eps: List<Ep>, show: (Ep) -> Boolean, first: FocusRequester? = null, onSeason: (Int) -> Unit) {
     val bySeason = remember(eps) { eps.groupBy { it.season }.toSortedMap() }
+    val firstKey = bySeason.keys.firstOrNull()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         bySeason.forEach { (n, list) ->
-            Focusable({ onSeason(n) }, shape = RoundedCornerShape(6.dp)) { f ->
+            Focusable({ onSeason(n) }, if (first != null && n == firstKey) Modifier.focusRequester(first) else Modifier, shape = RoundedCornerShape(6.dp)) { f ->
                 Row(Modifier.background(if (f) Color(0x22FFFFFF) else Color.Transparent).padding(4.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("S$n", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.width(34.dp))
@@ -953,6 +963,26 @@ private fun RatingsGrid(eps: List<Ep>, show: (Ep) -> Boolean, onSeason: (Int) ->
                         Text("  avg %.1f".format(it), color = Palette.TextDim, fontSize = 12.sp)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The whole show in one line: the average of every rated episode; OK opens the season-by-season grid. */
+@Composable
+private fun RatingsAverage(eps: List<Ep>, show: (Ep) -> Boolean, modifier: Modifier, onOpen: () -> Unit) {
+    val r = eps.mapNotNull { e -> e.rating?.takeIf { show(e) } }
+    val avg = r.takeIf { it.isNotEmpty() }?.average()?.toFloat()
+    val seasonsN = eps.map { it.season }.distinct().size
+    Focusable(onOpen, modifier, shape = RoundedCornerShape(8.dp)) { f ->
+        Row(Modifier.background(if (f) Color(0x22FFFFFF) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(64.dp, 40.dp).clip(RoundedCornerShape(6.dp)).background(heat(avg)), contentAlignment = Alignment.Center) {
+                Text(avg?.let { "%.1f".format(it) } ?: "–", color = if (avg == null) Palette.TextDim else Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            Column {
+                Text("Show average", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("${r.size} episodes rated · $seasonsN season${if (seasonsN == 1) "" else "s"} · OK for every episode", color = Palette.TextDim, fontSize = 12.sp)
             }
         }
     }

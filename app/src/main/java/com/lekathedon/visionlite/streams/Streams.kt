@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -102,8 +104,11 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
 
 /** Links for a title, asked from every stream add-on only now (Play was pressed); each add-on's answer shows as it lands. */
 @Composable
-fun Streams(nav: Nav, s: Screen.Streams) {
+fun Streams(nav: Nav, s: Screen.Streams,
+            /** Opened from the player's Sources button: a panel over the film; a pick hands its player screen here. */
+            overlay: ((Screen.Player) -> Unit)? = null, onClose: () -> Unit = {}) {
     val app = App.instance
+    if (overlay != null) androidx.activity.compose.BackHandler { onClose() }
     val links = remember(s.id) { mutableStateListOf<Link>() }
     var pending by remember(s.id) { mutableStateOf(-1) }
     var getting by remember(s.id) { mutableStateOf("") }
@@ -255,10 +260,15 @@ fun Streams(nav: Nav, s: Screen.Streams) {
         }
         return
     }
-    Box(Modifier.fillMaxSize().background(LocalLook.current.page)) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(48.dp)) {
+    // Over the film (Sources in the player): a right-hand panel, the film keeps playing on the left.
+    val boxMod = if (overlay != null) Modifier.fillMaxSize() else Modifier.fillMaxSize().background(LocalLook.current.page)
+    Box(boxMod) {
+        LazyColumn(if (overlay != null) Modifier.align(androidx.compose.ui.Alignment.CenterEnd).fillMaxHeight().width(640.dp)
+                .background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.96f))
+            else Modifier.fillMaxSize(), contentPadding = PaddingValues(if (overlay != null) 28.dp else 48.dp)) {
             item {
-                Text(s.title, color = Palette.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(s.title, color = Palette.Text, fontSize = if (overlay != null) 20.sp else 24.sp, fontWeight = FontWeight.Bold)
+                if (overlay != null) Text("The film keeps playing · Back to keep watching", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                 val status = when {
                     pending == 0 && links.isEmpty() -> "No links found"
                     pending > 0 -> "${shown.size} links · waiting for $pending add-on(s)"
@@ -269,7 +279,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
             }
             items(shown) { l ->
                 val mod = if (l === firstPlayable) Modifier.focusRequester(first) else Modifier
-                Focusable({ if (l.playable) scope.launch { play(nav, s, l, replace = false, shown) { getting = it } } }, mod.padding(bottom = 8.dp).fillMaxWidth(0.85f)) { f ->
+                Focusable({ if (l.playable) scope.launch { play(nav, s, l, replace = false, shown, overlay) { getting = it } } }, mod.padding(bottom = 8.dp).fillMaxWidth(if (overlay != null) 1f else 0.85f)) { f ->
                     Column(Modifier.fillMaxWidth().background(if (f) com.lekathedon.visionlite.ui.Kit.card2 else Palette.Card).padding(12.dp)) {
                         Text((if (l.tb != null) "" else "${l.source} · ") + l.stream.name.orEmpty().replace('\n', ' '), color = if (l.playable) Palette.Text else Palette.TextDim,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -285,7 +295,7 @@ fun Streams(nav: Nav, s: Screen.Streams) {
 }
 
 /** Vision TB rows get their TorBox link first (about a second); [say] shows how that goes. */
-private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, list: List<Link>, say: (String) -> Unit): Boolean {
+private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean, list: List<Link>, overlay: ((Screen.Player) -> Unit)? = null, say: (String) -> Unit): Boolean {
     LinkFallback.set(s, list.dropWhile { it !== l }.drop(1).filter { it.playable })
     val url = l.stream.url ?: l.tb?.let { pick ->
         say("Getting the TorBox link…")
@@ -300,7 +310,7 @@ private suspend fun play(nav: Nav, s: Screen.Streams, l: Link, replace: Boolean,
     // Vision TB's report: the sources that had the link you (or autoplay) played get the credit.
     l.tb?.let { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.lekathedon.visionlite.tb.TbSources.played(s.id, it.hash) } } }
     val p = Screen.Player(url, s.title, l.stream.behaviorHints?.proxyHeaders?.request.orEmpty(), s.type, s.id, listOfNotNull(l.stream.behaviorHints?.filename, l.stream.name, l.stream.details).joinToString("\n"), l.source, l.bytes)
-    if (replace) nav.replace(p) else nav.push(p)
+    if (overlay != null) overlay(p) else if (replace) nav.replace(p) else nav.push(p)
     return true
 }
 

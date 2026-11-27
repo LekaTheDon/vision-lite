@@ -26,6 +26,13 @@ object SubStyle {
         "FF1A1A1A" to "Dark grey", "FF2D2D2D" to "Grey")
     val Edges = listOf("shadow" to "Shadow", "outline" to "Outline", "none" to "None")
     val Positions = listOf("-10" to "Lower", "5" to "Normal", "15" to "Higher", "25" to "Much higher")
+    val Sizes = listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")
+    /** HDR/DV subtitle brightness steps (setting 0-100), named by the % of full white they end at. */
+    val HdrLevels = listOf("0", "10", "20", "30", "40", "50", "58", "70", "85", "100").map { it to hdrLabel(it) }
+    fun hdrLabel(v: String): String {
+        val pct = ((0.7f * (v.toIntOrNull() ?: 58).coerceIn(0, 100) + 30f)).toInt()
+        return "$pct %" + when (v) { "30" -> " (default)"; "58" -> " (Vision's number)"; "100" -> " (off)"; else -> "" }
+    }
 
     const val SHADOW_COLOR: Int = 0xB3000000.toInt()
 
@@ -45,8 +52,10 @@ object SubStyle {
         v.setApplyEmbeddedFontSizes(false)
         val edgeType = when (edge) { "outline" -> CaptionStyleCompat.EDGE_TYPE_OUTLINE; "none" -> CaptionStyleCompat.EDGE_TYPE_NONE; else -> CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW }
         val face = if (p.subBold.value) android.graphics.Typeface.DEFAULT_BOLD else null
-        v.setStyle(CaptionStyleCompat(if (hdr) hdrSubColor(textColor) else textColor, backColor, android.graphics.Color.TRANSPARENT,
-            edgeType, if (edge == "shadow") SHADOW_COLOR else outlineColor, face))
+        // HDR: text, background and outline dimmed together, as Vision's forVideo().
+        fun d(c: Int) = if (hdr) hdrSubColor(c) else c
+        v.setStyle(CaptionStyleCompat(d(textColor), d(backColor), android.graphics.Color.TRANSPARENT,
+            edgeType, if (edge == "shadow") SHADOW_COLOR else d(outlineColor), face))
         v.setApplyEmbeddedStyles(true)
         val bottom = (0.06f + offset / 250f).coerceIn(0f, 0.4f)
         v.setBottomPaddingFraction(bottom)
@@ -67,7 +76,7 @@ object SubStyle {
         val (outline, shadow, border, back) = when {
             edge == "shadow" -> listOf("0", "1.5", "outline-and-shadow", mpvColor(SHADOW_COLOR))
             else -> listOf(if (edge == "outline") "1" else "0", if (background) "5" else "0",
-                if (background) "background-box" else "outline-and-shadow", mpvColor(backColor))
+                if (background) "background-box" else "outline-and-shadow", mpvColor(if (hdr) hdrSubColor(backColor) else backColor))
         }
         set("sub-scale", String.format(Locale.US, "%.2f", sizePct / 100.0))
         set("sub-bold", if (p.subBold.value) "yes" else "no")
@@ -75,7 +84,7 @@ object SubStyle {
         set("sub-shadow-offset", shadow)
         set("sub-border-style", border)
         set("sub-back-color", back)
-        set("sub-outline-color", mpvColor(outlineColor))
+        set("sub-outline-color", mpvColor(if (hdr) hdrSubColor(outlineColor) else outlineColor))
         set("sub-color", mpvColor(if (hdr) hdrSubColor(textColor) else textColor))
         set("sub-pos", String.format(Locale.US, "%.1f", subPos))
         set("sub-margin-y", marginY.toString())

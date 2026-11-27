@@ -1316,12 +1316,15 @@ fun PageRow(
     val loText by App.instance.prefs.leaveOut.flow.collectAsStateWithLifecycle()
     // Settings › Anime › Off: anime shows on no page at all, Search included.
     val animeMode by App.instance.prefs.animeMode.flow.collectAsStateWithLifecycle()
-    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut, filter, animeMode) {
+    // Not out at home yet: gone from pages too (Search and pages for what's coming keep them).
+    val relRev by com.lekathedon.visionlite.recs.Released.revision.collectAsStateWithLifecycle()
+    val relOn by App.instance.prefs.hideUnreleased.flow.collectAsStateWithLifecycle()
+    val metas = remember(metasIn, adultRev, adultOn, loRev, loText, markLeftOut, filter, animeMode, relRev, relOn) {
         val metasIn = if (animeMode != "off") metasIn else metasIn.filter { (it.type != "movie" && it.type != "series") || !com.lekathedon.visionlite.anime.AnimeIds.isAnime(it.id) }
         if (!filter) metasIn else com.lekathedon.visionlite.recs.Adult.visible(metasIn).let { l ->
             // Search keeps them, but asks what each is, so the mark appears once known.
             if (markLeftOut) l.also { it.forEach { m -> com.lekathedon.visionlite.recs.LeaveOut.hides(m) } } else com.lekathedon.visionlite.recs.LeaveOut.visible(l)
-        }
+        }.let { l -> if (markLeftOut || com.lekathedon.visionlite.recs.Released.upcomingRow(key, title)) l else com.lekathedon.visionlite.recs.Released.visible(l) }
     }
     val subIn = sub
     @Suppress("NAME_SHADOWING")

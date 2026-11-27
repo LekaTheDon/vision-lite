@@ -224,6 +224,11 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val felNow = remember(s.url) { java.util.concurrent.atomic.AtomicBoolean(false) }
     // HDR/Dolby Vision film on ExoPlayer: its subtitles take Vision's HDR style (restyled in the view's update).
     var hdrVideo by remember(s.url, gen) { mutableStateOf(false) }
+    var sourcesOpen by remember(s.url) { mutableStateOf(false) }
+    // Back from Sources lands on the Sources button (the controls are rebuilt when the panel closes).
+    var sourcesClosed by remember(s.url) { mutableStateOf(false) }
+    // MPV: the film is HDR/DV (found once its picture is known), for restyling from the subtitle style panel.
+    var mpvHdr by remember(s.url, gen) { mutableStateOf(false) }
     val mpvView = remember(s.url, gen) {
         if (current != Engine.MPV) null else com.lekathedon.visionlite.player.mpv.MpvView(context).apply {
             init(session.mpvSoftware, if (Sound.stereo(context)) "" else spdifCodecs(context), mpvBufferMb(prefs.buffer.value), session.mpvGpuNext, Sound.mpvOptions(Sound.stereo(context)))
@@ -246,7 +251,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                             val g = view.prop("video-params/gamma")
                             val dvp = view.prop("current-tracks/video/dolby-vision-profile")
                             if (!g.isNullOrBlank() || !dvp.isNullOrBlank()) {
-                                if (g == "pq" || g == "hlg" || !dvp.isNullOrBlank())
+                                if (g == "pq" || g == "hlg" || !dvp.isNullOrBlank()) mpvHdr = true
+                                if (mpvHdr)
                                     view.subtitleStyle(when (prefs.subSize.value) { "s" -> 0.8; "l" -> 1.25; "xl" -> 1.5; else -> 1.0 }, prefs.subStyle.value, hdr = true)
                                 return@launch
                             }
@@ -683,9 +689,13 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             },
             engine = current,
             onEngine = { switchTo(if (current == Engine.EXO) Engine.MPV else Engine.EXO, "manual", player.currentPosition) })
-        else Controls(player, s.title, canNext = s.type == "series",
+        else if (!sourcesOpen) Controls(player, s.title, canNext = s.type == "series", focusSources = sourcesClosed,
             logo = s.id.substringBefore(':').takeIf { it.startsWith("tt") && s.type != "live" }?.let { "https://images.metahub.space/logo/medium/$it/img" },
             release = s.name,
+            onSubStyle = {
+                if (current == Engine.MPV) mpvView?.subtitleStyle(1.0, prefs.subStyle.value, hdr = mpvHdr && prefs.subHdr.value, live = true)
+                else view?.subtitleView?.let { styleSubtitles(it, hdrVideo) }
+            },
             onDelays = {
                 if (current == Engine.MPV) mpvView?.delays(Sync.audioMs, Sync.subMs)
                 else player.seekTo(player.currentPosition)
@@ -694,10 +704,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             onNext = { scope.launch { nextEpisode(nav, s) } },
             // Sources opens this title's link list to choose from (never autoplay again, never Home): the list under the
             // player is reused when it is this title's, else the player is swapped for a fresh list.
-            onSources = {
-                val list = Screen.Streams(if (s.type == "series") "series" else s.type, s.id, s.title, s.id.substringBefore(':'), manual = true)
-                if ((nav.below as? Screen.Streams)?.id == s.id) { nav.pop(); nav.replace(list) } else nav.replace(list)
-            },
+            // Sources over the film (user 2026-11-27): it keeps playing; a picked link starts where this one is.
+            onSources = { sourcesOpen = true },
             onAspect = ::aspectTo,
             stats = {
                 StatsSource(player, current, (if (session.smartAuto || session.reason != null) session.reason?.let { if (session.smartAuto) "Auto: $it" else it } else null),
@@ -714,6 +722,10 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                 }
             })
         }
+        if (sourcesOpen) com.lekathedon.visionlite.streams.Streams(nav,
+            Screen.Streams(if (s.type == "series") "series" else s.type, s.id, s.title, s.id.substringBefore(':'), manual = true),
+            overlay = { p -> SourceSwitch.set(s.id, player.currentPosition); sourcesOpen = false; nav.replace(p) },
+            onClose = { sourcesOpen = false; sourcesClosed = true })
         (switchNote ?: failNote)?.let {
             androidx.compose.material3.Text(it, color = Color.White, fontSize = androidx.compose.ui.unit.TextUnit(16f, androidx.compose.ui.unit.TextUnitType.Sp),
                 modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 40.dp)
@@ -834,7 +846,7 @@ private val HdrName = Regex("""(?i)(^|[^a-z0-9])(hdr|hdr10|hdr10\+|hdr10plus|dv|
 internal fun namedHdr(text: String) = HdrName.containsMatchIn(text)
 
 internal fun hdrSubColor(color: Int): Int {
-    val b = App.instance.prefs.subHdrBright.value.toIntOrNull()?.coerceIn(0, 100) ?: 58
+    val b = App.instance.prefs.subHdrBright.value.toIntOrNull()?.coerceIn(0, 100) ?: 30
     val f = (0.7f * b + 30f) / 100f
     val a = (color ushr 24) and 0xFF
     return (a shl 24) or ((((color shr 16) and 0xFF) * f).toInt() shl 16) or ((((color shr 8) and 0xFF) * f).toInt() shl 8) or ((color and 0xFF) * f).toInt()
@@ -879,6 +891,10 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
         }
         val listener = object : MediaPlayer.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                // A link picked from Sources while watching: starts exactly where the old one was.
+                if (state == MediaPlayer.STATE_READY && !resumed && player.duration > 0) SourceSwitch.take(s.id)?.let { ms ->
+                    resumed = true; player.seekTo(ms); return
+                }
                 if (state == MediaPlayer.STATE_READY && !resumed && asked && resumeTo in 2f..92f && player.duration > 0 && player.currentPosition < 60_000) {
                     resumed = true
                     player.seekTo((player.duration * resumeTo / 100f).toLong())
@@ -908,3 +924,10 @@ private fun TraktSync(player: MediaPlayer, s: Screen.Player) {
 }
 
 /** Live TV: the channel and what's on, top left, for a few seconds after tuning (and after each channel change). */
+
+/** Sources picked in the player: the position the new link starts at (one use, same title only). */
+internal object SourceSwitch {
+    private var id = ""; private var at = -1L
+    fun set(id: String, ms: Long) { this.id = id; at = ms }
+    fun take(id: String): Long? = at.takeIf { it > 0 && id == this.id }?.also { at = -1L }
+}

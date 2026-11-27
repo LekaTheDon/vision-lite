@@ -109,9 +109,9 @@ class MpvView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
 
     /** Old Vision's subtitle look (player/SubStyle.kt); [scale]/[style] kept for the callers, Settings decide. */
     @Suppress("UNUSED_PARAMETER")
-    fun subtitleStyle(scale: Double, style: String, hdr: Boolean = false) {
+    fun subtitleStyle(scale: Double, style: String, hdr: Boolean = false, live: Boolean = false) {
         if (!initialized) return
-        runCatching { com.lekathedon.visionlite.player.SubStyle.mpv({ k, v -> if (hdr) mpv.setPropertyString(k, v) else mpv.setOptionString(k, v) }, hdr) }
+        runCatching { com.lekathedon.visionlite.player.SubStyle.mpv({ k, v -> if (hdr || live) mpv.setPropertyString(k, v) else mpv.setOptionString(k, v) }, hdr) }
     }
 
     /** Sync: audio and subtitle delay in ms (mpv's audio-delay / sub-delay, seconds). */

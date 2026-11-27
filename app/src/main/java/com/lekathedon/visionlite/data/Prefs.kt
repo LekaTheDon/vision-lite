@@ -124,7 +124,12 @@ class Prefs(context: Context) {
     val blackBars = Flag("black_bars", !android.os.Build.MANUFACTURER.orEmpty().trim().equals("Amazon", ignoreCase = true))
     /** Vision's HDR subtitle style: on HDR/Dolby Vision films subtitles are white, dimmed to [subHdrBright] (0-100). */
     val subHdr = Flag("sub_hdr", true)
-    val subHdrBright = Text("sub_hdr_bright", "58")
+    /** Default 30 (white at ~130/255, user 2026-11-27: "clearly dimmed"); the old stored 58 moves to it once. */
+    val subHdrBright = Text("sub_hdr_bright", "30").also {
+        if (!sp.getBoolean("sub_hdr_v2", false)) { if (it.value == "58") it.value = "30"; sp.edit().putBoolean("sub_hdr_v2", true).apply() }
+    }
+    /** Player button size: "s" (1x), "m" (1.5x), "l" (2x). */
+    val playerButtons = Text("player_buttons", "s")
     val nextEpisode = Flag("next_episode", false)
     /** Skip intro / recap / outro / credits: "button" (OK skips), "auto", "off" (nothing asked). */
     val skipIntro = Text("skip_intro", "button")
@@ -247,6 +252,8 @@ class Prefs(context: Context) {
     val recFeedback = Text("rec_feedback", "[]")
     /** Hide adult titles: explicit films (9 Songs, softcore, porn) anywhere in the app. Off = no lookups at all. */
     val hideAdult = Flag("hide_adult", false)
+    /** Hide films not out at home yet (digital / disc) and series not aired yet, except in rows for what's coming (recs/Released.kt). */
+    val hideUnreleased = Flag("hide_unreleased", true)
     /** Leave out (Settings › Recommendations): genres / languages / countries that never show (recs/LeaveOut.kt). */
     val leaveOut = Text("leave_out", "")
     /** Live TV: playlists (JSON; Xtream passwords stay on this TV) and favourite channels. */

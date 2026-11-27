@@ -2,6 +2,7 @@
 package com.lekathedon.visionlite.browse
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +72,7 @@ private fun AddRowSheet(kind: String, arg: String, pageTitle: String, media: Str
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
-            Column(Modifier.width(420.dp).heightIn(max = 560.dp).clip(RoundedCornerShape(Kit.cardR)).background(Kit.card.copy(alpha = 0.98f)).padding(20.dp)) {
+            Column(Modifier.width(420.dp).heightIn(max = 560.dp).clip(RoundedCornerShape(Kit.cardR)).background(Kit.panel.copy(alpha = 0.98f)).border(1.dp, Kit.line, RoundedCornerShape(Kit.cardR)).padding(20.dp)) {
                 Eyebrow("ADD TO ${Hubs.now().label.uppercase()} HOME")
                 DisplayText(pageTitle, 20.sp, Modifier.padding(top = 4.dp, bottom = 10.dp), maxLines = 1)
                 LazyColumn(contentPadding = PaddingValues(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

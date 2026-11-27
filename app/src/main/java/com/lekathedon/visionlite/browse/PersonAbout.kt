@@ -3,6 +3,7 @@
 package com.lekathedon.visionlite.browse
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -90,7 +91,7 @@ fun BioSheet(name: String, bio: String, onClose: () -> Unit) {
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { fr.requestFocus() } }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
-            Column(Modifier.width(680.dp).fillMaxHeight(0.86f).clip(RoundedCornerShape(Kit.cardR)).background(Kit.card.copy(alpha = 0.98f)).padding(24.dp)) {
+            Column(Modifier.width(680.dp).fillMaxHeight(0.86f).clip(RoundedCornerShape(Kit.cardR)).background(Kit.panel.copy(alpha = 0.98f)).border(1.dp, Kit.line, RoundedCornerShape(Kit.cardR)).padding(24.dp)) {
                 Eyebrow("BIOGRAPHY · IMDb")
                 DisplayText(name, 24.sp, Modifier.padding(top = 4.dp, bottom = 10.dp), maxLines = 1)
                 Box(Modifier.fillMaxWidth().weight(1f).focusRequester(fr).focusable()

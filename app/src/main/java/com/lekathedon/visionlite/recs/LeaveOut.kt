@@ -395,9 +395,13 @@ object LeaveOut {
                 while (pending.isNotEmpty()) {
                     delay(250)
                     val batch = pending.toList().take(200).also { pending.removeAll(it.toSet()) }
-                    runCatching { check(batch) }.onFailure { Log.w(TAG, "check: ${it.message}") }
+                    val lost = runCatching { check(batch) }.onFailure { Log.w(TAG, "check: ${it.message}") }.getOrDefault(batch.toSet())
+                    // A request that failed (network, IMDb busy) is asked again up to twice, a few seconds later,
+                    // instead of letting its titles show for the whole run (user 2026-11-27: a Korean row showed).
+                    val retry = lost.filter { (tries.merge(it, 1) { a, b -> a + b } ?: 1) <= 2 }
+                    if (retry.isNotEmpty()) { delay(3_000); pending += retry }
                     // Whatever came back without an answer shows from now on (this run).
-                    batch.filter { known[it]?.let { f -> f.lang == null && f.country == null } != false }.forEach { unanswerable += it }
+                    batch.filter { it !in retry && known[it]?.let { f -> f.lang == null && f.country == null } != false }.forEach { unanswerable += it }
                     _revision.value++
                     saveSoon()
                 }
@@ -405,24 +409,39 @@ object LeaveOut {
         }
     }
 
-    private suspend fun check(ids: List<String>) = kotlinx.coroutines.coroutineScope {
+    /** The ids whose request failed (to ask again). */
+    private suspend fun check(ids: List<String>): Set<String> = kotlinx.coroutines.coroutineScope {
         val imdb = ids.filter { it.startsWith("tt") }
         val tmdb = ids.filter { it.startsWith("tmdb:") }
         val ani = ids.filter { it.startsWith("anilist:") }
-        val jobs = imdb.chunked(25).map { c -> async { gate.withPermit { imdbCheck(c) } } } +
-            tmdb.map { id -> async { gate.withPermit { tmdbCheck(id) } } } +
-            ani.chunked(50).map { c -> async { gate.withPermit { aniCheck(c) } } }
+        val lost = ConcurrentHashMap.newKeySet<String>()
+        val jobs = imdb.chunked(25).map { c -> async { gate.withPermit { if (!runCatching { imdbCheck(c) }.getOrDefault(false)) lost += c } } } +
+            tmdb.map { id -> async { gate.withPermit { runCatching { tmdbCheck(id) } } } } +
+            ani.chunked(50).map { c -> async { gate.withPermit { runCatching { aniCheck(c) } } } }
         jobs.awaitAll()
+        lost
     }
 
-    private fun imdbCheck(ids: List<String>) {
+    private val tries = ConcurrentHashMap<String, Int>()
+
+    /** Known to be from a left-out country or language (genres not counted): a row mostly of these goes whole. */
+    fun placeOut(id: String): Boolean {
+        val l = lists()
+        if (!l.needFacts) return false
+        load()
+        val f = known[id] ?: return false
+        return (f.lang != null && f.lang in l.langs) || (f.country != null && f.country in l.regions)
+    }
+
+    private fun imdbCheck(ids: List<String>): Boolean {
         val q = ids.mapIndexed { i, id -> "t$i: title(id: \"$id\") { titleGenres { genres { genre { text } } } " +
             "spokenLanguages { spokenLanguages { id } } countriesOfOrigin { countries { id } } }" }
         val body = JSONObject().put("query", "query { ${q.joinToString(" ")} }").toString().toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url("https://api.graphql.imdb.com/").post(body)
             .header("x-imdb-client-name", "imdb-web-next").header("Accept", "application/json").build()
-        val data = Net.http.newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body!!.string()).optJSONObject("data") else null } ?: return
+        val data = Net.http.newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body!!.string()).optJSONObject("data") else null } ?: return false
         ids.forEachIndexed { i, id -> data.optJSONObject("t$i")?.let { fromImdb(id, it) } }
+        return true
     }
 
     private fun tmdbCheck(id: String) {

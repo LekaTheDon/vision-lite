@@ -157,8 +157,7 @@ private val ControlsSizeOpts = listOf("60" to "Smallest (60%)", "70" to "Small (
 private val RewindOpts = listOf("0" to "Off", "3" to "3 s", "5" to "5 s", "10" to "10 s")
 private val SubsWhenOpts = listOf("foreign" to "Foreign audio only", "always" to "Always", "off" to "Off")
 private val SeekThumbOpts = listOf("hd" to "Up to 1080p", "all" to "All, including 4K")
-private val SubSizeOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large", "xl" to "Extra large")
-private val SubHdrBrightOpts = listOf("30" to "Dim", "58" to "Normal (Vision)", "80" to "Bright", "100" to "Full")
+private val SubHdrBrightOpts = com.lekathedon.visionlite.player.SubStyle.HdrLevels
 private val SortOpts = listOf("addon" to "Add-on order", "quality" to "Best quality", "biggest" to "Biggest file", "smallest" to "Smallest file")
 private val QualityOpts = listOf("0" to "Any", "2160" to "4K", "1080" to "1080p", "720" to "720p")
 private val SizeOpts = listOf("0" to "No limit", "5" to "5 GB", "10" to "10 GB", "20" to "20 GB", "40" to "40 GB", "80" to "80 GB")
@@ -342,7 +341,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Auto-sync add-on subtitles", "Lined up with the file's own subtitles while it plays, section by section", p.subsAutoSync, m) }
         more = false
         head("How they look")
-        row { m -> Choice("Size", "", p.subSize, SubSizeOpts, m) }
+        row { m -> Choice("Size", "", p.subSize, com.lekathedon.visionlite.player.SubStyle.Sizes, m) }
         more = true
         row { m -> Choice("Colour", "", p.subColor, com.lekathedon.visionlite.player.SubStyle.TextColors, m) }
         row { m -> Choice("Edge", "Shadow = old Vision's soft shadow", p.subEdge, com.lekathedon.visionlite.player.SubStyle.Edges, m) }
@@ -476,6 +475,7 @@ fun Settings(nav: Nav, start: String? = null) {
         }
         more = false
         head("Leave out")
+        row { m -> Toggle("Hide what isn't out yet", "Films not out at home (digital or disc) and series not aired yet stay out of rows and pages; rows for what's coming keep them, Search finds everything", p.hideUnreleased, m) }
         row { m ->
             val lo by p.leaveOut.flow.collectAsState()
             val l = remember(lo) { com.lekathedon.visionlite.recs.LeaveOut.lists() }
