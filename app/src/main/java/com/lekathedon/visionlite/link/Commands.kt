@@ -42,6 +42,8 @@ class Commands(private val ctx: Context) {
         "setupCode" -> ok().put("code", com.lekathedon.visionlite.data.SetupShare.export())
         "useSetupCode" -> runCatching { com.lekathedon.visionlite.data.SetupShare.import(a.optString("code")) }
             .fold({ ok().put("got", it) }, { JSONObject().put("ok", false).put("error", it.message ?: "bad code") })
+        // The phone app's settings list (names, pages, choices) with the current values (2026-11-27 phone rewrite).
+        "schema" -> ok().put("schema", com.lekathedon.visionlite.settings.phoneSchema())
         "settings" -> if (a.has("stores")) ok().put("profile", a.optInt("profile", 1))
             .put("sealed", phone.seal(phone.settings(a.optJSONArray("stores") ?: JSONArray()).toString(), "vision-link-settings")) else settings(a)
         // The companion's Vision tab (see Phone).

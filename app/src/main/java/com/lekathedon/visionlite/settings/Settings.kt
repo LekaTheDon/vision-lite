@@ -918,7 +918,7 @@ private fun ThisTvPane(m: Modifier, nav: Nav) {
             if (section == "Playback") Toggle("Backup engine", "When one engine can't play a file, the other takes over where it stopped", p.engineBackup)
         }
         SectionHead("Phone")
-        Link("Phone companion", "Play on TV, seek and save from your phone", Modifier,
+        Link("Phone app", "Play on TV, the remote and the whole setup from your phone", Modifier,
             value = if (p.phoneLink.flow.collectAsState().value) "On" else "Off") { nav.push(Screen.PhoneLink) }
     }
 }
@@ -1345,4 +1345,70 @@ private fun AnimeModeRow(p: Prefs, m: Modifier) {
             }
         }
     }
+}
+
+/**
+ * The phone app's settings list (link command "schema"): every setting the phone may change ([com.lekathedon.visionlite.link.Commands.SAFE]),
+ * with the same name, page and choices as this screen, so the phone never shows a setting Vision doesn't have.
+ * Generated from the Toggle / Choice rows above (2026-11-27); rerun the generator when those change.
+ */
+internal fun phoneSchema(): org.json.JSONArray {
+    val p = com.lekathedon.visionlite.App.instance.prefs
+    val out = org.json.JSONArray()
+    fun e(key: String, title: String, sub: String, page: String, opts: List<Pair<String, String>>?) {
+        out.put(org.json.JSONObject().put("key", key).put("title", title).put("sub", sub).put("page", page)
+            .put("options", opts?.let { o -> org.json.JSONArray().apply { o.forEach { (v, l) -> put(org.json.JSONObject().put("v", v).put("l", l)) } } } ?: org.json.JSONObject.NULL))
+    }
+    runCatching {
+        e("stream_sort", "Sort links", "", "Where links come from", SortOpts)
+        e("max_quality", "Highest quality", "Links above this are hidden", "Where links come from", QualityOpts)
+        e("size_limit", "File size limit", "Bigger links are hidden", "Where links come from", SizeOpts)
+        e("hide_torrents", "Hide torrent-only links", "Links that need a debrid account or add-on to play", "Where links come from", null)
+        e("hide_cam", "Hide cinema recordings", "CAM and TS copies", "Where links come from", null)
+        e("autoplay", "Smart autoplay", "Plays the correct episode in the best available quality", "Where links come from", null)
+        e("vod_in_tb2", "IPTV VOD also in Vision TB", "When on, your playlist's films and series also appear among Vision TB links. When off, use Play with VOD on the title page", "Where links come from", null)
+        e("resume", "Resume", "Start where you stopped", "Tracking and lists", null)
+        e("watched_home", "Watched titles on Home", "Not Continue watching; needs Trakt", "Tracking and lists", WatchedOpts)
+        e("next_episode", "Next episode", "When an episode ends, open the next one's links", "Player", null)
+        e("next_popup", "Next episode card", "A card at the outro; OK plays the next one", "Player", null)
+        e("skip_intro", "Skip intro and outro", "IntroDB, AniSkip for anime", "Player", SkipOpts)
+        e("rewind_on_resume", "Step back after pause", "Replays a few seconds when you press play again", "Player", RewindOpts)
+        e("black_bars", "True black bars", "The bars around the picture stay fully black in HDR and Dolby Vision", "Player", null)
+        e("audio_lang", "Audio language", "Original = the title's own language, never the dub", "Audio and subtitles", AudioLangs)
+        e("audio_lang2", "If that's missing", "Second audio language", "Audio and subtitles", AudioLangs)
+        e("dub_lang", "Preferred dub", "A copy dubbed in this language plays first, even over 4K (your VOD's dubbed films and series count)", "Audio and subtitles", DubLangs)
+        e("night_mode", "Night mode", "Quiet speech comes up, explosions are held down (decoded sound only, not a soundbar bitstream)", "Audio and subtitles", NightOpts)
+        e("dialogue_boost", "Dialogue boost", "Voices louder: the centre channel goes up (5.1 / 7.1, or when mixed to stereo)", "Audio and subtitles", DialogueOpts)
+        e("volume_boost", "Volume boost", "For quiet films on small speakers; a limiter stops it clipping", "Audio and subtitles", VolumeOpts)
+        e("subs_when", "Show subtitles", "Foreign only = none when the audio is already your language", "Audio and subtitles", SubsWhenOpts)
+        e("sub_lang", "Subtitle language", "", "Audio and subtitles", Langs)
+        e("sub_lang2", "If that's missing", "Second subtitle language", "Audio and subtitles", Langs)
+        e("autoplay_subs", "Autoplay picks links with these subtitles", "Links with subtitles in your language are preferred, even over higher quality", "Audio and subtitles", null)
+        e("sub_size", "Size", "", "Audio and subtitles", com.lekathedon.visionlite.player.SubStyle.Sizes)
+        e("sub_hdr", "HDR and Dolby Vision subtitles", "Subtitles are dimmed on HDR and Dolby Vision titles to avoid glare", "Audio and subtitles", null)
+        e("sub_hdr_bright", "HDR subtitle brightness", "", "Audio and subtitles", SubHdrBrightOpts)
+        e("libass", "Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", "Audio and subtitles", null)
+        e("skin", "Skin", "The app's colours, Home included", "Home and look", com.lekathedon.visionlite.ui.Skin.entries.map { it.key to when (it) {
+                com.lekathedon.visionlite.ui.Skin.TINT -> "Tinted · colours from the title's art"
+                com.lekathedon.visionlite.ui.Skin.OLED -> "OLED black · pure black pages"
+                else -> it.label } })
+        e("ui_size", "Button size", "Buttons, icons and switches", "Home and look", com.lekathedon.visionlite.ui.Theme.sizes.map { (k, l) -> k to if (k == "small") "$l · default" else l })
+        e("poster_size", "Poster size", "", "Home and look", PosterOpts)
+        e("ratings", "Ratings on posters", "IMDb rating when the catalog gives it", "Home and look", null)
+        e("billboard_source", "Billboard titles", "Which row feeds the big billboard on Home", "Home and look", listOf("" to "Continue watching, then first row", "random" to "A random row each visit"))
+        e("app_lang", "App language", "Menus and buttons; titles and plots keep their own language", "Home and look", listOf("" to "This TV's language", "en" to "English") + com.lekathedon.visionlite.ui.Lang.bundled)
+        e("clock", "Clock", "Time in the top bar", "Home and look", null)
+        e("screensaver_min", "Screensaver", "Backdrops from your rows after no key is pressed for a while", "Home and look", listOf("0" to "Off", "2" to "2 minutes", "5" to "5 minutes", "10" to "10 minutes", "20" to "20 minutes"))
+        e("detail_ep_ratings", "Episode ratings", "IMDb rating on each episode", "Spoilers and trailers", EpRatingOpts)
+        e("trailers", "Trailers", "When you rest on the billboard or an opened poster", "Spoilers and trailers", null)
+        e("trailer_delay", "Trailers wait", "", "Spoilers and trailers", DelayOpts)
+        e("trailer_sound", "Trailer sound", "", "Spoilers and trailers", null)
+        e("detail_sequel_prequel", "Sequel and prequel", "IMDb's Follows / Followed by", "Title pages", null)
+        e("detail_connections", "Connections", "Spin-offs, remakes and other versions", "Title pages", null)
+        e("rec_min_imdb", "IMDb minimum", "Nothing rated lower is recommended", "Recommendations", ImdbMinOpts)
+        e("fast_horizontal", "Fast horizontal navigation", "Held Left / Right moves quicker along the rows", "Speed and network", null)
+        e("exit_confirm", "Ask before leaving", "Back on Home asks first", "Speed and network", null)
+        e("engine_backup", "Backup engine", "When one engine can't play a file, the other takes over where it stopped", "About", null)
+    }
+    return out
 }

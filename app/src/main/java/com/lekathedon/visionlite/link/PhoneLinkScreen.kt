@@ -41,8 +41,8 @@ fun PhoneLinkScreen() {
     val ip = remember(on) { localIp() }
     Row(Modifier.fillMaxSize().background(LocalLook.current.page).padding(56.dp), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
         Column(Modifier.width(520.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Phone companion", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("Vision Companion on your phone: browse, save, Play on TV, see what plays and seek. " +
+            Text("Phone app", color = Palette.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("Vision on your phone: browse, Play on TV, the remote, Live TV, settings and the whole TV setup by paste. " +
                 "Vision listens on your home network only while this is on (a few MB of memory, no CPU while idle).",
                 color = Palette.TextDim, fontSize = 14.sp)
             Button(if (on) "Phone companion: On" else "Phone companion: Off", {
@@ -59,7 +59,7 @@ fun PhoneLinkScreen() {
         if (on) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val name = android.net.Uri.encode(android.os.Build.MODEL)
             Qr("visionlite://pair?h=${ip.orEmpty()}&p=${Pairing.PORT}&k=$secret&n=$name", 300.dp)
-            Text("Scan with Vision Companion", color = Palette.Text, fontSize = 15.sp)
+            Text("Scan with Vision on your phone", color = Palette.Text, fontSize = 15.sp)
             Text("Code ${Pairing.pretty(secret)}", color = Palette.TextDim, fontSize = 14.sp)
             Text("TV ${ip ?: "(no network)"} : ${Pairing.PORT}", color = Palette.TextDim, fontSize = 13.sp)
         }

@@ -25,7 +25,7 @@ object Setup {
     private class Pending(val url: String, val code: String, @Volatile var state: String, val job: Job?)
     private val pending = HashMap<String, Pending>()
     /** Website sign-ins the TV can start for the phone. */
-    private val CODE_FLOWS = setOf("trakt", "simkl", "nuvio", "realdebrid", "alldebrid", "plex", "jellyfin", "youtube")
+    private val CODE_FLOWS = setOf("trakt", "simkl", "nuvio", "realdebrid", "alldebrid", "plex", "jellyfin")
 
     fun handle(a: JSONObject): JSONObject = when (a.optString("do")) {
         "state" -> state()
@@ -46,7 +46,7 @@ object Setup {
     }
 
     private fun user(id: String): String = when {
-        id == "trakt" || id == "youtube" -> ""
+        id == "trakt" -> ""
         id in Integrations.DEBRID -> com.lekathedon.visionlite.streams.DebridSignIn.user(id)
         id in Integrations.SERVERS -> com.lekathedon.visionlite.streams.MediaServers.user(id)
         else -> SignIns.user(id)
@@ -55,7 +55,7 @@ object Setup {
     /** What is set (never the keys themselves), what can be done, and the choices the taste questions offer. */
     fun state(): JSONObject {
         val services = JSONArray()
-        (Integrations.all.filter { it.id != "youtube" && it.id != "imdb" } ).forEach { s ->
+        Integrations.all.filter { it.id != "youtube" && it.id != "imdb" }.forEach { s ->
             services.put(JSONObject().put("id", s.id).put("name", s.name).put("group", s.group.title).put("live", s.live ?: "")
                 .put("where", s.where).put("set", isSet(s.id)).put("user", user(s.id))
                 .put("how", when { s.id in CODE_FLOWS -> "code"; s.id == "anilist" || s.id == "mal" -> "paste"; s.fields.isNotEmpty() -> "key"; else -> "none" })
@@ -64,10 +64,6 @@ object Setup {
                 .put("link", when (s.id) { "anilist" -> SignIns.aniListUrl(); "mal" -> SignIns.malUrl(); else -> "" })
                 .put("pending", pending[s.id]?.let { JSONObject().put("url", it.url).put("code", it.code).put("state", it.state) }))
         }
-        services.put(JSONObject().put("id", "youtube").put("name", "YouTube").put("group", "Extras").put("live", "Your Home and Subscriptions in the YouTube hub")
-            .put("where", "Sign in: enter the code at youtube.com/activate").put("set", isSet("youtube")).put("user", "").put("how", "code")
-            .put("fields", JSONArray()).put("status", "").put("link", "")
-            .put("pending", pending["youtube"]?.let { JSONObject().put("url", it.url).put("code", it.code).put("state", it.state) }))
         val pls = JSONArray(com.lekathedon.visionlite.iptv.Iptv.playlists().map { pl ->
             JSONObject().put("id", pl.id).put("name", pl.name).put("kind", if (pl.xtream) "xtream" else "m3u")
         })
