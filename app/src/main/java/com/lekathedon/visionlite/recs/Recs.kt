@@ -557,7 +557,7 @@ object Recs {
         val all = factsMem ?: synchronized(factsSer) {
             factsMem ?: (read("facts.json", factsSer) ?: emptyList()).associateBy { it.id }.also { factsMem = it }
         }
-        return all.filterValuesTo(HashMap()) { now - it.at in 0 until FACTS_MAX_AGE }
+        return all.filterValues { now - it.at in 0 until FACTS_MAX_AGE }.toMutableMap()
     }
 
     private fun saveFacts(facts: Map<String, Facts>, now: Long) {
