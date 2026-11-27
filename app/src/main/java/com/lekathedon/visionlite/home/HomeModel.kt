@@ -97,6 +97,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     override fun onCleared() { stopAnime() }
     private val loading = HashMap<String, Job>()
     private val needed = HashSet<String>()
+    private val fills = HashMap<String, Job>()
     private val cwState = MutableStateFlow<List<com.lekathedon.visionlite.trakt.Resume>>(emptyList())
     private var cwRaw: List<com.lekathedon.visionlite.trakt.Resume> = emptyList()
     /** Trakt Continue Watching (empty when not connected). */
@@ -245,7 +246,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
     fun need(key: String) {
         animeOf(key)?.let { return it.need(VisionRows.base(key)) }
         val row = state.value.firstOrNull { it.key == key } ?: return
-        if (row.builtIn) { if (needed.add(key)) start(row) else fill(key); return }
+        if (row.builtIn) { if (needed.add(key)) start(row) else if (!row.done && key !in fills) fill(key); return }
         if (row.items.isNotEmpty() || row.done || loading.containsKey(key)) return
         load(row, 0)
     }
@@ -299,9 +300,22 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         fill(key)
     }
 
-    /** Puts a Vision row's current items in (only once Home has asked for that row). */
+    /**
+     * Puts a Vision row's current items in (only once Home has asked for that row). Worked out off the main thread
+     * (user 2026-11-27: Moods' tiles took 2 s on the drawing thread and froze Home's scroll), then put in on it.
+     */
     private fun fill(key: String) {
         if (key !in needed) return
+        fills.remove(key)?.cancel()
+        fills[key] = viewModelScope.launch {
+            val (items, title) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { compute(key) }.getOrNull() } ?: return@launch
+            set(key, items, title)
+            fills.remove(key)
+        }
+    }
+
+    /** A Vision row's items now (and its title when it changes); null = not a row worked out here. */
+    private fun compute(key: String): Pair<List<MetaPreview>, String?>? {
         val items: List<MetaPreview> = when (key) {
             VisionRows.COMING_UP -> ComingUp.items.value.map { i ->
                 // Wide card: the show's landscape backdrop (TVmaze's image is a tall poster, cropped to its middle).
@@ -311,7 +325,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
             VisionRows.PICKS -> Recs.forYou(30, hub = hub).map(::meta)
             in VisionRows.BECAUSE -> {
                 val b = Recs.becauseNow(VisionRows.BECAUSE.size, hub).getOrNull(VisionRows.BECAUSE.indexOf(key))
-                set(key, b?.picks.orEmpty().map(::meta), b?.let { "Because you watched ${it.seed}" }); return
+                return b?.picks.orEmpty().map(::meta) to b?.let { "Because you watched ${it.seed}" }
             }
             // Every mood a tile (its picture: the engine's first title for it, none = its colour). No requests.
             VisionRows.MOODS -> com.lekathedon.visionlite.recs.Moods.tiles(hub)
@@ -328,9 +342,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
                 val tiles = if (key == VisionRows.GENRES) com.lekathedon.visionlite.browse.BrowseTiles.genres(anime) else com.lekathedon.visionlite.browse.BrowseTiles.decades(anime)
                 tiles.map { (id, name) -> MetaPreview(id, if (key == VisionRows.GENRES) "genre" else "decade", name, null, art[id]) }
             }
-            else -> return
+            else -> return null
         }
-        set(key, items)
+        return items to null
     }
 
     /** "Because you like X": the favourite this row follows now, their titles (one IMDb request, kept for the run). */

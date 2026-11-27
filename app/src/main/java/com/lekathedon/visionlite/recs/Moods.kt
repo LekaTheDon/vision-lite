@@ -215,8 +215,17 @@ object Moods {
         list.filter { com.lekathedon.visionlite.anime.Hubs.keeps(hub, it) && it.id !in seen && it.id !in nope && Recs.seenName(it.name, it.releaseInfo) !in seen }
     }
 
+    /** Each hub's tile pictures, chosen once a day and then kept (user 2026-11-27: fixed pictures, nothing worked out while scrolling). */
+    private val tileArt = java.util.concurrent.ConcurrentHashMap<com.lekathedon.visionlite.anime.Hub, Pair<Long, List<MetaPreview>>>()
+
     /** Home's Moods tiles: every mood, each with a picture from its first title the engine has (none = its colour). */
     fun tiles(hub: com.lekathedon.visionlite.anime.Hub): List<MetaPreview> {
+        val day = System.currentTimeMillis() / 86_400_000L
+        tileArt[hub]?.takeIf { it.first == day && it.second.any { t -> t.background != null } }?.let { return it.second }
+        return tilesNow(hub).also { tileArt[hub] = day to it }
+    }
+
+    private fun tilesNow(hub: com.lekathedon.visionlite.anime.Hub): List<MetaPreview> {
         val used = HashSet<String>()
         return Mood.entries.map { m ->
             // Each tile its own picture: the first title no earlier tile took.

@@ -549,13 +549,22 @@ object Recs {
 
     private val factsSer = ListSerializer(Facts.serializer())
 
+    /** facts.json in memory (815 KB parsed once, not on every call: Home's Moods row read it 20 times per draw). */
+    @Volatile private var factsMem: Map<String, Facts>? = null
+
     private fun readFacts(): MutableMap<String, Facts> {
         val now = System.currentTimeMillis()
-        return (read("facts.json", factsSer) ?: emptyList()).filter { now - it.at in 0 until FACTS_MAX_AGE }.associateBy { it.id }.toMutableMap()
+        val all = factsMem ?: synchronized(factsSer) {
+            factsMem ?: (read("facts.json", factsSer) ?: emptyList()).associateBy { it.id }.also { factsMem = it }
+        }
+        return all.filterValuesTo(HashMap()) { now - it.at in 0 until FACTS_MAX_AGE }
     }
 
-    private fun saveFacts(facts: Map<String, Facts>, now: Long) =
-        write("facts.json", factsSer, facts.values.filter { now - it.at < FACTS_MAX_AGE }.sortedByDescending { it.at }.take(FACTS_KEEP))
+    private fun saveFacts(facts: Map<String, Facts>, now: Long) {
+        val keep = facts.values.filter { now - it.at < FACTS_MAX_AGE }.sortedByDescending { it.at }.take(FACTS_KEEP)
+        factsMem = keep.associateBy { it.id }
+        write("facts.json", factsSer, keep)
+    }
 
     private fun save(hub: Hub, pool: Pool) { pools.getValue(hub).value.value = pool; write(poolFile(hub), Pool.serializer(), pool) }
 
@@ -569,6 +578,7 @@ object Recs {
     /** Settings → Recommendations → Start over: forgets the picks and the cached facts (keeps More like this / Not for me). */
     fun reset() {
         (Hub.entries.map(::poolFile) + listOf("facts.json", "related.json", "seen.json")).forEach { File(dir, it).delete() }
+        factsMem = null
         Hub.entries.forEach { pools.getValue(it).value.value = null }
     }
 }

@@ -475,43 +475,53 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
             if (at >= 0) keys.drop(at + 1).take(5).forEach { vm.prefetch(it) }
         }
     }
-    // Vision's rule (user 2026-11-26, again): Home opens fully ready, so the first press can race up, down, left and
-    // right with no row still loading or vanishing under you. Every row is asked at once and Home waits for all of
-    // them (12 s at most), then for the pictures of each row's first cards (in memory, the size the cards draw).
-    // Once per hub per app start. Cost: the rows' first pages come at start instead of as you scroll (the same
-    // requests, earlier); ~8 posters per row decoded at card size (~0.2 MB each, Coil's memory cache, LRU).
+    // Open season (user 2026-11-27): the loading screen stays until every row is in AND every poster you can see
+    // without moving Left/Right is loaded, so a full Up/Down pass never meets an empty card. Every row is asked at once
+    // (Picks too), then each row's first screen of pictures is fetched at the size the cards draw. Fits the device:
+    // pictures go into memory while they fit the image cache (Tier: 10% of RAM on Light boxes, 25% on strong ones);
+    // the rest are fetched to disk only, so a 1-2 GB box doesn't evict what it just loaded. A dead network can't hold
+    // the screen for ever: 30 s at most. Once per hub per app start.
     var ready by remember { mutableStateOf(hub in HomeReady.done) }
     val context = LocalContext.current
+    val screenW = with(density) { androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
     LaunchedEffect(Unit) {
         if (ready) return@LaunchedEffect
         val started = System.currentTimeMillis()
-        while (System.currentTimeMillis() - started < 12_000) {
+        val cap = 30_000L
+        while (System.currentTimeMillis() - started < cap) {
             val keys = visibleKeys
             keys.forEach { vm.prefetch(it) }
             val byKey = vm.rows.value.associateBy { it.key }
-            // Picks rows can take a while to think: they don't hold Home (they show "thinking…" in place).
-            if (keys.isNotEmpty() && keys.all { k -> VisionRows.isPicks(k) || byKey[k]?.let { it.done || it.items.isNotEmpty() } != false }) break
-            delay(120)
+            if (keys.isNotEmpty() && keys.all { k -> byKey[k]?.let { it.done || it.items.isNotEmpty() } != false }) break
+            delay(100)
         }
         val px = with(density) { dims.posterWidth.roundToPx() to dims.posterHeight.roundToPx() }
         val wide = with(density) { dims.cwWidth.roundToPx() to dims.cwHeight.roundToPx() }
         val hi = with(density) { dims.highlightWidth.roundToPx() to dims.highlightHeight.roundToPx() }
-        val urls = vm.rows.value.filter { it.key in visibleKeys }.flatMap { r ->
-            val isWide = r.kind == RowKind.COMING || r.kind == RowKind.SERVICES || r.kind == RowKind.TILES || r.kind == RowKind.RANKED
-            val size = if (r.kind == RowKind.RANKED) hi else if (isWide) wide else px
-            r.items.take(8).mapNotNull { m ->
-                (if (isWide) com.lekathedon.visionlite.poster.Posters.wideNow(m.id, m.type, m.wide()) else com.lekathedon.visionlite.poster.Posters.posterNow(m.id, m.type, m.poster))
-                    ?.takeIf { it.isNotBlank() }?.let { it to size }
+        // How many cards of each kind one screen shows (plus the one peeking in at the right edge).
+        fun across(w: Int) = screenW / w.coerceAtLeast(1) + 2
+        val urls = cw.take(across(wide.first)).mapNotNull { r -> backdropOf(r.imdb)?.let { it to wide } } +
+            vm.rows.value.filter { it.key in visibleKeys }.flatMap { r ->
+                val isWide = r.kind == RowKind.COMING || r.kind == RowKind.SERVICES || r.kind == RowKind.TILES
+                val size = if (r.kind == RowKind.RANKED) hi else if (isWide) wide else px
+                r.items.take(across(size.first)).mapNotNull { m ->
+                    (if (isWide) com.lekathedon.visionlite.poster.Posters.wideNow(m.id, m.type, m.wide()) else com.lekathedon.visionlite.poster.Posters.posterNow(m.id, m.type, m.poster))
+                        ?.takeIf { it.isNotBlank() }?.let { it to size }
+                }
             }
-        } + cw.take(8).mapNotNull { r -> backdropOf(r.imdb)?.let { it to wide } }
-        withTimeoutOrNull((12_000L - (System.currentTimeMillis() - started)).coerceIn(1_500L, 4_000L)) {
+        val left = (cap - (System.currentTimeMillis() - started)).coerceAtLeast(3_000L)
+        withTimeoutOrNull(left) {
             withContext(Dispatchers.IO) {
                 val loader = context.imageLoader
-                urls.distinctBy { it.first }.chunked(12).forEach { batch ->
-                    batch.map { (u, size) -> async {
-                        val k = minOf(1f, 1920f / size.first.coerceAtLeast(1), 1080f / size.second.coerceAtLeast(1))
-                        runCatching { loader.execute(ImageRequest.Builder(context).data(u).size((size.first * k).toInt().coerceAtLeast(1), (size.second * k).toInt().coerceAtLeast(1)).build()) }
-                    } }.awaitAll()
+                var budget = ((loader.memoryCache?.maxSize ?: 0L) * 0.8).toLong()
+                urls.distinctBy { it.first }.map { (u, size) ->
+                    val k = minOf(1f, 1920f / size.first.coerceAtLeast(1), 1080f / size.second.coerceAtLeast(1))
+                    val w = (size.first * k).toInt().coerceAtLeast(1); val h = (size.second * k).toInt().coerceAtLeast(1)
+                    budget -= w.toLong() * h * 4
+                    ImageRequest.Builder(context).data(u).size(w, h)
+                        .apply { if (budget < 0) memoryCachePolicy(coil3.request.CachePolicy.DISABLED) }.build()
+                }.chunked(com.lekathedon.visionlite.device.Tier.imageDecoders * 3).forEach { batch ->
+                    batch.map { r -> async { runCatching { loader.execute(r) } } }.awaitAll()
                 }
             }
         }
