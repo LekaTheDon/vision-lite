@@ -50,7 +50,8 @@ object CloudSetup {
     /** Sign-ins and keys: a blank one is never sent as a sign-out, nor taken over a working one. */
     private val CRED = Regex("^si_|token|refresh|_key$|^int_[a-z]+_0$|^arabp2p_")
 
-    fun on() = SignIns.signedIn("nuvio") && App.instance.prefs.cloudSetup.value
+    /** Off for good (2026-11-27): the account copy is read once, inside Join, and nothing is ever sent to Nuvio. */
+    fun on() = false
 
     private fun files(): List<Pair<Int, String>> = Profiles.all().map { it.id to Profiles.prefsName(it.id) }.ifEmpty { listOf(1 to "vl") }
     private fun sp(name: String) = ctx.getSharedPreferences(name, Context.MODE_PRIVATE)
@@ -125,7 +126,7 @@ object CloudSetup {
         val (ok, blob) = fetch()
         if (!ok) return@withLock false
         val first = firstTime || !meta.getBoolean("seeded", false)
-        if (blob == null || blob.optInt("v") != V) { meta.edit().putBoolean("seeded", true).apply(); pushNow(); return@withLock false }
+        if (blob == null || blob.optInt("v") != V) { meta.edit().putBoolean("seeded", true).apply(); return@withLock false }
         val now = Profiles.currentId()
         var changed = false
         applying = true

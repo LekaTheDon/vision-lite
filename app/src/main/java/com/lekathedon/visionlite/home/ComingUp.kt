@@ -173,11 +173,10 @@ object ComingUp {
         runCatching { trakt.libraryShows() }.getOrDefault(emptyList()).forEach { sh ->
             sh.ids.imdb?.let { name(names, it, sh.title); sh.ids.tvdb?.let { t -> tvdb.putIfAbsent(it, t) } }
         }
-        // Simkl and the Nuvio account (library + every show watched in Vision / Nuvio). Titles they know only by a
+        // Simkl (a Nuvio / Stremio library came in once at Join, into Trakt / Simkl and Saves). Titles they know only by a
         // TMDB id get their IMDb id from TMDB (kept, one call each).
         val tmdbImdb = (read("tmdb_imdb.json", strSer) ?: emptyMap()).toMutableMap()
-        val others = runCatching { com.lekathedon.visionlite.integrations.SignIns.simklFollowed() }.getOrDefault(emptyList()) +
-            runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioFollowed() }.getOrDefault(emptyList())
+        val others = runCatching { com.lekathedon.visionlite.integrations.SignIns.simklFollowed() }.getOrDefault(emptyList())
         for (f in others) {
             val film = f.type == "movie"
             val imdb = if (f.id.startsWith("tt")) f.id else {

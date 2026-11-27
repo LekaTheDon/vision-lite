@@ -201,7 +201,6 @@ class Prefs(context: Context) {
     /** Custom poster source (the built-in postersplus pattern) on every poster and wide card. */
     val customPosters = Flag("custom_posters", true)
     /** Reviews row source: "imdb" or "trakt". */
-    val reviewsSource = Text("detail_reviews", "imdb")
     val sequelPrequel = Flag("detail_sequel_prequel", true)
     val connections = Flag("detail_connections", true)
     /** Row keys in the user's order (newline separated); rows not listed go last in add-on order. */

@@ -125,10 +125,9 @@ object Setup {
     /** What the TV's own page does after a sign-in. */
     private suspend fun after(id: String) {
         Integrations.touch()
-        if (id == "nuvio") {
-            App.instance.prefs.sp.edit().putBoolean("comingup_v3", false).apply()
-            SignIns.nuvioProfiles().firstOrNull()?.let { if (SignIns.nuvioProfileName().isBlank()) SignIns.setNuvioProfile(it.first, it.second) }
-            runCatching { SignIns.importNuvioKeys(SignIns.nuvioProfile()) }
+        // Nuvio from the phone = the one-time Join import (its first profile), then Nuvio is signed out for good.
+        if (id == "nuvio") runCatching {
+            com.lekathedon.visionlite.integrations.Join.apply(com.lekathedon.visionlite.integrations.Join.fromNuvio(SignIns.nuvioProfiles().firstOrNull()?.first ?: 1))
         }
     }
 

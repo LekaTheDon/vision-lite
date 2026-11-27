@@ -867,29 +867,17 @@ private fun PosterRow(items: List<Imdb.Ref>, firstFocus: FocusRequester? = null,
 @Composable
 private fun Reviews(imdbId: String, series: Boolean, open: (Sheet) -> Unit) {
     val prefs = App.instance.prefs
-    val src by prefs.reviewsSource.flow.collectAsState()
+    // Trakt's reviews only (2026-11-27: IMDb reviews dropped; one keyless call, no sign-in needed).
     data class R(val author: String, val rating: Int?, val summary: String, val text: String, val spoiler: Boolean, val likes: Int, val date: String?)
-    var items by remember(imdbId, src) { mutableStateOf<List<R>?>(null) }
-    var total by remember(imdbId, src) { mutableStateOf(0) }
-    LaunchedEffect(imdbId, src) {
-        if (src == "trakt") {
-            val c = App.instance.trakt.comments(imdbId, series)
-            items = c.map { R(it.user.username.ifBlank { "Trakt user" }, it.stats.rating, "", it.comment, it.spoiler, it.likes, it.createdAt.take(10)) }
-            total = c.size
-        } else {
-            val (l, n) = Imdb.reviews(imdbId)
-            items = l.map { R(it.author, it.rating, it.summary, it.text, it.spoiler, it.likes, it.date) }
-            total = n
-        }
+    var items by remember(imdbId) { mutableStateOf<List<R>?>(null) }
+    var total by remember(imdbId) { mutableStateOf(0) }
+    LaunchedEffect(imdbId) {
+        val c = App.instance.trakt.comments(imdbId, series)
+        items = c.map { R(it.user.username.ifBlank { "Trakt user" }, it.stats.rating, "", it.comment, it.spoiler, it.likes, it.createdAt.take(10)) }
+        total = c.size
     }
     Row(Modifier.padding(top = 26.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         com.lekathedon.visionlite.ui.KitHeader("Reviews")
-        listOf("imdb" to "IMDb", "trakt" to "Trakt").forEach { (k, label) ->
-            Focusable({ prefs.reviewsSource.value = k }, shape = RoundedCornerShape(6.dp)) { f ->
-                Text(label, color = if (src == k) Kit.onAccent else Palette.Text, fontSize = 13.sp, fontWeight = if (src == k) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.background(if (src == k) Kit.accent else Kit.card2).padding(horizontal = 14.dp, vertical = 5.dp))
-            }
-        }
         if (total > 0) Text("$total", color = Palette.TextDim, fontSize = 12.sp)
     }
     val list = items

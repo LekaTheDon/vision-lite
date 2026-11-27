@@ -28,7 +28,7 @@ object MoreRatings {
             val hit = (j?.optJSONArray(if (series) "tv_results" else "movie_results"))?.optJSONObject(0)
             hit?.optDouble("vote_average")?.takeIf { it > 0 && hit.optInt("vote_count") >= 10 }?.let { r = r.copy(tmdb = "${(it * 10).toInt()}") }
         }
-        val key = if (Integrations.active("mdblist")) Integrations.values(Integrations.byId("mdblist")).firstOrNull()?.takeIf { it.isNotBlank() } else null
+        val key = com.lekathedon.visionlite.data.Our.keyOr(if (Integrations.active("mdblist")) Integrations.values(Integrations.byId("mdblist")).firstOrNull() else null)
         if (key != null) runCatching {
             val body = Net.http.newCall(Request.Builder()
                 .url("https://api.mdblist.com/imdb/${if (series) "show" else "movie"}/$imdb?apikey=$key").build()).execute().use { it.body?.string() }

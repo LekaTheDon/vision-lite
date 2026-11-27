@@ -48,7 +48,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.lekathedon.visionlite.link.LinkService.sync(this)
-        com.lekathedon.visionlite.integrations.CloudSetup.start()
         val app = application as App
         // Settings shown, decided once: a box already set up keeps every setting it had; a new one starts on Basic.
         if (app.prefs.settingsLevel.value.isEmpty())
@@ -70,7 +69,7 @@ class MainActivity : ComponentActivity() {
             // Past the Nuvio QR (signed in and setup brought over, or "I don't use Nuvio"). Not tied to the sign-in
             // itself, so the screen stays up while the setup is fetched.
             var nuvioPassed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(
-                com.lekathedon.visionlite.integrations.SignIns.signedIn("nuvio")) }
+                com.lekathedon.visionlite.integrations.Join.joinedFrom() != null) }
             // Ended badly last time (crash, freeze, memory kill)? One card offers a report before Home.
             var problem by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(
                 com.lekathedon.visionlite.report.Problems.lastUnseen(this@MainActivity)) }
@@ -133,9 +132,8 @@ class MainActivity : ComponentActivity() {
                         // Everything before Home (sign-in, This TV check, setup, taste questions, the problem card, Who's watching)
                         // wears the look and skin like every page past Home (user rule: every new menu follows the look).
                         Screen.Home -> if (gate != null) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.profiles.ProfileGate(atStart = true, pinOnly = gate == "pin") { gate = null } }
-                            // First start, before anything else: the Nuvio QR (like Nuvio). Signing in brings your whole
-                            // Vision setup from the account; "I don't use Nuvio" goes on to the device check and setup.
-                            else if (!setupDone && !nuvioPassed) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.NuvioFirst(nav) { nuvioPassed = true } }
+                            // First start, before anything else: Join (from Nuvio / Stremio, once) or start fresh.
+                            else if (!setupDone && !nuvioPassed) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.JoinFirst(nav) { nuvioPassed = true } }
                             else if (!asked) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) }) }
                             // Then, once: every integration and tracker, one page each.
                             else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.Setup(nav) } }

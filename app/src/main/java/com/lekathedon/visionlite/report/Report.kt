@@ -30,7 +30,7 @@ object Report {
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
         val log = logcat()
         val text = buildString {
-            appendLine("=== Nuvio Vision problem report $id ===")
+            appendLine("=== Vision Lite problem report $id ===")
             appendLine("What: $what")
             if (note.isNotBlank()) appendLine("Note: ${note.trim()}")
             appendLine("When: ${fmt.format(Date())}")

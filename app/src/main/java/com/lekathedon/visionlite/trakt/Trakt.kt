@@ -113,7 +113,7 @@ class Trakt(private val prefs: Prefs) {
                 put("code", dc.deviceCode); put("client_id", BuildConfig.TRAKT_ID); if (BuildConfig.TRAKT_SECRET.isNotBlank()) put("client_secret", BuildConfig.TRAKT_SECRET)
             }, auth = false)
             when (code) {
-                200 -> { save(Net.json.decodeFromString(text)); return true }
+                200 -> { save(Net.json.decodeFromString(text)); com.lekathedon.visionlite.integrations.Join.later(); return true }
                 400 -> {}
                 429 -> interval += 1000
                 else -> return false
@@ -243,6 +243,29 @@ class Trakt(private val prefs: Prefs) {
         if (code !in 200..299) null else Net.json.decodeFromString<List<Found>>(text).firstNotNullOfOrNull { it.show?.ids?.imdb?.takeIf { i -> i.startsWith("tt") } }
     }.getOrNull()
 
+    /**
+     * What Trakt already counts as watched, for the one-time Join import (Trakt adds a play every time history is sent):
+     * film ids and "tt…:S:E" per episode. Null when off or not reachable. Two calls.
+     */
+    suspend fun watchedKeys(): Set<String>? = if (!on()) null else runCatching {
+        val out = HashSet<String>()
+        val (c1, m) = call("GET", "sync/watched/movies"); val (c2, sh) = call("GET", "sync/watched/shows")
+        if (c1 !in 200..299 || c2 !in 200..299) return@runCatching null
+        val mj = org.json.JSONArray(m); val sj = org.json.JSONArray(sh)
+        for (i in 0 until mj.length()) mj.optJSONObject(i)?.optJSONObject("movie")?.optJSONObject("ids")?.optString("imdb")?.takeIf { it.startsWith("tt") }?.let(out::add)
+        for (i in 0 until sj.length()) {
+            val o = sj.optJSONObject(i) ?: continue
+            val id = o.optJSONObject("show")?.optJSONObject("ids")?.optString("imdb")?.takeIf { it.startsWith("tt") } ?: continue
+            val seasons = o.optJSONArray("seasons") ?: continue
+            for (a in 0 until seasons.length()) {
+                val se = seasons.optJSONObject(a) ?: continue
+                val eps = se.optJSONArray("episodes") ?: continue
+                for (b in 0 until eps.length()) out += "$id:${se.optInt("number")}:${eps.optJSONObject(b)?.optInt("number")}"
+            }
+        }
+        out
+    }.getOrNull()
+
     suspend fun watchedShows(): List<Watched>? = if (!on()) null else runCatching { get<List<Watched>>("sync/watched/shows?extended=noseasons") }.getOrNull()
 
     /** Calendar: episodes of shows you watch and films you follow, from today for [days] days. Empty when Trakt is off. */
@@ -314,6 +337,9 @@ class Trakt(private val prefs: Prefs) {
     }
 
     /** action = start | pause | stop. Trakt marks watched at stop >= 80%. */
+    /** A signed-in Trakt write (the one-time Join import: history, watchlist). Response code; 0 = not signed in. */
+    suspend fun post(path: String, body: JsonObject): Int = if (!on()) 0 else runCatching { call("POST", path, body).first }.getOrDefault(0)
+
     suspend fun scrobble(action: String, imdb: String, season: Int?, episode: Int?, progress: Float) {
         if (action == "start") undrop(imdb, season != null)
         if (!on()) return

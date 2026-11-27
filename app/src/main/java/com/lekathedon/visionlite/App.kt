@@ -38,6 +38,9 @@ class App : Application(), SingletonImageLoader.Factory {
         client = AddonClient(addons)
         trakt = com.lekathedon.visionlite.trakt.Trakt(prefs)
         Thread { runCatching { com.lekathedon.visionlite.data.Profiles.keepPictures() } }.start()
+        // A Nuvio / Stremio import still waiting for Trakt or Simkl (nothing when there's none).
+        com.lekathedon.visionlite.integrations.Join.later()
+        com.lekathedon.visionlite.integrations.Join.migrate()
     }
 
     /** Android asks the app to give memory back: logged (VLMem) so reports show the pressure before a kill. */

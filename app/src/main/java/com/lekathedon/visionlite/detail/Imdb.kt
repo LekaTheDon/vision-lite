@@ -65,12 +65,10 @@ object Imdb {
     }
     data class Episode(val imdb: String, val season: Int, val episode: Int, val title: String?, val plot: String?, val image: String?,
                        val airedMs: Long?, val rating: Float?, val votes: Int?)
-    data class Review(val author: String, val rating: Int?, val summary: String, val text: String, val spoiler: Boolean, val likes: Int, val date: String?)
 
     private class Cached<T>(val v: T, val at: Long)
     private val titles = ConcurrentHashMap<String, Cached<Title>>()
     private val episodes = ConcurrentHashMap<String, Cached<List<Episode>>>()
-    private val reviews = ConcurrentHashMap<String, Cached<Pair<List<Review>, Int>>>()
     private val locks = ConcurrentHashMap<String, Mutex>()
 
     fun isId(id: String?) = id != null && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
@@ -231,29 +229,6 @@ object Imdb {
         }
         val info = list.optJSONObject("pageInfo")
         return eps to info?.optString("endCursor")?.takeIf { info.optBoolean("hasNextPage") && it.isNotBlank() }
-    }
-
-    /** IMDb user reviews (most helpful first, 25), of a title or of one episode (its own IMDb id). Total count second. */
-    suspend fun reviews(id: String): Pair<List<Review>, Int> {
-        if (!isId(id)) return emptyList<Review>() to 0
-        reviews[id]?.takeIf { now() - it.at < 30 * 60_000L }?.let { return it.v }
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val q = """query (${'$'}id: ID!) { title(id: ${'$'}id) { reviews(first: 25) { total
-                    edges { node { author { nickName } authorRating submissionDate spoiler helpfulness { upVotes }
-                      summary { originalText } text { originalText { plainText } } } } } } }"""
-                val r = post(q, JSONObject().put("id", id)).optJSONObject("title")?.optJSONObject("reviews") ?: throw IllegalStateException("no reviews")
-                val items = r.optJSONArray("edges").objects().mapNotNull { e ->
-                    val n = e.optJSONObject("node") ?: return@mapNotNull null
-                    val sum = n.optJSONObject("summary")?.optString("originalText").orEmpty().trim()
-                    val text = n.optJSONObject("text")?.optJSONObject("originalText")?.optString("plainText").orEmpty().trim()
-                    if (sum.isEmpty() && text.isEmpty()) return@mapNotNull null
-                    Review(n.optJSONObject("author")?.optString("nickName").orEmpty().ifBlank { "IMDb user" }, n.optInt("authorRating").takeIf { it in 1..10 },
-                        sum, text, n.optBoolean("spoiler"), n.optJSONObject("helpfulness")?.optInt("upVotes") ?: 0, n.optString("submissionDate").ifBlank { null })
-                }
-                (items to r.optInt("total", items.size)).also { reviews[id] = Cached(it, now()) }
-            }.onFailure { Log.w(TAG, "$id reviews: ${it.message}") }.getOrDefault(emptyList<Review>() to 0)
-        }
     }
 
     private fun post(query: String, vars: JSONObject?): JSONObject {

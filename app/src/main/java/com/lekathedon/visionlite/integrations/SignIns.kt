@@ -46,6 +46,20 @@ object SignIns {
     /** A title a service follows for Coming up: [id] = IMDb id, or "tmdb:N" when the service has no IMDb id. */
     data class Followed(val type: String, val id: String, val title: String)
 
+    /** A signed-in Simkl write (the one-time Join import). Response code; 0 = not signed in. */
+    internal suspend fun simklPost(path: String, body: org.json.JSONObject): Int {
+        if (!signedIn("simkl")) return 0
+        return call(Request.Builder().url("https://api.simkl.com/$path").header("Authorization", "Bearer ${t("si_simkl_token")}")
+            .header("simkl-api-key", BuildConfig.SIMKL_CLIENT_ID).post(body.toString().toRequestBody(JSON)).build()).first
+    }
+
+    /** A Nuvio account read by REST (the one-time Join import: its add-on list). */
+    internal suspend fun nuvioGet(path: String): Pair<Int, String> {
+        val tk = nuvioToken().ifBlank { return 0 to "" }
+        return call(Request.Builder().url(NUVIO + path).header("apikey", BuildConfig.NUVIO_KEY).header("Accept", "application/json")
+            .header("Authorization", "Bearer $tk").build())
+    }
+
     /**
      * Simkl, for Coming up: shows and anime you watch, finished, put on hold or plan to watch (not dropped), and films
      * you plan to watch. A title without an IMDb id comes by its TMDB id. One request; nothing when not signed in.
@@ -111,7 +125,7 @@ object SignIns {
             val j = runCatching { JSONObject(body) }.getOrNull() ?: continue
             val token = j.optString("access_token")
             if (code in 200..299 && token.isNotBlank()) {
-                save("simkl", token, j.optString("refresh_token"), j.optLong("expires_in", 0), simklUser(token)); return true
+                save("simkl", token, j.optString("refresh_token"), j.optLong("expires_in", 0), simklUser(token)); Join.later(); return true
             }
             when (j.optString("error")) {
                 "slow_down" -> interval += 2000

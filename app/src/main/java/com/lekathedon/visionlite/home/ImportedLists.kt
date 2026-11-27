@@ -51,7 +51,7 @@ object ImportedLists {
                     meta(imdb, if (m != null) "movie" else "series", m?.title ?: s?.title.orEmpty())
                 }
                 "MDBLIST" -> {
-                    val key = App.instance.prefs.sp.getString("int_mdblist_0", "").orEmpty().ifBlank { return@runCatching emptyList() }
+                    val key = com.lekathedon.visionlite.data.Our.keyOr(App.instance.prefs.sp.getString("int_mdblist_0", "")) ?: return@runCatching emptyList()
                     val body = Net.http.newCall(Request.Builder().url("https://api.mdblist.com/lists/${l.id}/items?apikey=$key").build())
                         .execute().use { it.body?.string().orEmpty() }
                     val j = JSONObject(body)
@@ -87,7 +87,7 @@ object ImportedLists {
             "mdblist.com/lists/" in u -> {
                 val parts = u.substringAfter("/lists/").split('/')
                 if (parts.size < 2) return@withContext "That MDBList link has no list in it"
-                if (App.instance.prefs.sp.getString("int_mdblist_0", "").isNullOrBlank()) return@withContext "MDBList lists need your MDBList key (Settings › Integrations)"
+                if (com.lekathedon.visionlite.data.Our.keyOr(App.instance.prefs.sp.getString("int_mdblist_0", "")) == null) return@withContext "MDBList lists need your MDBList key (Settings › Integrations)"
                 Triple("MDBLIST", "${parts[0]}/${parts[1]}", pretty(parts[1]))
             }
             Regex("imdb\\.com/(?:[a-z-]+/)?list/(ls\\d+)").containsMatchIn(u) -> {

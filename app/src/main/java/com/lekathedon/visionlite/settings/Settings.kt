@@ -165,7 +165,6 @@ private val SizeOpts = listOf("0" to "No limit", "5" to "5 GB", "10" to "10 GB",
 private val PosterOpts = listOf("s" to "Small", "m" to "Medium", "l" to "Large")
 private val WatchedOpts = listOf("show" to "Show", "dim" to "Dim", "hide" to "Hide")
 private val EpRatingOpts = listOf("all" to "Show all", "watched" to "Watched only", "off" to "Hide")
-private val ReviewOpts = listOf("imdb" to "IMDb", "trakt" to "Trakt")
 private val DelayOpts = listOf("1.2" to "1.2 s", "5" to "5 s", "10" to "10 s", "20" to "20 s", "30" to "30 s", "60" to "60 s")
 private val ImdbMinOpts = listOf("0" to "Off", "6" to "6", "6.5" to "6.5", "7" to "7", "7.5" to "7.5", "8" to "8")
 
@@ -434,18 +433,17 @@ fun Settings(nav: Nav, start: String? = null) {
     }
     if (!basic) pages += page("Title pages", "Where details and ratings come from, what the page shows", {
         watchServices()
-        "${Integrations.driver(Integrations.Group.DATA)?.name ?: "IMDb"} · ${label(ReviewOpts, p.reviewsSource.flow.collectAsState().value)} reviews"
+        "${Integrations.driver(Integrations.Group.DATA)?.name ?: "IMDb"}"
     }) {
         head("Where details come from")
-        row { m -> Link("IMDb", "Ratings, cast, episodes, reviews; no key needed", m, value = "Built in") {} }
-        row { m -> ServiceRow("tmdb", nav, m) }
+        row { m -> Link("IMDb", "Ratings, cast, episodes; reviews from Trakt; no key needed", m, value = "Built in") {} }
+        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("tmdb", nav, m) }
         head("On the page")
-        row { m -> Choice("Reviews first", "", p.reviewsSource, ReviewOpts, m) }
         row { m -> Toggle("Sequel and prequel", "IMDb's Follows / Followed by", p.sequelPrequel, m) }
         row { m -> Toggle("Connections", "Spin-offs, remakes and other versions", p.connections, m) }
         head("Not in Lite yet")
-        row { m -> ServiceRow("tvdb", nav, m) }
-        row { m -> ServiceRow("mdblist", nav, m) }
+        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("tvdb", nav, m) }
+        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("mdblist", nav, m) }
     }
     pages += page("Recommendations", "Picks, Love / Not for me, adult filter, AI", {
         watchServices()
@@ -487,8 +485,8 @@ fun Settings(nav: Nav, start: String? = null) {
         more = true
         head("AI (free tiers): helps every recommendation, no row of its own")
         row { m -> ServiceRow("gemini", nav, m) }
-        row { m -> ServiceRow("groq", nav, m) }
-        row { m -> ServiceRow("mistral", nav, m) }
+        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("groq", nav, m) }
+        if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("mistral", nav, m) }
         row { m -> DriverRow(Integrations.Group.AI, "Asked first", m) }
         row { m -> AiModeRow(m) }
         more = false
@@ -673,48 +671,13 @@ fun Settings(nav: Nav, start: String? = null) {
         }
         row { m -> Link("Add a profile", "Starts empty: its own sign-ins, library and settings (This TV and data keys are shared)", m, value = "+") {
             nav.push(Screen.ProfileEdit(com.lekathedon.visionlite.data.Profiles.add("").id)) } }
-        row { m -> Toggle("Keep my setup in my Nuvio account", "Keys, sign-ins, profiles and rows come back on any device you sign in to Nuvio on (This TV's picture and sound settings stay on each box)",
-            App.instance.prefs.cloudSetup, m) }
-        row { m ->
-            var note by remember { mutableStateOf("") }
-            val last = com.lekathedon.visionlite.integrations.CloudSetup.lastSync()
-            Link("Sync my setup now", if (last == 0L) "Not synced yet" else "Last synced " + android.text.format.DateUtils.getRelativeTimeSpanString(last), m, value = note.ifBlank { "›" }) {
-                scope.launch {
-                    if (!com.lekathedon.visionlite.integrations.SignIns.signedIn("nuvio")) { note = "Sign in to Nuvio first"; return@launch }
-                    note = "…"
-                    note = if (runCatching { com.lekathedon.visionlite.integrations.CloudSetup.push() }.getOrDefault(false)) "Synced" else "Couldn't reach Nuvio"
-                }
-            }
-        }
-        row { m ->
-            var note by remember { mutableStateOf("") }
-            Link("Bring in Nuvio's profiles", "Your Nuvio account's profiles as Lite profiles: name, picture, and each follows its own Nuvio profile", m,
-                value = note.ifBlank { "›" }) {
-                scope.launch {
-                    note = "…"
-                    val faces = runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioFaces() }.getOrDefault(emptyList())
-                    if (faces.isEmpty()) { note = "Sign in to Nuvio first"; return@launch }
-                    val have = com.lekathedon.visionlite.data.Profiles.all().map { it.name.lowercase() }.toSet()
-                    var n = 0
-                    for (f in faces) {
-                        if (f.name.lowercase() in have) continue
-                        val pr = com.lekathedon.visionlite.data.Profiles.add(f.name, f.color.ifBlank { "#1E88E5" })
-                        com.lekathedon.visionlite.data.Profiles.putFor(pr.id, "si_nuvio_profile" to f.index.toString(), "si_nuvio_profile_name" to f.name,
-                            "si_nuvio_avatar" to f.picture, "si_nuvio_avatar_color" to f.color)
-                        if (f.picture.isNotBlank()) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.lekathedon.visionlite.data.Profiles.setPicture(pr.id, f.picture) }
-                        n++
-                    }
-                    note = if (n == 0) "All here" else "$n added"
-                }
-            }
-        }
         head("Start")
         row { m -> Toggle("Ask who's watching", "At start, when there's more than one profile (a PIN is always asked)", p.askProfile, m) }
     }
     pages += page("About", "Version, report a problem, cache, first-start setup", { "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}" }) {
         head("Help")
-        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Nuvio Vision team (no keys or logins)", m) { nav.push(Screen.Report()) } }
-        head("Nuvio Vision")
+        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Vision Lite team (no keys or logins)", m) { nav.push(Screen.Report()) } }
+        head("Vision Lite")
         row { m -> Link("Version", "", m, value = com.lekathedon.visionlite.BuildConfig.VERSION_NAME) {} }
         row { m -> Link("Clear image cache", "Frees memory and disk; posters load again", m, value = cleared) { scope.launch { cleared = clearImages() } } }
         row { m -> Link("Run the first-start setup again", "One page per service, then back to Home", m) { Integrations.setupDone.value = false; nav.pop() } }

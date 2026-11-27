@@ -90,7 +90,8 @@ object VisionRows {
 // ------------------------------------------------------------------ TMDB (only with your key)
 
 object Tmdb {
-    fun key(): String? = if (!Integrations.active("tmdb")) null else Integrations.values(Integrations.byId("tmdb")).firstOrNull()?.takeIf { it.isNotBlank() }
+    /** Your TMDB key if you set one, else our server's (the app ships with none); null = no server and no key. */
+    fun key(): String? = com.lekathedon.visionlite.data.Our.keyOr(if (!Integrations.active("tmdb")) null else Integrations.values(Integrations.byId("tmdb")).firstOrNull())
 
     /** GET /3/[path] with your key (an API key or a read token); null on any failure or without a key. */
     fun get(path0: String): JSONObject? {
@@ -98,7 +99,7 @@ object Tmdb {
         // Leave out: TMDB's discover pages leave the left-out genres out themselves (the rest is filtered on the box).
         val path = mergeKeywords(path0).let { if (it.startsWith("discover/") && "without_genres" !in it) it + com.lekathedon.visionlite.recs.LeaveOut.tmdb() else it }
         val token = k.length > 50
-        val url = "https://api.themoviedb.org/3/$path" + if (token) "" else (if ('?' in path) "&" else "?") + "api_key=$k"
+        val url = "https://api.themoviedb.org/3/$path" + if (token || k == com.lekathedon.visionlite.data.Our.KEY) "" else (if ('?' in path) "&" else "?") + "api_key=$k"
         return runCatching {
             Net.http.newCall(Request.Builder().url(url).apply { if (token) header("Authorization", "Bearer $k") }.build()).execute().use { r ->
                 if (r.isSuccessful) JSONObject(r.body!!.string()) else null

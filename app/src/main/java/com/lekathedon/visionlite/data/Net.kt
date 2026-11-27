@@ -20,6 +20,8 @@ object Net {
         .dns(SwitchDns)
         // Our server's key on requests to it (none elsewhere).
         .addInterceptor(Our.Key)
+        // Calls without the user's own key go to our server, which adds ours (the app ships with none).
+        .addInterceptor(Our.Route)
         .build()
 
     suspend fun get(url: String, timeoutSec: Long = 0): String = withContext(Dispatchers.IO) {

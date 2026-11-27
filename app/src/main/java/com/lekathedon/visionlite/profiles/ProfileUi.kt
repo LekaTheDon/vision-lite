@@ -340,12 +340,12 @@ private fun Line(title: String, sub: String, modifier: Modifier = Modifier, swat
     }
 }
 
-/** Nuvio's avatar pictures (when the box is signed in to Nuvio), a link from the phone, or none (colour + initial). */
+/** A picture link from the phone, or none (colour + initial). */
 @Composable
 private fun AvatarPicker(p: Profile, onPick: (String) -> Unit, onLink: () -> Unit, onCancel: () -> Unit) {
     BackHandler { onCancel() }
     var pics by remember { mutableStateOf<List<String>?>(null) }
-    LaunchedEffect(Unit) { pics = runCatching { com.lekathedon.visionlite.integrations.SignIns.nuvioAvatarCatalog() }.getOrDefault(emptyList()) }
+    LaunchedEffect(Unit) { pics = emptyList() }   // pictures: a link from the phone, or colour + initial (no outside catalog)
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     Column(Modifier.fillMaxSize().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {

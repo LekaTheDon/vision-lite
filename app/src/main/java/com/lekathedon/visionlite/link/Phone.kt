@@ -43,11 +43,12 @@ internal class Phone(private val secret: () -> String) {
     // ---- State: profiles, add-ons, lists, reminders, Scout ratings ----
 
     fun state(): JSONObject {
-        val faces = SignIns.cachedFaces().ifEmpty { runCatching { runBlocking { SignIns.nuvioFaces() } }.getOrDefault(emptyList()) }
-        val active = SignIns.nuvioProfile()
+        // Lite's own profiles (Nuvio's were only ever brought over once, at Join).
+        val active = com.lekathedon.visionlite.data.Profiles.currentId()
         val profiles = JSONArray().apply {
-            if (faces.isEmpty()) put(JSONObject().put("id", 1).put("name", "Lite"))
-            faces.forEach { put(JSONObject().put("id", it.index).put("name", it.name).put("color", it.color).put("avatar", it.picture)) }
+            val all = com.lekathedon.visionlite.data.Profiles.all()
+            if (all.isEmpty()) put(JSONObject().put("id", 1).put("name", "Lite"))
+            all.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("color", it.color).put("avatar", it.pic)) }
         }
         val store = App.instance.addons
         val addons = store.all.value
@@ -193,7 +194,7 @@ internal class Phone(private val secret: () -> String) {
                 }
                 if (o.optString("op") == "import") {
                     require(com.lekathedon.visionlite.home.ImportedLists.supports(l)) {
-                        "Nuvio Vision shows Trakt lists, MDBList lists and IMDb Picks (not ${l.optString("source")} yet)"
+                        "Vision Lite shows Trakt lists, MDBList lists and IMDb Picks (not ${l.optString("source")} yet)"
                     }
                     kept.put(l)
                 }
@@ -245,7 +246,7 @@ internal class Phone(private val secret: () -> String) {
                 val s = Integrations.all.firstOrNull { it.id == o.optString("service") } ?: error("Lite has no ${o.optString("service")}")
                 Integrations.clear(s)
             }
-            "profile" -> error("rename profiles in the Nuvio app (Lite uses your Nuvio profiles)")
+            "profile" -> error("rename profiles on the TV (Settings › Profiles)")
             else -> error("Lite doesn't know this change")
         }
         return "applied"

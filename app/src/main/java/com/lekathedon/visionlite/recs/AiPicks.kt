@@ -47,8 +47,9 @@ object AiPicks {
         GEMINI("gemini", "Gemini", "gemini-flash-lite-latest"),
         GROQ("groq", "Groq", "openai/gpt-oss-120b"),
         MISTRAL("mistral", "Mistral", "mistral-medium-latest");
-        val key get() = Integrations.values(Integrations.byId(id)).firstOrNull().orEmpty()
-        val on get() = Integrations.active(id) && key.isNotBlank()
+        /** Your own key (Gemini only can be added now), else our server's; blank = off. */
+        val key get() = com.lekathedon.visionlite.data.Our.keyOr(if (Integrations.active(id)) Integrations.values(Integrations.byId(id)).firstOrNull() else null).orEmpty()
+        val on get() = key.isNotBlank()
     }
 
     @Serializable data class Saved(val at: Long = 0, val picks: List<Pick> = emptyList(), val history: List<String> = emptyList())

@@ -80,7 +80,10 @@ object Integrations {
     )
 
     fun byId(id: String) = all.first { it.id == id }
-    fun inGroup(g: Group) = all.filter { it.group == g }
+    /** Nuvio is never listed: it is only the one-time Join import at first start. */
+    fun inGroup(g: Group) = all.filter { it.group == g && it.id != "nuvio" && !(it.id in SERVER_KEYS && com.lekathedon.visionlite.data.Our.on) }
+    /** Keys our server holds for everyone (not asked of users once it's deployed); Gemini stays: your own key is optional. */
+    val SERVER_KEYS = setOf("tmdb", "tvdb", "mdblist", "groq", "mistral")
 
     private val p: Prefs get() = App.instance.prefs
     private val texts = HashMap<String, Prefs.Text>()

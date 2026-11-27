@@ -141,7 +141,7 @@ object TbMeta {
         private val seriesIds = ConcurrentHashMap<String, Long>()
         private val shows = ConcurrentHashMap<Long, Pair<Map<String, List<Ep>>, Long>>()
 
-        private fun key(): String? = runCatching { Integrations.values(Integrations.byId("tvdb")).firstOrNull()?.trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+        private fun key(): String? = com.lekathedon.visionlite.data.Our.keyOr(runCatching { Integrations.values(Integrations.byId("tvdb")).firstOrNull() }.getOrNull())
 
         suspend fun hint(imdb: String, season: Int, episode: Int, name: String): EpisodeOrderHint? = withContext(Dispatchers.IO) {
             val key = key() ?: return@withContext null
