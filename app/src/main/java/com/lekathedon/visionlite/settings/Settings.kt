@@ -723,7 +723,7 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
     Column(Modifier.fillMaxSize().padding(start = 48.dp, top = 28.dp, end = 48.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            com.lekathedon.visionlite.ui.VisionWordmark(30.dp)
+            com.lekathedon.visionlite.ui.VisionWordmark(64.dp)
             Box(Modifier.padding(horizontal = 16.dp).size(1.dp, 22.dp).background(Color(0x40FFFFFF)))
             Text("SETTINGS", color = Palette.Text, fontFamily = Kit.display,
                 fontSize = 22.sp, fontWeight = FontWeight.ExtraBold,

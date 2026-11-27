@@ -110,7 +110,7 @@ fun HubLoading(hub: String, status: String = "Loading", modifier: Modifier = Mod
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xE6000000))))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 64.dp, bottom = 56.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
-                VisionWordmark(56.dp)
+                VisionWordmark(180.dp)
                 Text(word, color = Kit.accent, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     modifier = Modifier.padding(start = 10.dp, bottom = 4.dp))
             }

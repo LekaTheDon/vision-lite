@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Vision logo (option 2 "Rounded", chosen 2026-11-27): a play shape whose left side + base form the V, the lid apart. -->
+<!-- Vision logo as designed (option 2 "Rounded", 2026-11-27): the big rounded play mark (implied V), VISION underneath. Always this lockup, never side by side. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="320dp" android:height="180dp" android:viewportWidth="640" android:viewportHeight="360">
-    <group android:translateX="83.5" android:translateY="133" android:scaleX="0.699" android:scaleY="0.699">
-        <group android:scaleX="0.3214" android:scaleY="0.3214" android:translateX="-49.8" android:translateY="-28.9">
+    <group android:translateX="186.9" android:translateY="30" android:scaleX="0.4839" android:scaleY="0.4839">
+        <group android:translateX="-50" android:translateY="-80">
             <path android:strokeColor="#FFFFFF" android:strokeWidth="100" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M205,140 L205,460 L341.6,377.5"/>
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="100" android:strokeLineCap="round" android:pathData="M333.4,217.5 L470,300"/>
+            <path android:strokeColor="#FFFFFF" android:strokeWidth="100" android:strokeLineCap="round" android:pathData="M333.4,217.5 L470,300"/>
         </group>
-        <group android:translateX="153" android:translateY="22.5">
+        <group android:translateX="18" android:translateY="520">
             <path android:strokeColor="#FFFFFF" android:strokeWidth="22" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M11,11 V55 Q11,79 35,79 H45 Q69,79 69,55 V11 M121,11 V79 M283,11 V79 M355,11 H383 A20,20 0 0 1 403,31 V59 A20,20 0 0 1 383,79 H355 A20,20 0 0 1 335,59 V31 A20,20 0 0 1 355,11 Z M455,79 V35 Q455,11 479,11 H489 Q513,11 513,35 V79"/>
-        <!-- S a touch lighter (19): its gaps are tight, so at 22 it reads heavier than the other letters -->
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="19" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M231,9.5 H190 A17.75,17.75 0 0 0 190,45 H214 A17.75,17.75 0 0 1 214,80.5 H173"/>
+            <path android:strokeColor="#FFFFFF" android:strokeWidth="19" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M231,9.5 H190 A17.75,17.75 0 0 0 190,45 H214 A17.75,17.75 0 0 1 214,80.5 H173"/>
         </group>
     </group>
 </vector>
