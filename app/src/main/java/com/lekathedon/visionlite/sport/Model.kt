@@ -21,6 +21,8 @@ data class Game(
     val id: String, val league: String, val startMs: Long, val state: State, val detail: String,
     val sides: List<Side>, val title: String, val networks: List<String>, val venue: String? = null,
     val period: Int = 0, val clock: String? = null,
+    /** Races, golf: the running order / leaderboard (score = position or to par). */
+    val field: List<Side> = emptyList(),
 ) {
     val key get() = "$league:$id"
     val home get() = sides.firstOrNull { it.home }

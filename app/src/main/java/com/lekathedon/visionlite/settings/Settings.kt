@@ -70,6 +70,8 @@ import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Kit
 import com.lekathedon.visionlite.ui.KitSwitch
+import com.lekathedon.visionlite.ui.KitPopup
+import com.lekathedon.visionlite.ui.KitMenuItem
 import com.lekathedon.visionlite.ui.Theme
 import com.lekathedon.visionlite.ui.skinPage
 import com.lekathedon.visionlite.ui.Nav
@@ -534,6 +536,22 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> SportsSwitch("Scoring alerts", "A card when a team you follow scores (waits 30 s so it never beats your stream)", m, { it.scoringAlerts }) { s, v -> s.copy(scoringAlerts = v) } }
         row { m -> SportsSwitch("Hide scores", "No spoilers: scores stay hidden until you open a game", m, { it.hideScores }) { s, v -> s.copy(hideScores = v) } }
         row { m -> SportsSwitch("Only games on my channels", "Leave out games none of your channels show (your teams always show)", m, { it.onlyOnMyChannels }) { s, v -> s.copy(onlyOnMyChannels = v) } }
+        row { m -> SportsSwitch("Video window", "Games on the left, the channel playing on the right (off: two cards a row, games open full screen)", m, { it.videoWindow }) { s, v -> s.copy(videoWindow = v) } }
+        row { m -> SportsSwitch("Best channel first", "A game's channels best match first (off: by channel number)", m, { it.bestChannelFirst }) { s, v -> s.copy(bestChannelFirst = v) } }
+        row { m -> SportsSwitch("Score on the info bar", "The game and its score over a channel started from Sports", m, { it.scoreOnInfoBar }) { s, v -> s.copy(scoreOnInfoBar = v) } }
+        row { m -> SportsSwitch("Use the guide's categories", "A sports category in the guide counts towards a match", m, { it.matchCategories }) { s, v -> s.copy(matchCategories = v) } }
+        row { m -> SportsSwitch("Show Sports in the IPTV menu", "Off: Sports leaves the hub menu (the clock's Live now stays)", m, { it.showInSidebar }) { s, v -> s.copy(showInSidebar = v) } }
+        row { m ->
+            var v by remember { mutableStateOf(com.lekathedon.visionlite.sport.Scores.settings.value.alertDelaySec.toString()) }
+            ChoiceOf("Scoring alert delay", "Held back so it never beats your stream", v, AlertDelays, m) { pick -> v = pick
+                com.lekathedon.visionlite.sport.Scores.save(com.lekathedon.visionlite.sport.Scores.settings.value.copy(alertDelaySec = pick.toInt())) }
+        }
+        row { m ->
+            var v by remember { mutableStateOf(com.lekathedon.visionlite.sport.Scores.settings.value.region) }
+            ChoiceOf("Region", "Which leagues come first (blank: this TV's country)", v, Regions, m) { pick -> v = pick
+                com.lekathedon.visionlite.sport.Scores.save(com.lekathedon.visionlite.sport.Scores.settings.value.copy(region = pick)) }
+        }
+        row { m -> PreferredGroups(m) }
         more = false
     }
     pages += page("This TV", "What this TV, box and soundbar can do; settings made for them", {
@@ -1037,6 +1055,29 @@ private suspend fun clearImages(): String = kotlinx.coroutines.withContext(kotli
     loader.memoryCache?.clear()
     loader.diskCache?.clear()
     "Cleared"
+}
+
+private val AlertDelays = listOf("0" to "No delay", "15" to "15 s", "30" to "30 s", "60" to "1 min", "90" to "1.5 min")
+private val Regions = listOf("" to "This TV's country", "GB" to "UK & Ireland", "US" to "USA", "CA" to "Canada", "SA" to "Gulf (Saudi, Qatar, UAE…)",
+    "ES" to "Spain", "IT" to "Italy", "DE" to "Germany", "FR" to "France", "PT" to "Portugal", "NL" to "Netherlands", "TR" to "Türkiye",
+    "MX" to "Mexico", "BR" to "Brazil", "AR" to "Argentina", "AU" to "Australia")
+
+/** Preferred channel groups for Sports: a group's channels come first when a game has several. */
+@Composable
+private fun PreferredGroups(modifier: Modifier) {
+    var open by remember { mutableStateOf(false) }
+    val s by com.lekathedon.visionlite.sport.Scores.settings.collectAsState()
+    Focusable({ open = true }, modifier.padding(top = 6.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
+        RowText("Preferred channel groups", "Their channels come first for a game", if (s.preferredGroups.isEmpty()) "None" else "${s.preferredGroups.size}", f) }
+    if (open) com.lekathedon.visionlite.sport.Overlay({ open = false }) {
+        val groups = remember { com.lekathedon.visionlite.iptv.Iptv.allGroups().map { it.first } }
+        KitPopup("Preferred channel groups", Modifier.width(520.dp).heightIn(max = 640.dp), sub = "OK turns a group on or off") {
+            androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(groups.size) { i -> val g = groups[i]; val on = g in s.preferredGroups
+                    KitMenuItem((if (on) "✓  " else "    ") + g, { com.lekathedon.visionlite.sport.Scores.save(s.copy(preferredGroups = if (on) s.preferredGroups - g else s.preferredGroups + g)) }) }
+            }
+        }
+    }
 }
 
 private val RemindOpts = listOf("0" to "At the start", "5" to "5 min before", "10" to "10 min before", "15" to "15 min before", "30" to "30 min before", "60" to "1 hour before")

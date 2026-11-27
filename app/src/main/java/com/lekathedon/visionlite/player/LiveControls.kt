@@ -397,6 +397,10 @@ private fun Banner(c: Channel?, title: String, nowNext: List<EpgProgram>, now: E
                 Img(c?.logo, 96.dp, 52.dp, Modifier.size(96.dp, 52.dp), ContentScale.Fit)
             }
             Column {
+                // Sports: the game on this channel and its score (Settings › Sports › Score on the info bar).
+                val games by com.lekathedon.visionlite.sport.Scores.games.collectAsState()
+                com.lekathedon.visionlite.sport.Host.infoLine(c?.key, games)?.let {
+                    Text(it, color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = shade, modifier = Modifier.padding(bottom = 4.dp)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     c?.let { Text("${it.n}", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp), style = shade) }
                     Text(c?.name ?: title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shade)

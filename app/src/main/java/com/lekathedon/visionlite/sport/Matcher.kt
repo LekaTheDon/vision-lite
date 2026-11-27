@@ -119,26 +119,67 @@ object Matcher {
         val rows = ArrayList<Triple<String, String, String?>>()   // pl|tvg, title, cat
         runCatching {
             val like = probes.joinToString(" OR ") { "title LIKE ?" }
-            Iptv.guideDb().rawQuery("SELECT pl, tvg, title, cat FROM prog WHERE start <= ? AND stop > ? AND ($like) LIMIT 300",
+            // Not a broadcast: blocks of 6 h or more (24/7 channels, "Live sport" fillers).
+            Iptv.guideDb().rawQuery("SELECT pl, tvg, title, cat FROM prog WHERE start <= ? AND stop > ? AND stop - start < 21600000 AND ($like) LIMIT 300",
                 arrayOf(at.toString(), at.toString()) + probes.map { "%${it.substringBefore(' ')}%" }).use { q ->
                 while (q.moveToNext()) rows += Triple("${q.getString(0)}|${q.getString(1)}", q.getString(2).orEmpty(), q.getString(3))
             }
         }
         if (rows.isEmpty()) return emptyList()
         val byTvg = all.filter { it.tvg != null }.groupBy { "${it.pl}|${it.tvg}" }
+        val others = g.versus && rows.isNotEmpty()
         return rows.flatMap { (tvg, title, cat) ->
             val t = norm(title)
+            // A listing that is just the channel's own name isn't the game.
+            if (byTvg[tvg].orEmpty().any { it.words == t }) return@flatMap emptyList()
+            // "Bills at Raiders" names a different game: two sides, neither ours.
+            val pairing = others && Regex("\\b(v|vs|at)\\b").containsMatchIn(t)
             val sides = if (g.versus) g.sides.count { s -> listOf(s.short, s.name, s.abbr).map(::norm).any { it.length >= 3 && Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(t) } } else 1
             val hasLeague = leagueWords.any { it.isNotEmpty() && it in t }
             val sporty = cat != null && sportWords.any { it in cat.lowercase() }
             val score = when {
                 g.versus && sides == 2 -> 600
-                g.versus && sides == 1 && hasLeague -> 450
+                // One of ours against someone else ("Bills at Raiders") is a different game.
+                g.versus && sides == 1 && hasLeague && !pairing -> 450
                 !g.versus && names.isEmpty() && hasLeague -> 400
                 else -> return@flatMap emptyList()
             } + (if (categories && sporty) 40 else 0) - (if (Regex("\\b(highlights|replay|preview|review|classic)\\b").containsMatchIn(t)) 300 else 0)
             if (score < 300) emptyList() else byTvg[tvg].orEmpty().map { it.key to score }
         }
+    }
+
+    // ---- games only the guide knows (darts, snooker, wrestling…: names you follow) ----
+
+    @Volatile private var guideMem: Pair<String, List<Game>>? = null
+
+    /** Today's and tomorrow's shows naming a followed word, one game per title and start, its channels attached. */
+    suspend fun guideGames(words: List<String>): List<Game> = withContext(Dispatchers.IO) {
+        if (words.isEmpty()) return@withContext emptyList()
+        val st = "${stamp()}:${words.joinToString()}"
+        guideMem?.takeIf { it.first == st }?.let { return@withContext it.second }
+        val now = System.currentTimeMillis(); val byTvg = entries().filter { it.tvg != null }.groupBy { "${it.pl}|${it.tvg}" }
+        val found = LinkedHashMap<String, Pair<Game, MutableList<String>>>()
+        runCatching {
+            Iptv.guideDb().rawQuery("SELECT pl, tvg, title, start, stop FROM prog WHERE stop > ? AND start < ? AND stop - start < 21600000 AND (" +
+                words.joinToString(" OR ") { "title LIKE ?" } + ") ORDER BY start LIMIT 400",
+                arrayOf(now.toString(), (now + 2 * 86_400_000L).toString()) + words.map { "%$it%" }).use { q ->
+                while (q.moveToNext()) {
+                    val title = q.getString(2).orEmpty(); val t = norm(title)
+                    if (Regex("\\b(highlights|replay|preview|review|classic|classics|condensed)\\b").containsMatchIn(t)) continue
+                    val start = q.getLong(3); val stop = q.getLong(4); val id = "${t.hashCode()}_${start / 60_000}"
+                    val chans = byTvg["${q.getString(0)}|${q.getString(1)}"].orEmpty().map { it.key }
+                    if (chans.isEmpty()) continue
+                    val state = if (now in start until stop) State.LIVE else State.PRE
+                    found.getOrPut(id) { Game(id, "guide", start, state, if (state == State.LIVE) "On now" else "", emptyList(), title, emptyList()) to mutableListOf() }.second += chans
+                }
+            }
+        }
+        synchronized(cache) { found.values.forEach { (g, keys) ->
+            val ch = Iptv.channelsByKey(keys.distinct().take(20)); cache[g.key] = stamp() to ch.map { Hit(it, Why.GUIDE, 500) } } }
+        val list = found.values.map { it.first }
+        guideMem = st to list
+        Scores.looked.value = Scores.looked.value + list.associateBy { it.key }   // their game pages
+        list
     }
 
     // ---- your corrections ----

@@ -11,8 +11,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,7 +42,7 @@ fun Picker(nav: Nav, arrange: Boolean) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 KitHeader("Pick your teams", by = "${follows.teams.size} teams · ${follows.leagues.size} leagues · ${follows.bar().size} on the bar")
                 Spacer(Modifier.weight(1f))
-                KitButton("Arrange my sports", Icons.Filled.SwapVert, { arranging = true })
+                KitButton("Arrange my sports", Icons.Swap, { arranging = true })
                 Spacer(Modifier.width(8.dp)); KitButton("Done", null, { nav.pop() }, primary = true)
             }
             // What you follow: OK unfollows.
@@ -65,7 +63,7 @@ fun Picker(nav: Nav, arrange: Boolean) {
                             BasicTextField(word, { word = it.take(40) }, singleLine = true, textStyle = TextStyle(color = Palette.Text, fontSize = 16.sp),
                                 modifier = Modifier.width(360.dp).border(1.dp, Kit.line, RoundedCornerShape(8.dp)).padding(12.dp))
                             Spacer(Modifier.width(10.dp))
-                            KitButton("Follow", Icons.Filled.Add, { if (word.isNotBlank()) { save(follows.copy(words = (follows.words + word.trim()).distinct())); word = "" } })
+                            KitButton("Follow", Icons.Add, { if (word.isNotBlank()) { save(follows.copy(words = (follows.words + word.trim()).distinct())); word = "" } })
                         }
                         return@Column
                     }
@@ -75,9 +73,9 @@ fun Picker(nav: Nav, arrange: Boolean) {
                     league?.let { l ->
                         Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val all = l.key in follows.leagues; val pinned = l.key in follows.bar()
-                            KitButton(if (all) "Following all of ${l.short}" else "Follow all of ${l.short}", Icons.Filled.Star,
+                            KitButton(if (all) "Following all of ${l.short}" else "Follow all of ${l.short}", Icons.Star,
                                 { save(follows.copy(leagues = if (all) follows.leagues - l.key else follows.leagues + l.key)) }, on = all)
-                            KitButton(if (pinned) "On the top bar" else "Put on the top bar", Icons.Filled.PushPin, {
+                            KitButton(if (pinned) "On the top bar" else "Put on the top bar", Icons.Pin, {
                                 save(if (pinned) follows.copy(unpinned = follows.unpinned + l.key) else follows.copy(pins = (follows.pins + l.key).distinct(), unpinned = follows.unpinned - l.key))
                             }, on = pinned)
                         }

@@ -70,7 +70,7 @@ object Scores {
 
     private suspend fun run() {
         loadSaved(today())
-        while (isActive) {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
             pass(today(), force = false)
             val live = _games.value.any { it.state == State.LIVE }
             delay(if (live) 30_000 else 300_000)

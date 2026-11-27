@@ -1651,7 +1651,9 @@ private object Sections {
         .filter { com.lekathedon.visionlite.anime.Hubs.on(it.first) }   // Settings › Home hubs (Anime also needs its own hub)
     fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: "Films & TV"
     fun pages(key: String): List<Pair<String, Screen>> = when (key) {
-        "IPTV" -> listOf("Live TV" to Screen.LiveTv, "Sports" to Screen.Sports, "VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
+        "IPTV" -> listOf("Live TV" to Screen.LiveTv) +
+            (if (com.lekathedon.visionlite.sport.Scores.settings.value.showInSidebar) listOf("Sports" to Screen.Sports) else emptyList()) +
+            listOf("VOD" to Screen.Vod, "Recordings" to Screen.Recordings)
         else -> listOf("Discover" to Screen.Discover, "Search" to Screen.Search,
             "Library" to Screen.Library, "Calendar" to Screen.Calendar) +
             (if (com.lekathedon.visionlite.streams.Cloud.services().isNotEmpty()) listOf("Cloud" to Screen.Cloud) else emptyList()) +

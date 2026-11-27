@@ -39,7 +39,10 @@ object Espn {
 
     private fun game(league: String, e: JSONObject): Game? {
         val id = e.optString("id").ifBlank { return null }
-        val c = e.optJSONArray("competitions").objs().firstOrNull()
+        // Race weekends list each session: the one on now (or the last one run), else the first.
+        val comps = e.optJSONArray("competitions").objs()
+        val c = comps.lastOrNull { it.optJSONObject("status")?.optJSONObject("type")?.optString("state") == "in" }
+            ?: comps.lastOrNull { it.optJSONObject("status")?.optJSONObject("type")?.optString("state") == "post" }?.takeIf { comps.size > 1 } ?: comps.firstOrNull()
         val st = (c?.optJSONObject("status") ?: e.optJSONObject("status"))
         val type = st?.optJSONObject("type")
         val state = when (type?.optString("state")) { "in" -> State.LIVE; "post" -> State.DONE; else -> State.PRE }
@@ -53,11 +56,13 @@ object Espn {
             e.optString("name").ifBlank { e.optString("shortName") },
             nets.distinct(), c?.optJSONObject("venue")?.optString("fullName")?.ifBlank { null },
             st?.optInt("period") ?: 0, st?.optString("displayClock")?.ifBlank { null },
+            if (sides.size > 2) sides.take(20) else emptyList(),
         )
     }
 
     private fun side(o: JSONObject): Side? {
         val t = o.optJSONObject("team") ?: o.optJSONObject("athlete") ?: return null
+        if (t.optString("displayName").isBlank()) return null
         val score = o.opt("score")?.let { if (it is JSONObject) it.optString("displayValue") else it.toString() }?.ifBlank { null }
         return Side(t.optString("id"), t.optString("displayName"), t.optString("shortDisplayName").ifBlank { t.optString("displayName") },
             t.optString("abbreviation"), t.optString("logo").ifBlank { null } ?: t.optJSONArray("logos").objs().firstOrNull()?.optString("href"),

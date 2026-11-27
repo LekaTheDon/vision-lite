@@ -7,8 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -62,7 +60,7 @@ fun RefreshButton(note: String, modifier: Modifier = Modifier) {
     val busy by Matcher.refreshing.collectAsState()
     val at by Scores.updatedAt.collectAsState()
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        KitButton(if (busy) "Refreshing…" else "Refresh channels", Icons.Filled.Refresh, { if (!busy) Matcher.refresh() })
+        KitButton(if (busy) "Refreshing…" else "Refresh channels", Icons.Sync, { if (!busy) Matcher.refresh() })
         Text(if (busy) "Guide, scores, then channels…" else if (at > 0) "Updated ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at))} · $note" else "",
             color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(start = 12.dp))
     }
@@ -72,8 +70,7 @@ fun RefreshButton(note: String, modifier: Modifier = Modifier) {
 @Composable
 fun GameLine(g: Game, hide: Boolean, channels: Int?, onClick: () -> Unit, onHold: () -> Unit, modifier: Modifier = Modifier) {
     val league = Leagues.byKey(g.league)
-    var held by remember { mutableStateOf(false) }
-    Focusable({ if (held) held = false else onClick() }, modifier.fillMaxWidth().onHoldOk { if (!held) { held = true; onHold() } },
+    Focusable(onClick, modifier.fillMaxWidth().onHoldOk(onHold),
         RoundedCornerShape(Kit.rowR)) { f ->
         val ink = if (f) kitFocus.second else Palette.Text; val dim = if (f) kitFocus.second.copy(alpha = 0.7f) else Palette.TextDim
         Row(Modifier.fillMaxWidth().background(if (f) kitFocus.first else Kit.rowFill).padding(horizontal = 14.dp, vertical = 10.dp),
@@ -150,7 +147,7 @@ fun SportPage(nav: Nav) {
         val base = when (view) {
             LiveView -> Scores.liveNow(all) { (Matcher.cached(it)?.size ?: 0) > 0 }
             AllView -> dayGames.filter { it.league in shown }.sortedWith(compareBy({ shown.indexOf(it.league) }, { it.startMs }))
-            MineView -> all.filter { follows.follows(it) && it.state != State.DONE || follows.follows(it) && it.startMs > System.currentTimeMillis() - 86_400_000 }
+            MineView -> all.filter { follows.follows(it) || it.league in follows.bar() }
             is SportView -> dayGames.filter { Leagues.byKey(it.league)?.sport == view.sport }
             is LeagueView -> dayGames.filter { it.league == view.l.key }
             else -> emptyList()
@@ -158,6 +155,8 @@ fun SportPage(nav: Nav) {
         if (settings.onlyOnMyChannels) base.filter { follows.follows(it) || (Matcher.cached(it)?.size ?: 1) > 0 } else base
     }
     LaunchedEffect(list) { Matcher.warm(list) }
+    var guide by remember { mutableStateOf<List<Game>>(emptyList()) }
+    LaunchedEffect(follows.words, matched) { guide = Matcher.guideGames(follows.words) }
 
     Inside(true) {
         Column(Modifier.fillMaxSize().skinPage().padding(start = 40.dp, end = 32.dp, top = 24.dp)) {
@@ -179,12 +178,19 @@ fun SportPage(nav: Nav) {
                         if (view == AllView) item(key = "choose") {
                             KitButton("Choose leagues · ${Scores.shownLeagues(settings, follows).size} on", null, { choose = true })
                         }
-                        if (list.isEmpty()) item(key = "none") {
+                        if (list.isEmpty() && !(view == MineView && guide.isNotEmpty())) item(key = "none") {
                             Text(when (view) { LiveView -> "Nothing live right now."; MineView -> "Nothing coming up for what you follow."; else -> "No games this day." },
                                 color = Palette.TextDim, fontSize = 15.sp, modifier = Modifier.padding(vertical = 20.dp))
                         }
-                        items(list, key = { it.key }) { g ->
+                        if (view == MineView) mine(nav, follows, settings, list, guide) { watch(it) }
+                        else if (settings.videoWindow) items(list, key = { it.key }) { g ->
                             GameLine(g, settings.hideScores, Matcher.cached(g)?.size, { nav.push(Screen.SportsGame(g.key)) }, { watch(g) })
+                        }
+                        // Video window off: two cards a row across the page.
+                        else items(list.chunked(2), key = { it.first().key }) { pair ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { pair.forEach { g ->
+                                GameLine(g, settings.hideScores, Matcher.cached(g)?.size, { nav.push(Screen.SportsGame(g.key)) }, { watch(g) }, Modifier.weight(1f))
+                            }; if (pair.size == 1) Spacer(Modifier.weight(1f)) }
                         }
                     }
                     if (settings.videoWindow) Window(winGame?.let { w -> all.firstOrNull { it.key == w.key } ?: w }, winCh, settings.hideScores,
@@ -224,5 +230,40 @@ private fun Window(g: Game?, c: Channel?, hide: Boolean, modifier: Modifier) {
             Text(listOf(if (hide) "" else Host.scoreLine(g), stateText(g)).filter { it.isNotBlank() }.joinToString(" · "), color = Palette.TextDim, fontSize = 14.sp)
             c?.let { Text("On ${it.name} · hold OK again for full screen", color = Palette.TextDim, fontSize = 12.sp) }
         }
+    }
+}
+
+/**
+ * My Teams: on now and next across everything you follow, then a section per team (its season: last two, next three),
+ * per top-bar league and followed league (the day's games), per followed name (the guide's shows).
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.mine(nav: Nav, f: Follows, s: Settings, all: List<Game>, guide: List<Game>, watch: (Game) -> Unit) {
+    val now = System.currentTimeMillis()
+    fun line(g: Game, k: String) = item(key = k) { GameLine(g, s.hideScores, Matcher.cached(g)?.size, { nav.push(Screen.SportsGame(g.key)) }, { watch(g) }) }
+    fun head(t: String, k: String) = item(key = k) { KitHeader(t, Modifier.padding(top = 12.dp)) }
+    val soon = (all.filter { f.follows(it) } + guide).filter { it.state == State.LIVE || it.state == State.PRE && it.startMs - now < 86_400_000 }.sortedBy { it.startMs }
+    if (soon.isNotEmpty()) { head("On now and next", "h_soon"); soon.forEach { line(it, "soon" + it.key) } }
+    f.teams.forEach { t ->
+        item(key = "team" + t.key) {
+            var season by remember(t.key) { mutableStateOf<List<Game>?>(null) }
+            LaunchedEffect(t.key) { season = Scores.season(t) }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) { Logo(t.logo, 24.dp); KitHeader("  " + t.name, by = Leagues.byKey(t.league)?.name) }
+                val l = season
+                if (l == null) Text("Loading…", color = Palette.TextDim, fontSize = 12.sp)
+                else (l.filter { it.state == State.DONE }.takeLast(2) + l.filter { it.state != State.DONE }.take(3)).forEach { g ->
+                    GameLine(g, s.hideScores, Matcher.cached(g)?.size, { nav.push(Screen.SportsGame(g.key)) }, { watch(g) }) }
+            }
+        }
+    }
+    (f.bar() + f.leagues).distinct().mapNotNull(Leagues::byKey).forEach { l ->
+        val games = Scores.gamesOn(LocalDate.now(), all).filter { it.league == l.key }
+        if (games.isNotEmpty()) { head(l.name, "hl" + l.key); games.forEach { line(it, "l" + l.key + it.key) } }
+    }
+    f.words.forEach { w ->
+        val games = guide.filter { it.title.contains(w, ignoreCase = true) }
+        head(w, "hw$w")
+        if (games.isEmpty()) item(key = "nw$w") { Text("Nothing in your guide today or tomorrow.", color = Palette.TextDim, fontSize = 12.sp) }
+        games.forEach { line(it, "w$w" + it.key) }
     }
 }

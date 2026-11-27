@@ -9,8 +9,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -109,40 +107,47 @@ fun GamePage(nav: Nav, key: String) {
                 val first = remember { FocusRequester() }
                 LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    item { KitButton("Watch", Icons.Filled.PlayArrow, { channels.firstOrNull()?.let { Host.play(nav, g, it, channels) } }, Modifier.focusRequester(first), primary = true) }
-                    startOver(g, channels.firstOrNull())?.let { url -> item { KitButton("From the start", Icons.Filled.Replay, {
+                    item { KitButton("Watch", Icons.Play, { channels.firstOrNull()?.let { Host.play(nav, g, it, channels) } }, Modifier.focusRequester(first), primary = true) }
+                    startOver(g, channels.firstOrNull())?.let { url -> item { KitButton("From the start", Icons.Restart, {
                         Host.play(nav, g, channels.first(), channels); nav.replace(Screen.Player(url, channels.first().name, channels.first().headers, type = "live")) }) } }
                     if (g.versus) item {
                         val all = g.sides.all { s -> follows.teams.any { it.league == g.league && it.id == s.id } }
-                        KitButton(if (all) "Following" else "Follow", Icons.Filled.Star, { followSides(g, !all) }, on = all)
+                        KitButton(if (all) "Following" else "Follow", Icons.Star, { followSides(g, !all) }, on = all)
                     }
-                    if (g.state == State.PRE) item { KitButton(if (Host.reminded(g)) "Reminder set" else "Remind me", Icons.Filled.Notifications, { Host.remind(g) }, on = Host.reminded(g)) }
-                    if (g.state != State.DONE && channels.isNotEmpty()) item { KitButton("Record", Icons.Filled.FiberManualRecord, { record = true }) }
-                    if (g.state != State.DONE) item { KitButton(if (Host.pinned(g)) "Pinned" else "Pin score", Icons.Filled.PushPin, { Host.pin(g) }, on = Host.pinned(g)) }
+                    if (g.state == State.PRE) item { KitButton(if (Host.reminded(g)) "Reminder set" else "Remind me", Icons.Bell, { Host.remind(g) }, on = Host.reminded(g)) }
+                    if (g.state != State.DONE && channels.isNotEmpty()) item { KitButton("Record", Icons.Record, { record = true }) }
+                    if (g.state != State.DONE) item { KitButton(if (Host.pinned(g)) "Pinned" else "Pin score", Icons.Pin, { Host.pin(g) }, on = Host.pinned(g)) }
                     item { RefreshButton("${channels.size} channels") }
                 }
             }
             item(key = "chh") { Row(verticalAlignment = Alignment.CenterVertically) {
                 KitHeader("Channels", by = if (channels.isEmpty()) "none found yet" else "${channels.size}")
-                Spacer(Modifier.width(16.dp)); KitButton("Fix channel", Icons.Filled.Search, { fix = true })
+                Spacer(Modifier.width(16.dp)); KitButton("Fix channel", Icons.Search, { fix = true })
             } }
             items(hits, key = { "c" + it.channel.key }) { h ->
                 val c = h.channel
-                var held by remember { mutableStateOf(false) }
-                Focusable({ if (held) held = false else if (win?.key == c.key) Host.play(nav, g, c, channels) else win = c },
-                    Modifier.fillMaxWidth().onHoldOk { if (!held) { held = true; menu = c } }, RoundedCornerShape(Kit.rowR)) { f ->
+                Focusable({ if (win?.key == c.key) Host.play(nav, g, c, channels) else win = c },
+                    Modifier.fillMaxWidth().onHoldOk { menu = c }, RoundedCornerShape(Kit.rowR)) { f ->
                     val ink = if (f) kitFocus.second else Palette.Text; val dim = if (f) kitFocus.second.copy(alpha = 0.7f) else Palette.TextDim
                     Row(Modifier.fillMaxWidth().background(if (f) kitFocus.first else Kit.rowFill).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Logo(c.logo, 34.dp)
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(c.name + if (win?.key == c.key) "  · playing" else "", color = ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                            val now = remember(c.key) { runCatching { Iptv.nowNext(c).firstOrNull()?.title }.getOrNull() }
+                            val now by produceState<String?>(null, c.key) { value = withContext(Dispatchers.IO) { runCatching { Iptv.nowNext(c).firstOrNull()?.title }.getOrNull() } }
                             Text(listOfNotNull(now, h.why.label, c.group).joinToString(" · "), color = dim, fontSize = 12.sp, maxLines = 1)
                         }
                         quality(c.name)?.let { KitChip(it) }
                     }
                 }
             }
+            if (g.field.isNotEmpty() && g.state != State.PRE && !hide) item(key = "field") { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                KitHeader(if (Leagues.byKey(g.league)?.sport == Sport.GOLF) "Leaderboard" else "Running order")
+                g.field.forEachIndexed { i, p -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1}", color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.width(34.dp))
+                    Text(p.name, color = Palette.Text, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                    Text(p.score.orEmpty(), color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                } }
+            } }
             val s = sum
             if (s != null && g.state != State.PRE) {
                 if (s.lines.isNotEmpty() && !hide) item(key = "lines") { Column {
@@ -255,7 +260,7 @@ private fun RecordPopup(g: Game, channels: List<Channel>, close: () -> Unit) = O
             KitButton("◂", null, { mins = (mins - 30).coerceAtLeast(30) }); Text("%d:%02d".format(mins / 60, mins % 60), color = Palette.Text, fontSize = 18.sp)
             KitButton("▸", null, { mins = (mins + 30).coerceAtMost(600) })
         }
-        KitButton("Record", Icons.Filled.FiberManualRecord, {
+        KitButton("Record", Icons.Record, {
             Recorder.scheduleAt(channels[ch], Host.title(g), g.startMs - 5 * 60_000L, g.startMs + mins * 60_000L); close()
         }, Modifier.focusRequester(first), primary = true)
     }
@@ -271,7 +276,7 @@ fun TeamCard(nav: Nav, t: Team, place: String?, close: () -> Unit) = Overlay(clo
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val on = follows.follows(t)
     KitPopup(t.name, Modifier.width(620.dp).heightIn(max = 620.dp), sub = place, eyebrow = Leagues.byKey(t.league)?.name) {
-        KitButton(if (on) "Following" else "Follow", Icons.Filled.Star, {
+        KitButton(if (on) "Following" else "Follow", Icons.Star, {
             Scores.save(follows.copy(teams = if (on) follows.teams.filter { it.key != t.key } else follows.teams + t)) }, Modifier.focusRequester(first), on = on)
         val list = season
         if (list == null) Text("Loading the season…", color = Palette.TextDim, fontSize = 13.sp)

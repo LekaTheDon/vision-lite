@@ -54,6 +54,16 @@ object Host {
         return true
     }
 
+    /** The info bar's line for the channel playing: "Arsenal 2–1 Chelsea · 63'" (games started from Sports). */
+    fun infoLine(key: String?, games: List<Game>): String? {
+        val p = playing ?: return null
+        val s = Scores.settings.value
+        if (key == null || !s.scoreOnInfoBar || p.channels.none { it.key == key }) return null
+        val g = games.firstOrNull { it.key == p.game.key } ?: p.game
+        return if (!g.versus || g.state == State.PRE || s.hideScores) "${title(g)} · ${stateText(g)}"
+            else ordered(g).let { "${it[0].short} ${scoreLine(g)} ${it[1].short} · ${g.detail}" }
+    }
+
     /** Player: the channel [key] failed; the next one for the same game, once each (only for games started here). */
     fun next(key: String): Pair<String, Channel>? {
         val p = playing ?: return null
