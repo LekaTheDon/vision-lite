@@ -69,6 +69,11 @@ class AddonClient(private val store: AddonStore) {
         val imdb = id.substringBefore(':')
         val imdbApi = com.lekathedon.visionlite.detail.Imdb
         if (!imdbApi.isId(imdb)) return null
+        // Our server first (~0.2 s, cached at Cloudflare): IMDb from the box takes 1.5-2 s per 250 episodes, which made
+        // Play slower in 0.41.17. The device path below stays as the fallback when our server is off or has nothing.
+        if (com.lekathedon.visionlite.data.Our.on) runCatching {
+            Net.getJson<MetaResponse>("${com.lekathedon.visionlite.data.Our.cinemeta}/meta/$type/$imdb.json", 6).meta
+        }.getOrNull()?.takeIf { !isAddonError(it) }?.let { return it }
         return coroutineScope {
             val eps = if (type == "series") async { imdbApi.episodes(imdb) } else null
             val t = imdbApi.title(imdb) ?: return@coroutineScope null
