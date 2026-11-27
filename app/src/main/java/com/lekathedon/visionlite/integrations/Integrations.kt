@@ -67,7 +67,7 @@ object Integrations {
         Service("mdblist", "MDBList", Group.DATA, null, "mdblist.com/preferences → API key (ratings and list sync, one entry)",
             listOf(Field("MDBList API key", secret = true))) { v -> ok(get("https://api.mdblist.com/user?apikey=${enc(v[0])}")) },
 
-        Service("gemini", "Gemini", Group.AI, "Helps every recommendation", "aistudio.google.com/apikey (free tier)",
+        Service("gemini", "Gemini", Group.AI, "Helps every recommendation and finds the channel for live games", "aistudio.google.com/apikey (free tier)",
             listOf(Field("Gemini API key", secret = true))) { v -> ok(get("https://generativelanguage.googleapis.com/v1beta/models?key=${enc(v[0])}")) },
         Service("groq", "Groq", Group.AI, "Helps every recommendation", "console.groq.com/keys (free tier)",
             listOf(Field("Groq API key", secret = true))) { v -> ok(get("https://api.groq.com/openai/v1/models", bearer = v[0])) },

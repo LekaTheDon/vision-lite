@@ -537,7 +537,6 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> SportsSwitch("Video window", "Games on the left, the channel playing on the right (off: two cards a row, games open full screen)", m, { it.videoWindow }) { s, v -> s.copy(videoWindow = v) } }
         row { m -> SportsSwitch("Best channel first", "A game's channels best match first (off: by channel number)", m, { it.bestChannelFirst }) { s, v -> s.copy(bestChannelFirst = v) } }
         row { m -> SportsSwitch("Score on the info bar", "The game and its score over a channel started from Sports", m, { it.scoreOnInfoBar }) { s, v -> s.copy(scoreOnInfoBar = v) } }
-        if (com.lekathedon.visionlite.recs.AiPicks.Ai.GEMINI.on) row { m -> SportsSwitch("Gemini helps find channels", "For games starting soon that found no channel: Gemini reads your channel names and guide and picks; what it learns needs no call next time", m, { it.backgroundGeminiMatching }) { s, v -> s.copy(backgroundGeminiMatching = v) } }
         row { m -> SportsSwitch("Use the guide's categories", "A sports category in the guide counts towards a match", m, { it.matchCategories }) { s, v -> s.copy(matchCategories = v) } }
         row { m -> SportsSwitch("Show Sports in the IPTV menu", "Off: Sports leaves the hub menu (the clock's Live now stays)", m, { it.showInSidebar }) { s, v -> s.copy(showInSidebar = v) } }
         row { m ->

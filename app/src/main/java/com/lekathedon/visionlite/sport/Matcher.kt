@@ -62,7 +62,12 @@ object Matcher {
     fun cached(g: Game): List<Hit>? = synchronized(cache) { cache[g.key] }?.takeIf { it.first == stamp() }?.second
 
     suspend fun channels(g: Game): List<Hit> = cached(g) ?: withContext(Dispatchers.IO) {
-        val hits = runCatching { find(g) }.getOrDefault(emptyList())
+        var hits = runCatching { find(g) }.getOrDefault(emptyList())
+        // Part of the same search: when the guide and your picks found nothing for a game on now or soon, and you
+        // shared your own Gemini key, Gemini reads the same guide + channel names and the search runs again with it.
+        val soon = g.state == State.LIVE || g.state == State.PRE && g.startMs < System.currentTimeMillis() + 2 * 3_600_000L
+        if (soon && hits.none { it.why == Why.GUIDE || it.why == Why.YOURS } && AiMatch.available() && AiMatch.cached(g) == null &&
+            AiMatch.find(g).isNotEmpty()) hits = runCatching { find(g) }.getOrDefault(hits)
         synchronized(cache) { if (cache.size > 400) cache.clear(); cache[g.key] = stamp() to hits }
         hits
     }
@@ -72,21 +77,7 @@ object Matcher {
         var any = false
         games.take(80).forEach { if (cached(it) == null) { channels(it); any = true } }
         if (any) changed.value++
-        // "Gemini helps find channels" on: games live or starting within 2 h that found nothing ask it (budgeted in AiMatch).
-        if (Scores.settings.value.backgroundGeminiMatching && AiMatch.available()) {
-            val soon = System.currentTimeMillis() + 2 * 3_600_000L
-            games.filter { it.state == State.LIVE || it.state == State.PRE && it.startMs < soon }.filter { cached(it).isNullOrEmpty() && AiMatch.cached(it) == null }
-                .take(6).forEach { g -> if (AiMatch.find(g).isNotEmpty()) { forget(g); channels(g); changed.value++ } }
-        }
     }
-
-    /** Ask Gemini now for one game (game page's "Find with Gemini"); true when it found channels. */
-    suspend fun askAi(g: Game): Boolean {
-        val found = AiMatch.find(g).isNotEmpty()
-        if (found) { forget(g); channels(g); changed.value++ }
-        return found
-    }
-    private fun forget(g: Game) = synchronized(cache) { cache.remove(g.key) }
 
     private fun find(g: Game): List<Hit> {
         val s = Scores.settings.value

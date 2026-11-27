@@ -21,8 +21,8 @@ import java.io.File
  * is remembered as "this league on this network = this channel" ([learned]), so the next game of that league needs no
  * call at all: the AI teaches the matcher instead of being asked every time.
  *
- * When: a game page with no channels found ("Find with Gemini"), or by itself for games on screen when
- * "Gemini helps find channels" is on. Uses your Gemini key, else our server's. At most 1 call at a time, 30 an hour,
+ * When: inside the normal channel search ([Matcher.channels]), for a game on now or within 2 h that the guide and your
+ * picks found nothing for, and only if you added your own Gemini key. At most 1 call at a time, 30 an hour,
  * each answer kept per game for the day. Cost: one small request (~3 KB) per game it's asked about.
  */
 object AiMatch {
@@ -33,7 +33,9 @@ object AiMatch {
     private val asked = HashMap<String, Pair<Long, List<Pick>>>()
     private val calls = ArrayDeque<Long>()
 
-    fun available() = AiPicks.Ai.GEMINI.on && Iptv.playlists().isNotEmpty()
+    /** Only with a Gemini key you added yourself (Settings › Integrations); never our server's. */
+    fun available() = Iptv.playlists().isNotEmpty() && com.lekathedon.visionlite.integrations.Integrations.active("gemini") &&
+        com.lekathedon.visionlite.integrations.Integrations.values(com.lekathedon.visionlite.integrations.Integrations.byId("gemini")).firstOrNull()?.isNotBlank() == true
 
     // ---- what it taught us: "league|network" (or "league|" for no network) → channel key ----
 

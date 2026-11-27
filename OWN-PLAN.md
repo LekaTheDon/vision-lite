@@ -59,7 +59,7 @@ snappy in every hub. Audit: ~/work/lite-audit/REPORT.md (re-scan: `python3 ~/wor
 - [x] Game page: score, scoring plays, team stats, pre-game (place, last five, win chance)
 - [x] League tables (ESPN; TheSportsDB for Qatar/UAE/Egypt/Kuwait/Bahrain/Oman/Jordan/Morocco + Emir Cup; F1 / NASCAR / IndyCar)
 - [x] Channel finder for each game (guide, channel name, league networks) + failover to the next channel
-- [x] Gemini channel finder (2026-11-27, sport/AiMatch.kt): reads only your channel names + guide, never the web; "Find with Gemini" on a game page, or by itself when switched on; what it finds is learned per league + network so later games need no call; 30 calls/h max
+- [x] Gemini channel finder (2026-11-27, sport/AiMatch.kt): reads only your channel names + guide, never the web; part of the normal channel search, only with the user's own Gemini key (no button, no switch); what it finds is learned per league + network so later games need no call; 30 calls/h max
 - [x] Goal alerts for followed teams (shown anywhere)
 - [x] Pinned scores
 - [x] Record a game (Live TV recordings)
