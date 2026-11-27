@@ -296,7 +296,6 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                 game?.let { ClockWindow(it, playing) }
             }
             // The panel wears the look and skin (the clock on Home keeps its own shape).
-            val style = com.lekathedon.visionlite.ui.Kit.style
             Column(Modifier.align(Alignment.CenterEnd).padding(12.dp).width(400.dp).fillMaxHeight().clip(RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
                 .background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.97f)).border(1.dp, com.lekathedon.visionlite.ui.Kit.line, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(top = 20.dp)) {
                 com.lekathedon.visionlite.ui.Eyebrow(kicker, Modifier.padding(horizontal = 24.dp))
@@ -307,17 +306,15 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                     contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(tabs, key = { it.name }) { t ->
                         Focusable({ }, if (t == tab) Modifier.focusRequester(tabFocus) else Modifier,
-                            RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) 4.dp else 50.dp), onFocus = {
+                            RoundedCornerShape(4.dp), onFocus = {
                                 if (holdTabs > 0 && System.currentTimeMillis() - holdTabs < 1500) { if (t != tab) runCatching { tabFocus.requestFocus() } }
                                 else if (tab != t) tab = t
                             }) { f ->
                             val sel = t == tab
-                            if (style == com.lekathedon.visionlite.ui.Style.MARQUEE) Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                            Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
                                 Text(t.chip.uppercase(), color = if (sel) Palette.Text else Palette.TextDim, fontFamily = com.lekathedon.visionlite.ui.Kit.label, fontSize = 13.sp, letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold)
                                 Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(2.dp).background(if (sel) com.lekathedon.visionlite.ui.Kit.accent else Color.Transparent))
                             }
-                            else Text(t.chip, color = if (sel) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.TextDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.background(if (sel) com.lekathedon.visionlite.ui.Kit.accent else com.lekathedon.visionlite.ui.Kit.card2).padding(horizontal = 11.dp, vertical = 6.dp))
                         }
                     }
                 }
@@ -330,13 +327,12 @@ fun ClockPanel(nav: Nav, onDismiss: () -> Unit) {
                             Column {
                                 l.header?.let { Text(it, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 4.dp)) }
                                 Focusable(l.open, if (l == lines.first()) Modifier.focusRequester(first) else Modifier, RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.rowR)) { f ->
-                                    val halo = f && style == com.lekathedon.visionlite.ui.Style.HALO
-                                    Row(Modifier.fillMaxWidth().background(when { halo -> com.lekathedon.visionlite.ui.Kit.accent; f && style == com.lekathedon.visionlite.ui.Style.TONAL -> com.lekathedon.visionlite.ui.Kit.lerp(com.lekathedon.visionlite.ui.Kit.card2, com.lekathedon.visionlite.ui.Kit.accent, 0.25f); f -> com.lekathedon.visionlite.ui.Kit.card2; else -> com.lekathedon.visionlite.ui.Kit.rowFill }).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.fillMaxWidth().background(when { f -> com.lekathedon.visionlite.ui.Kit.card2; else -> com.lekathedon.visionlite.ui.Kit.rowFill }).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         val wide = false
-                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(if (style == com.lekathedon.visionlite.ui.Style.TONAL) 10.dp else 4.dp)).background(com.lekathedon.visionlite.ui.Kit.card2)) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
+                                        Box(Modifier.size(if (wide) 64.dp else 32.dp, 48.dp).clip(RoundedCornerShape(4.dp)).background(com.lekathedon.visionlite.ui.Kit.card2)) { Img(l.poster, if (wide) 64.dp else 32.dp, 48.dp) }
                                         Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                                            Text(l.title, color = if (halo) com.lekathedon.visionlite.ui.Kit.onAccent else Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(l.sub, color = if (halo) com.lekathedon.visionlite.ui.Kit.onAccent.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(l.title, color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(l.sub, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
                                 }

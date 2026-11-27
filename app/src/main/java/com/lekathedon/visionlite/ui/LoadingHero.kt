@@ -49,7 +49,7 @@ fun LoadingHero(id: String, title: String, status: String, sub: String = "", mod
             if (!logoFailed) coil3.compose.AsyncImage("https://images.metahub.space/logo/medium/$imdb/img", name,
                 Modifier.sizeIn(maxWidth = 380.dp, maxHeight = 110.dp), contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
                 onError = { logoFailed = true })
-            else DisplayText(if (Kit.style == Style.MARQUEE) name.uppercase() else name, 32.sp, maxLines = 2)
+            else DisplayText(name.uppercase(), 32.sp, maxLines = 2)
             Regex("""S(\d+)E(\d+)$""").find(title)?.let { m ->
                 Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("S${m.groupValues[1].toInt()} · E${m.groupValues[2].toInt()}", color = Kit.accent, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)

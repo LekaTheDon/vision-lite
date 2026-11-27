@@ -101,7 +101,7 @@ internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
                 .border(1.dp, K.line, androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).padding(horizontal = 36.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 com.lekathedon.visionlite.ui.Eyebrow("Nuvio Vision")
-                com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "LEAVE?" else "Leave the app?", 28.sp, Modifier.padding(top = 6.dp), maxLines = 1)
+                com.lekathedon.visionlite.ui.DisplayText("LEAVE?", 28.sp, Modifier.padding(top = 6.dp), maxLines = 1)
                 Row(Modifier.padding(top = 22.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     com.lekathedon.visionlite.ui.KitButton("Stay", null, onStay, Modifier.focusRequester(stay), primary = true)
                     com.lekathedon.visionlite.ui.KitButton("Leave", null, onLeave)

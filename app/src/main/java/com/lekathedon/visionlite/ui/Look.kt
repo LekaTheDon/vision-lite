@@ -60,22 +60,11 @@ enum class Skin(val key: String, val label: String, val base: Color, val glow: C
     companion object { fun of(k: String) = entries.firstOrNull { it.key == k } ?: TINT }
 }
 
-/** The three looks for everything past Home: fonts, shapes, buttons, toggles. Home, its pill and the clock keep theirs. */
-enum class Style(val key: String, val label: String, val about: String) {
-    MARQUEE("marquee", "Marquee", "Haven's cinema type, tracked capitals, slim parts"),
-    TONAL("tonal", "Tonal", "Bold shapes, coloured surfaces, chunky buttons"),
-    HALO("halo", "Halo", "Soft pills, round buttons, filled focus");
-    companion object { fun of(k: String) = entries.firstOrNull { it.key == k } ?: MARQUEE }
-}
-
 /** The skin and look in use (set from the prefs in MainActivity), and the accent the Tinted skin takes from the art. */
 object Theme {
     var skin by mutableStateOf(Skin.TINT)
-    var style by mutableStateOf(Style.MARQUEE)
     /** Settings › Button size: buttons, icons and switches past Home (1 = the 0.37.0 size). */
     var scale by mutableStateOf(0.67f)
-    /** Settings › Home look: true = Home's text, colours, pills and focus follow the look and skin (sizes stay Home's); false = Home's own (0.39.1). */
-    var homeLook by mutableStateOf(true)
     val sizes = listOf("smallest" to "Smallest", "small" to "Small", "medium" to "Medium", "large" to "Large")
     fun scaleOf(key: String) = when (key) { "smallest" -> 0.55f; "medium" -> 0.83f; "large" -> 1f; else -> 0.67f }
     /** Tinted: the last title's art colour, brightened (null until a title page read one). */

@@ -166,7 +166,7 @@ private fun KindGrid(title: String?, kinds: List<Kind>, first: FocusRequester?, 
                     com.lekathedon.visionlite.ui.Focusable({
                         if (on) k.ids.filter { it in liked }.forEach(Interests::toggle) else { k.ids.filter { it !in liked }.forEach(Interests::toggle); onPick() }
                     }, (if (first != null && r == 0 && c == 0) Modifier.focusRequester(first) else Modifier).width(176.dp), shape = shape) { f ->
-                        val (bg, ink) = when { f -> com.lekathedon.visionlite.ui.kitFocus; on -> K.tonal to Palette.Text; else -> K.rowFill to Palette.Text }
+                        val (bg, ink) = when { f -> com.lekathedon.visionlite.ui.kitFocus; on -> K.lerp(K.card, K.accent, 0.3f) to Palette.Text; else -> K.rowFill to Palette.Text }
                         androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().background(bg)
                             .then(if (on && !f) Modifier.border(1.5.dp, K.accent, shape) else Modifier.border(1.dp, K.line, shape))
                             .padding(horizontal = 14.dp, vertical = 11.dp)) {

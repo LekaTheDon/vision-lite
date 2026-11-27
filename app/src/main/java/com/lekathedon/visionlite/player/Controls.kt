@@ -265,7 +265,7 @@ internal fun Controls(
         if (nextUp) com.lekathedon.visionlite.ui.Inside(true) { Column(Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
             .background(K.panel.copy(alpha = 0.96f), RoundedCornerShape(K.cardR)).border(1.dp, K.line, RoundedCornerShape(K.cardR)).padding(horizontal = 22.dp, vertical = 16.dp)) {
             com.lekathedon.visionlite.ui.Eyebrow("Up next")
-            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "NEXT EPISODE" else "Next episode", 18.sp, maxLines = 1)
+            com.lekathedon.visionlite.ui.DisplayText("NEXT EPISODE", 18.sp, maxLines = 1)
             Text(if (autoNext) "Starts in $countdown s · OK now · Back to stay" else "OK to play · Back to stay", color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 14.sp)
         } } else if (seg != null && skipMode == "button") com.lekathedon.visionlite.ui.Inside(true) { Text("${seg.label}   OK", color = K.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (visible) 150.dp else 48.dp)
@@ -447,7 +447,7 @@ private fun SubStylePanel(onChange: () -> Unit) {
     )
     Box(Modifier.fillMaxSize()) {
         com.lekathedon.visionlite.ui.Inside(true) { Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(K.panel.copy(alpha = 0.96f)).padding(24.dp)) {
-            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "SUBTITLE STYLE" else "Subtitle style", 20.sp, maxLines = 1)
+            com.lekathedon.visionlite.ui.DisplayText("SUBTITLE STYLE", 20.sp, maxLines = 1)
             Text("Left / Right to change · applied now", color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
             androidx.compose.foundation.lazy.LazyColumn {
                 items(lines.size) { idx ->
@@ -486,7 +486,7 @@ private fun SyncPanel(onDelays: () -> Unit, subsFirst: Boolean = false) {
     LaunchedEffect(a, sub) { if (a != Sync.audioMs || sub != Sync.subMs) { delay(500); Sync.set(a, sub); onDelays() } }
     Box(Modifier.fillMaxSize()) {
         com.lekathedon.visionlite.ui.Inside(true) { Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(K.panel.copy(alpha = 0.96f)).padding(24.dp)) {
-            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) "SYNC" else "Sync", 20.sp, maxLines = 1)
+            com.lekathedon.visionlite.ui.DisplayText("SYNC", 20.sp, maxLines = 1)
             Text("Remembered for this title. Left / Right: 50 ms; OK: back to 0", color = com.lekathedon.visionlite.ui.Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
             listOf(true, false).forEach { audio ->
                 var reps by remember { mutableIntStateOf(0) }
@@ -564,7 +564,7 @@ internal fun SidePanel(title: String, items: List<String>, selected: Int, bottom
         com.lekathedon.visionlite.ui.Inside(true) { Column((if (bottom) Modifier.align(Alignment.BottomStart).padding(start = 48.dp, bottom = 120.dp).width(440.dp)
             .heightIn(max = 470.dp).background(K.panel.copy(alpha = 0.96f), RoundedCornerShape(K.cardR)).border(1.dp, K.line, RoundedCornerShape(K.cardR)).padding(20.dp)
         else Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(K.panel.copy(alpha = 0.96f)).padding(24.dp))) {
-            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) title.uppercase() else title, 20.sp, Modifier.padding(bottom = 12.dp), maxLines = 1)
+            com.lekathedon.visionlite.ui.DisplayText(title.uppercase(), 20.sp, Modifier.padding(bottom = 12.dp), maxLines = 1)
             LazyColumn(state = state) {
                 itemsIndexed(items) { i, label ->
                     Focusable({ onPick(i) }, (if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier).padding(top = 6.dp).fillMaxWidth(), RoundedCornerShape(K.rowR)) { f ->

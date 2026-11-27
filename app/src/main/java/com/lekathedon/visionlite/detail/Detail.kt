@@ -70,7 +70,6 @@ import com.lekathedon.visionlite.ui.Gold
 import com.lekathedon.visionlite.ui.KitChip
 import com.lekathedon.visionlite.ui.DisplayText
 import com.lekathedon.visionlite.ui.Eyebrow
-import com.lekathedon.visionlite.ui.Style
 import com.lekathedon.visionlite.ui.skinPage
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
@@ -158,7 +157,6 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             com.lekathedon.visionlite.streams.VodLinks.present(if (isSeries) "series" else "movie", imdbId, listOf(name, s.name).distinct(), t?.year)
     }
 
-    val style = Kit.style
     Box(Modifier.fillMaxSize().skinPage(look.skin)) {
         if (!look.oled) ArtTint(backdrop ?: m?.poster)
         if (resolving || (m == null && t == null)) {
@@ -212,17 +210,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             if (trailer != null) autoDone = true
         }
 
-        if (style == Style.TONAL) {
-            // Tonal: the art in a big rounded frame on the right, gone once you scroll past the top.
-            val atTop by remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
-            val a by androidx.compose.animation.core.animateFloatAsState(if (atTop) 1f else 0f, label = "frame")
-            Box(Modifier.align(Alignment.TopEnd).padding(top = 26.dp, end = 26.dp).size(430.dp, 488.dp)
-                .graphicsLayer { alpha = a }.clip(RoundedCornerShape(34.dp)).background(Kit.card)
-                .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(34.dp))) {
-                Img(backdrop, 430.dp, 488.dp, Modifier.fillMaxSize())
-                trailer?.takeIf { !fullTrailer }?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
-            }
-        } else Box(Modifier.fillMaxWidth().height(if (style == Style.MARQUEE) 540.dp else 460.dp)) {
+        Box(Modifier.fillMaxWidth().height(540.dp)) {
             Img(backdrop, 960.dp, 540.dp, Modifier.fillMaxSize())
             trailer?.takeIf { !fullTrailer }?.let { com.lekathedon.visionlite.trailer.TrailerVideo(it.url, !sound, Modifier.fillMaxSize(), it.audio) { trailer = null; trailerNow = false } }
             val pg = look.page
@@ -234,8 +222,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             // ---------------------------------------------------------------- billboard
             item(key = "hero") {
                 Box(Modifier.fillMaxWidth()) {
-                Column(Modifier.width(when (style) { Style.TONAL -> 440.dp; Style.MARQUEE -> 560.dp; Style.HALO -> 600.dp })
-                    .heightIn(min = 380.dp).padding(top = if (style == Style.MARQUEE) 90.dp else 0.dp)) {
+                Column(Modifier.width(560.dp).heightIn(min = 380.dp).padding(top = 90.dp)) {
                     val more by androidx.compose.runtime.produceState(MoreRatings.R(), imdbId) { imdbId?.let { value = MoreRatings.of(it, isSeries) } }
                     val plot0 = m?.description ?: t?.plot
                     // In the app language when it isn't English (TMDB's translation, else Gemini's), kept on disk.
@@ -244,44 +231,18 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     val plot = loc?.plot ?: plot0
                     val crew = t?.let { (if (isSeries) it.creators else it.directors).take(2).joinToString(", ") { p -> p.name } }.orEmpty()
                     val stars = t?.cast?.take(4)?.joinToString(", ") { it.name }?.ifBlank { null } ?: m?.cast?.take(4)?.joinToString(", ")?.ifBlank { null }
-                    when (style) {
-                        Style.TONAL -> {
-                            Facts(m, t, isSeries)
-                            t?.awards?.let { aw -> Awards(aw, Modifier.padding(top = 10.dp), right = false) }
-                            TitleArt(logo, name, 46.sp, Modifier.padding(top = 16.dp), 300.dp, 100.dp)
-                            plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.84f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
-                            ScoreTiles(t, traktRating, more)
-                            if (crew.isNotBlank()) Text((if (isSeries) "Created by " else "Directed by ") + crew, color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
-                            GuideChips(t?.guide.orEmpty())
-                        }
-                        Style.MARQUEE -> {
-                            val genres = (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).take(2).joinToString("  ·  ")
-                            Eyebrow(listOfNotNull(genres.ifBlank { null }, crew.ifBlank { null }?.let { (if (isSeries) "Created by " else "By ") + it }).joinToString("  ·  "))
-                            TitleArt(logo, name, 52.sp, Modifier.padding(top = 12.dp, bottom = 6.dp), 320.dp, 100.dp)
-                            Facts(m, t, isSeries)
-                            Ratings(t, traktRating, more)
-                            plot?.let {
-                                Row(Modifier.padding(top = 14.dp)) {
-                                    Box(Modifier.padding(top = 9.dp, end = 12.dp).size(30.dp, 2.dp).background(Kit.accent))
-                                    Text(it, color = Palette.Text.copy(alpha = 0.88f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                }
+                        val genres = (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).take(2).joinToString("  ·  ")
+                        Eyebrow(listOfNotNull(genres.ifBlank { null }, crew.ifBlank { null }?.let { (if (isSeries) "Created by " else "By ") + it }).joinToString("  ·  "))
+                        TitleArt(logo, name, 52.sp, Modifier.padding(top = 12.dp, bottom = 6.dp), 320.dp, 100.dp)
+                        Facts(m, t, isSeries)
+                        Ratings(t, traktRating, more)
+                        plot?.let {
+                            Row(Modifier.padding(top = 14.dp)) {
+                                Box(Modifier.padding(top = 9.dp, end = 12.dp).size(30.dp, 2.dp).background(Kit.accent))
+                                Text(it, color = Palette.Text.copy(alpha = 0.88f), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             }
-                            GuideChips(t?.guide.orEmpty())
                         }
-                        Style.HALO -> {
-                            var logoFailed by remember(logo) { mutableStateOf(logo == null) }
-                            if (!logoFailed) coil3.compose.AsyncImage(logo, name, Modifier.size(340.dp, 110.dp), contentScale = ContentScale.Fit,
-                                alignment = Alignment.BottomStart, onError = { logoFailed = true })
-                            else DisplayText(name, 42.sp, color = Kit.accent)
-                            next?.let { n -> Text("Up next: S${n.season} E${n.number}" + (eps.firstOrNull { it.season == n.season && it.episode == n.number }?.title?.let { " · $it" } ?: ""),
-                                color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp)) }
-                            plot?.let { Text(it, color = Palette.Text.copy(alpha = 0.88f), fontSize = 15.sp, lineHeight = 23.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
-                            Facts(m, t, isSeries)
-                            Ratings(t, traktRating, more)
-                            stars?.let { Text("Starring $it", color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp)) }
-                            GuideChips(t?.guide.orEmpty())
-                        }
-                    }
+                        GuideChips(t?.guide.orEmpty())
 
                     // Back up at the buttons: the whole billboard shows again (logo, facts, plot), not just the buttons' line.
                     // Play, then every action as an icon (user 2026-11-24: nothing taken away, a third smaller, size in
@@ -297,7 +258,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         if (list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0) list.animateScrollToItem(0)
                     }
                     fun Modifier.hint(label: String) = this.onFocusChanged { if (it.isFocused) { hint = label; heroMoves++ } }
-                    Row(Modifier.padding(top = if (style == Style.TONAL) 22.dp else 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
+                    Row(Modifier.padding(top = 18.dp).wrapContentWidth(Alignment.Start, unbounded = true).widthIn(max = 1100.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()).onFocusChanged {
                         heroFocused = it.hasFocus
                         if (!it.hasFocus) hint = null
                     }, horizontalArrangement = Arrangement.spacedBy(8.dp * Kit.soft), verticalAlignment = Alignment.CenterVertically) {
@@ -439,15 +400,14 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                     // The focused icon's name; Marquee also says when a film started now would end.
                     Row(Modifier.padding(top = 8.dp).height(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         hint?.let { com.lekathedon.visionlite.ui.Eyebrow(it, color = Palette.Text) }
-                        if (hint == null && style == Style.MARQUEE && !isSeries) t?.runtimeMin?.let { min ->
+                        if (hint == null && !isSeries) t?.runtimeMin?.let { min ->
                             val ends = remember(min) { android.text.format.DateFormat.getTimeFormat(App.instance).format(java.util.Date(System.currentTimeMillis() + min * 60_000L)) }
                             com.lekathedon.visionlite.ui.Eyebrow("Ends at $ends")
                         }
                     }
                 }
                 // Awards (IMDb), top right beside the billboard, in gold (WuPlay's "Won 1 Oscar").
-                // Tonal's right side is the art frame, so its awards sit under the facts instead.
-                if (style != Style.TONAL) t?.awards?.let { aw -> Awards(aw, Modifier.align(Alignment.BottomEnd).padding(bottom = 46.dp)) }
+                t?.awards?.let { aw -> Awards(aw, Modifier.align(Alignment.BottomEnd).padding(bottom = 46.dp)) }
                 }
             }
 
@@ -474,9 +434,9 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         if (i > 0) epRow.scrollToItem(i)
                     }
                     Column {
-                        LazyRow(Modifier.padding(top = 14.dp), state = epRow, horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 14.dp else 16.dp)) {
+                        LazyRow(Modifier.padding(top = 14.dp), state = epRow, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             items(inSeason, key = { it.videoId }) { e ->
-                                EpisodeCard(e, style, showRating(e), (e.season to e.episode) in watched, next?.let { it.season == e.season && it.number == e.episode } == true, blurOn,
+                                EpisodeCard(e, showRating(e), (e.season to e.episode) in watched, next?.let { it.season == e.season && it.number == e.episode } == true, blurOn,
                                     onFocus = { focusedEp = e }) { nav.push(Screen.Streams("series", e.videoId, "$name S${e.season}E${e.episode}", s.id)) }
                             }
                         }
@@ -510,7 +470,7 @@ fun Detail(nav: Nav, s: Screen.Detail) {
             }
 
             // ---------------------------------------------------------------- credits (Marquee: dotted leaders)
-            if (style == Style.MARQUEE && t != null) item(key = "credits") {
+            if (t != null) item(key = "credits") {
                 val lines = listOfNotNull(
                     t.creators.take(2).joinToString(", ") { it.name }.ifBlank { null }?.let { "Created by" to it },
                     t.directors.take(2).joinToString(", ") { it.name }.ifBlank { null }?.let { "Directed by" to it },
@@ -644,19 +604,12 @@ private fun Facts(m: Meta?, t: Imdb.Title?, series: Boolean) {
     // IMDb's count, or more when TMDB filled in seasons IMDb hasn't listed yet (detail/TmdbSeasons.kt).
     val seasons = maxOf(t?.seasons?.count { it > 0 } ?: 0, m?.videos.orEmpty().mapNotNull { it.season }.filter { it > 0 }.distinct().size)
         .takeIf { series && it > 0 }?.let { if (it == 1) "1 season" else "$it seasons" }
-    val style = Kit.style
-    Row(Modifier.padding(top = if (style == Style.TONAL) 0.dp else 12.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (style == Style.TONAL) 8.dp else 0.dp)) {
-        if (style == Style.TONAL) {
-            // Tonal: the facts as coloured chips.
-            listOfNotNull(t?.certificate, years, seasons ?: runtime, (t?.genres?.ifEmpty { null } ?: m?.genres.orEmpty()).firstOrNull()).forEach { KitChip(it) }
-        } else {
-            t?.certificate?.let {
-                KitChip(it)
-                Spacer(Modifier.width(10.dp))
-            }
-            Text(listOfNotNull(years, seasons, runtime, genres).joinToString(if (style == Style.MARQUEE) "  •  " else "  ·  "), color = Palette.TextDim, fontSize = 14.sp)
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        t?.certificate?.let {
+            KitChip(it)
+            Spacer(Modifier.width(10.dp))
         }
+        Text(listOfNotNull(years, seasons, runtime, genres).joinToString("  •  "), color = Palette.TextDim, fontSize = 14.sp)
         // Leave out: reached from Search, so it says why it shows nowhere else.
         val id = t?.id ?: m?.id
         val loRev by com.lekathedon.visionlite.recs.LeaveOut.revision.collectAsState()
@@ -738,70 +691,24 @@ private fun Awards(a: Imdb.Awards, modifier: Modifier = Modifier, right: Boolean
     }
 }
 
-/** Tonal's score tiles: one rounded square per source, IMDb in its yellow. */
-@Composable
-private fun ScoreTiles(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
-    val tiles = buildList {
-        t?.rating?.let { add("%.1f".format(it) to "IMDB") }
-        more.tomatoes?.let { add("$it" to "TOMATO") }
-        trakt?.let { add("${(it * 10).toInt()}" to "TRAKT") }
-        more.tmdb?.let { add(it.removeSuffix("%") to "TMDB") }
-        t?.metascore?.let { add("$it" to "META") }
-        more.letterboxd?.let { add("%.1f".format(it) to "LBXD") }
-    }.take(5)
-    if (tiles.isEmpty()) return
-    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        tiles.forEachIndexed { i, (v, k) ->
-            val imdb = i == 0 && t?.rating != null
-            Column(Modifier.size(62.dp).clip(RoundedCornerShape(22.dp)).background(if (imdb) ImdbYellow else Kit.card2),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Text(v, color = if (imdb) Color(0xFF111111) else Palette.Text, fontFamily = com.lekathedon.visionlite.ui.Fonts.tonalDisplay,
-                    fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Text(k, color = if (imdb) Color(0xFF5A4A00) else Palette.TextDim, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
-            }
-        }
-    }
-}
-
-/** Seasons in the look: Tonal joined segments, Marquee radio dots over an underline, Halo pills. Focus opens the season. */
+/** Seasons: radio dots over an underline. Focus opens the season. */
 @Composable
 private fun SeasonTabs(seasons: List<Int>, season: Int, counts: Map<Int, Int>, pick: (Int) -> Unit) {
-    val style = Kit.style
-    LazyRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(when (style) { Style.TONAL -> 3.dp; Style.MARQUEE -> 26.dp; Style.HALO -> 8.dp })) {
+    LazyRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
         items(seasons.size) { idx ->
             val n = seasons[idx]
             val name = if (n == 0) "Specials" else "Season $n"
             val sel = n == season
-            when (style) {
-                Style.TONAL -> {
-                    val big = 20.dp; val small = 8.dp
-                    val shape = when {
-                        sel || seasons.size == 1 -> RoundedCornerShape(big)
-                        idx == 0 -> RoundedCornerShape(big, small, small, big)
-                        idx == seasons.lastIndex -> RoundedCornerShape(small, big, big, small)
-                        else -> RoundedCornerShape(small)
-                    }
-                    Focusable({ pick(n) }, shape = shape, onFocus = { pick(n) }) { _ ->
-                        Text(name, color = if (sel) Kit.onAccent else Palette.TextDim, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.background(if (sel) Kit.accent else Kit.card2).padding(horizontal = 18.dp, vertical = 10.dp))
-                    }
-                }
-                Style.MARQUEE -> Focusable({ pick(n) }, shape = RoundedCornerShape(8.dp), onFocus = { pick(n) }) { _ ->
-                    Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, if (sel) Kit.accent else Palette.TextDim, CircleShape).padding(3.5.dp)) {
-                                if (sel) Box(Modifier.fillMaxSize().clip(CircleShape).background(Kit.accent))
-                            }
-                            Text(name, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-                            counts[n]?.let { Text("  $it episodes", color = Palette.TextDim, fontSize = 12.sp) }
+            Focusable({ pick(n) }, shape = RoundedCornerShape(8.dp), onFocus = { pick(n) }) { _ ->
+                Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, if (sel) Kit.accent else Palette.TextDim, CircleShape).padding(3.5.dp)) {
+                            if (sel) Box(Modifier.fillMaxSize().clip(CircleShape).background(Kit.accent))
                         }
-                        Box(Modifier.padding(top = 7.dp).fillMaxWidth().height(2.dp).background(if (sel) Kit.accent else Color.Transparent))
+                        Text(name, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                        counts[n]?.let { Text("  $it episodes", color = Palette.TextDim, fontSize = 12.sp) }
                     }
-                }
-                Style.HALO -> Focusable({ pick(n) }, shape = RoundedCornerShape(50), onFocus = { pick(n) }) { _ ->
-                    Text(name, color = if (sel) Kit.onAccent else Palette.TextDim, fontSize = 14.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
-                        modifier = Modifier.background(if (sel) Kit.accent else Color(0x40000000)).border(1.dp, if (sel) Color.Transparent else Kit.line, RoundedCornerShape(50))
-                            .padding(horizontal = 18.dp, vertical = 8.dp))
+                    Box(Modifier.padding(top = 7.dp).fillMaxWidth().height(2.dp).background(if (sel) Kit.accent else Color.Transparent))
                 }
             }
         }
@@ -823,8 +730,7 @@ private fun Leader(k: String, v: String) {
 }
 
 /**
- * Vision's ranked parental-guide tags (worst first), "None" left out, in the look (no grey pills): Marquee tracked
- * capitals split by thin rules, Tonal a coloured dot per tag, Halo the severity as a small coloured bar.
+ * Vision's ranked parental-guide tags (worst first), "None" left out: tracked capitals split by thin rules.
  */
 @Composable
 private fun GuideChips(g: List<Imdb.Guide>) {
@@ -835,26 +741,9 @@ private fun GuideChips(g: List<Imdb.Guide>) {
         shown.forEachIndexed { i, x ->
             val short = x.category.substringBefore(" &").substringBefore(",")
             val c = severityColor(x.severity)
-            when (Kit.style) {
-                Style.MARQUEE -> {
-                    if (i > 0) Box(Modifier.padding(horizontal = 7.dp).size(1.dp, 9.dp).background(Kit.line))
-                    Text(short.uppercase(), color = Palette.Text.copy(alpha = 0.85f), fontFamily = Kit.label, fontSize = 9.sp, letterSpacing = 1.3.sp, maxLines = 1, softWrap = false)
-                    Text(" " + x.severity.uppercase(), color = c, fontFamily = Kit.label, fontSize = 9.sp, letterSpacing = 1.3.sp, maxLines = 1, softWrap = false)
-                }
-                Style.TONAL -> {
-                    if (i > 0) Spacer(Modifier.width(10.dp))
-                    Box(Modifier.size(6.dp).clip(CircleShape).background(c))
-                    Text("  $short", color = Palette.Text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                    Text(" ${x.severity.lowercase()}", color = c, fontSize = 10.sp, maxLines = 1, softWrap = false)
-                }
-                Style.HALO -> {
-                    if (i > 0) Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(short, color = Palette.Text, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        Box(Modifier.padding(top = 3.dp).size(when (x.severity.lowercase()) { "severe" -> 36.dp; "moderate" -> 24.dp; else -> 12.dp }, 3.dp).clip(RoundedCornerShape(50)).background(c))
-                    }
-                }
-            }
+            if (i > 0) Box(Modifier.padding(horizontal = 7.dp).size(1.dp, 9.dp).background(Kit.line))
+            Text(short.uppercase(), color = Palette.Text.copy(alpha = 0.85f), fontFamily = Kit.label, fontSize = 9.sp, letterSpacing = 1.3.sp, maxLines = 1, softWrap = false)
+            Text(" " + x.severity.uppercase(), color = c, fontFamily = Kit.label, fontSize = 9.sp, letterSpacing = 1.3.sp, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -868,11 +757,11 @@ private fun severityColor(s: String) = when (s.lowercase()) {
 private fun PersonCircle(p: Imdb.Person, open: () -> Unit) {
     Focusable(open, Modifier.width(110.dp), shape = RoundedCornerShape(Kit.rowR)) { f ->
         Column(Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(90.dp).clip(if (Kit.style == Style.TONAL) RoundedCornerShape(30.dp) else CircleShape).background(Kit.card2), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(90.dp).clip(CircleShape).background(Kit.card2), contentAlignment = Alignment.Center) {
                 if (p.photo != null) Img(p.photo, 90.dp, 90.dp, Modifier.fillMaxSize())
                 else Text(p.name.take(1), color = Palette.Text, fontSize = 30.sp)
             }
-            Text(p.name, color = Palette.Text, fontSize = 13.sp, fontWeight = if (Kit.style == Style.TONAL) FontWeight.SemiBold else FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+            Text(p.name, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Normal, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             p.role?.let { Text(it, color = Palette.TextDim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
@@ -882,7 +771,7 @@ private fun PersonCircle(p: Imdb.Person, open: () -> Unit) {
 private fun Header(t: String, by: String? = null) = com.lekathedon.visionlite.ui.KitHeader(t, Modifier.padding(top = 30.dp, bottom = 12.dp), by)
 
 @Composable
-private fun EpisodeCard(e: Ep, style: Style, showRating: Boolean, watched: Boolean, isNext: Boolean, blurOn: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun EpisodeCard(e: Ep, showRating: Boolean, watched: Boolean, isNext: Boolean, blurOn: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
     val aired = e.airedMs == null || e.airedMs <= System.currentTimeMillis()
     val title = e.title ?: "Episode ${e.episode}"
     val meta = listOfNotNull(e.airedMs?.let { date(it) }, if (watched) "Watched" else if (isNext) "Up next" else null,
@@ -894,47 +783,15 @@ private fun EpisodeCard(e: Ep, style: Style, showRating: Boolean, watched: Boole
             overlay()
         }
     // Not out yet: nothing to play, so pressing it does nothing (user 2026-11-19).
-    when (style) {
-        Style.TONAL -> Focusable({ if (aired) onClick() }, Modifier.width(232.dp), RoundedCornerShape(26.dp), onFocus) { f ->
-            Column(Modifier.fillMaxWidth().background(if (f) Kit.lerp(Kit.card, Kit.accent, 0.24f) else Kit.card).padding(8.dp).padding(bottom = 6.dp)) {
-                art(216.dp, 122.dp, 20.dp) {
-                    Box(Modifier.padding(8.dp).size(34.dp).clip(RoundedCornerShape(12.dp)).background(if (isNext) Kit.accent else Color(0xCC000000)), contentAlignment = Alignment.Center) {
-                        Text("${e.episode}", color = if (isNext) Kit.onAccent else Color.White, fontFamily = com.lekathedon.visionlite.ui.Fonts.tonalDisplay, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-                    }
-                    if (watched) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(26.dp).clip(CircleShape).background(Kit.accent), contentAlignment = Alignment.Center) {
-                        Text("✓", color = Kit.onAccent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 12.dp))
-                Text(meta, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 8.dp))
+    Focusable({ if (aired) onClick() }, Modifier.width(240.dp), RoundedCornerShape(10.dp), onFocus) { f ->
+        Column {
+            art(240.dp, 135.dp, 10.dp) {
+                if (isNext) Text("UP NEXT", color = Kit.onAccent, fontFamily = Kit.label, fontSize = 11.sp, letterSpacing = 2.sp,
+                    modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(4.dp)).background(Kit.accent).padding(horizontal = 7.dp, vertical = 3.dp))
             }
-        }
-        Style.MARQUEE -> Focusable({ if (aired) onClick() }, Modifier.width(240.dp), RoundedCornerShape(10.dp), onFocus) { f ->
-            Column {
-                art(240.dp, 135.dp, 10.dp) {
-                    if (isNext) Text("UP NEXT", color = Kit.onAccent, fontFamily = Kit.label, fontSize = 11.sp, letterSpacing = 2.sp,
-                        modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(4.dp)).background(Kit.accent).padding(horizontal = 7.dp, vertical = 3.dp))
-                }
-                Text("${e.episode}. $title", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp))
-                Text(meta, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
-            }
-        }
-        Style.HALO -> Focusable({ if (aired) onClick() }, Modifier.width(280.dp), RoundedCornerShape(18.dp), onFocus) { f ->
-            Column(Modifier.fillMaxWidth().background(Kit.panel).border(1.dp, Kit.line, RoundedCornerShape(18.dp))) {
-                art(280.dp, 150.dp, 0.dp) {
-                    Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        KitChip("EPISODE ${e.episode}", strong = isNext)
-                        if (watched) KitChip("✓ Watched")
-                        if (!aired) e.airedMs?.let { KitChip(date(it)) }
-                    }
-                }
-                Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    if (showRating && e.rating != null) Text("★ %.1f".format(e.rating), color = ImdbYellow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-                Text(e.airedMs?.let { date(it) } ?: "", color = Palette.TextDim, fontSize = 12.sp, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp))
-            }
+            Text("${e.episode}. $title", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp))
+            Text(meta, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
         }
     }
 }
@@ -1040,7 +897,7 @@ private fun Reviews(imdbId: String, series: Boolean, open: (Sheet) -> Unit) {
     Row(Modifier.padding(top = 26.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         com.lekathedon.visionlite.ui.KitHeader("Reviews")
         listOf("imdb" to "IMDb", "trakt" to "Trakt").forEach { (k, label) ->
-            Focusable({ prefs.reviewsSource.value = k }, shape = RoundedCornerShape(if (Kit.style == Style.MARQUEE) 6.dp else 50.dp)) { f ->
+            Focusable({ prefs.reviewsSource.value = k }, shape = RoundedCornerShape(6.dp)) { f ->
                 Text(label, color = if (src == k) Kit.onAccent else Palette.Text, fontSize = 13.sp, fontWeight = if (src == k) FontWeight.Bold else FontWeight.Normal,
                     modifier = Modifier.background(if (src == k) Kit.accent else Kit.card2).padding(horizontal = 14.dp, vertical = 5.dp))
             }

@@ -1,6 +1,7 @@
-Bundled fonts (res/font): Bricolage Grotesque, Figtree, Archivo, Barlow Condensed, Plus Jakarta Sans. Each is licensed under the SIL Open Font License 1.1 (text below); copyright belongs to each font's authors.
+Bundled fonts (res/font): Archivo, Barlow Condensed. Each is licensed under the SIL Open Font License 1.1 (text below); copyright belongs to each font's authors.
 
-Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)
+Copyright The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)
+Copyright The Barlow Project Authors (https://github.com/jpt/barlow)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

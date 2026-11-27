@@ -70,7 +70,6 @@ import com.lekathedon.visionlite.ui.Focusable
 import com.lekathedon.visionlite.ui.LocalLook
 import com.lekathedon.visionlite.ui.Kit
 import com.lekathedon.visionlite.ui.KitSwitch
-import com.lekathedon.visionlite.ui.Style
 import com.lekathedon.visionlite.ui.Theme
 import com.lekathedon.visionlite.ui.skinPage
 import com.lekathedon.visionlite.ui.Nav
@@ -358,19 +357,16 @@ fun Settings(nav: Nav, start: String? = null) {
         more = false
     }
     pages += page("Home and look", "Rows, posters, clock, background", {
-        "${com.lekathedon.visionlite.ui.Style.of(p.style.flow.collectAsState().value).label} · ${com.lekathedon.visionlite.ui.Skin.of(p.skin.flow.collectAsState().value).label}"
+        com.lekathedon.visionlite.ui.Skin.of(p.skin.flow.collectAsState().value).label
     }) {
-        head("Look and skin")
-        row { m -> Choice("Look", "Fonts, shapes, buttons and switches past Home (Home, its pill and the clock keep theirs)", p.style,
-            com.lekathedon.visionlite.ui.Style.entries.map { it.key to "${it.label} · ${it.about}" }, m) }
+        head("Skin")
         row { m -> Choice("Skin", "The app's colours, Home included", p.skin,
             com.lekathedon.visionlite.ui.Skin.entries.map { it.key to when (it) {
                 com.lekathedon.visionlite.ui.Skin.TINT -> "Tinted · colours from the title's art"
                 com.lekathedon.visionlite.ui.Skin.OLED -> "OLED black · pure black pages"
                 else -> it.label } }, m) }
         more = true
-        row { m -> Toggle("Home follows the look", "Home's fonts, colours, pills and focus in the look and skin (sizes stay); off = Home's own look", p.homeLook, m) }
-        row { m -> Choice("Button size", "Buttons, icons and switches past Home", p.uiSize,
+        row { m -> Choice("Button size", "Buttons, icons and switches", p.uiSize,
             com.lekathedon.visionlite.ui.Theme.sizes.map { (k, l) -> k to if (k == "small") "$l · default" else l }, m) }
         more = false
         head("Home hubs")
@@ -740,7 +736,6 @@ fun Settings(nav: Nav, start: String? = null) {
     val g = pages[sel]
     val skin = Theme.skin
     val oled = !skin.tinted
-    val style = Kit.style
     // Tinted: each settings page takes its own colour as the accent (no title art here).
     LaunchedEffect(sel, skin) { if (skin.tinted) Theme.artAccent = Kit.lerp(g.tint, Color.White, 0.25f) }
     val wash by androidx.compose.animation.animateColorAsState(g.tint.copy(alpha = 0.16f), androidx.compose.animation.core.tween(500), label = "wash")
@@ -754,9 +749,9 @@ fun Settings(nav: Nav, start: String? = null) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             com.lekathedon.visionlite.ui.VisionWordmark(30.dp)
             Box(Modifier.padding(horizontal = 16.dp).size(1.dp, 22.dp).background(Color(0x40FFFFFF)))
-            Text(if (style == Style.MARQUEE) "SETTINGS" else "Settings", color = Palette.Text, fontFamily = Kit.display,
-                fontSize = if (style == Style.MARQUEE) 22.sp else 26.sp, fontWeight = FontWeight.ExtraBold,
-                letterSpacing = if (style == Style.MARQUEE) 4.sp else (-0.3).sp, modifier = Modifier.weight(1f))
+            Text("SETTINGS", color = Palette.Text, fontFamily = Kit.display,
+                fontSize = 22.sp, fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 4.sp, modifier = Modifier.weight(1f))
             Clock()
         }
     Row(Modifier.fillMaxSize()) {
@@ -800,12 +795,12 @@ fun Settings(nav: Nav, start: String? = null) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconTile(g, 56.dp)
                     Column(Modifier.weight(1f).padding(start = 18.dp)) {
-                        com.lekathedon.visionlite.ui.DisplayText(g.name, if (style == Style.MARQUEE) 34.sp else 30.sp, maxLines = 1)
+                        com.lekathedon.visionlite.ui.DisplayText(g.name, 34.sp, maxLines = 1)
                         Text(g.about, color = Palette.TextDim, fontSize = 14.sp)
                     }
-                    Text((if (style == Style.HALO) "" else "● ") + g.summary(), color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-                        modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(if (style == Style.TONAL) 12.dp else 50.dp)).background(Kit.lerp(Kit.card, Kit.accent, 0.22f))
-                            .border(1.dp, Kit.accent.copy(alpha = 0.45f), RoundedCornerShape(if (style == Style.TONAL) 12.dp else 50.dp)).padding(horizontal = 14.dp, vertical = 6.dp))
+                    Text("● " + g.summary(), color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                        modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(50.dp)).background(Kit.lerp(Kit.card, Kit.accent, 0.22f))
+                            .border(1.dp, Kit.accent.copy(alpha = 0.45f), RoundedCornerShape(50.dp)).padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             }
             g.items.forEachIndexed { i, it ->
@@ -827,15 +822,8 @@ fun Settings(nav: Nav, start: String? = null) {
 @Composable
 private fun IconTile(g: Page, size0: androidx.compose.ui.unit.Dp) {
     val size = size0 * Kit.soft
-    val style = Kit.style
-    val c = if (Theme.skin.tinted) g.tint else Kit.accent
-    Box(Modifier.size(size).clip(when (style) { Style.TONAL -> RoundedCornerShape(size * 0.36f); Style.MARQUEE -> RoundedCornerShape(size * 0.22f); Style.HALO -> CircleShape })
-        .background(when (style) {
-            Style.TONAL -> SolidColor(Kit.lerp(Kit.card, c, 0.3f))
-            Style.MARQUEE -> SolidColor(Kit.card2)
-            Style.HALO -> Brush.linearGradient(listOf(c, c.copy(alpha = 0.55f)))
-        }), contentAlignment = Alignment.Center) {
-        androidx.compose.material3.Icon(g.icon, null, tint = when (style) { Style.TONAL -> c; Style.MARQUEE -> Palette.Text; Style.HALO -> Color.White }, modifier = Modifier.size(size * 0.56f))
+    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.22f)).background(Kit.card2), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Icon(g.icon, null, tint = Palette.Text, modifier = Modifier.size(size * 0.56f))
     }
 }
 
@@ -895,20 +883,9 @@ private fun tvWatch() {
 @Composable
 private fun SectionHead(t: String) = GroupHead(t)
 
-/** A group's heading in the look: Tonal a heavy title with an accent bar, Marquee tracked capitals, Halo small spaced caps. */
+/** A group's heading: tracked capitals. */
 @Composable
-private fun GroupHead(t: String) {
-    when (Kit.style) {
-        Style.TONAL -> Row(Modifier.padding(start = 4.dp, top = 26.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(RoundedCornerShape(4.dp)).background(Kit.accent))
-            Text(t, color = Palette.Text, fontFamily = com.lekathedon.visionlite.ui.Fonts.tonalDisplay, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(start = 10.dp))
-        }
-        Style.MARQUEE -> com.lekathedon.visionlite.ui.Eyebrow(t, Modifier.padding(start = 4.dp, top = 26.dp, bottom = 6.dp))
-        Style.HALO -> Text(t.uppercase(), color = Palette.TextDim, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
-            modifier = Modifier.padding(start = 12.dp, top = 22.dp, bottom = 4.dp))
-    }
-}
+private fun GroupHead(t: String) = com.lekathedon.visionlite.ui.Eyebrow(t, Modifier.padding(start = 4.dp, top = 26.dp, bottom = 6.dp))
 
 /**
  * Settings › This TV, Vision's device check the Lite way: Check runs the probes (picture, decoders, soundbar, memory,
@@ -1038,11 +1015,8 @@ private fun DriverRow(g: Integrations.Group, title: String, m: Modifier) {
 
 @Composable
 private fun GroupItem(g: Page, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val style = Kit.style
     Focusable(onClick, modifier.padding(vertical = 2.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
         Row(Modifier.fillMaxWidth().background(when {
-                f && style == Style.TONAL -> Kit.lerp(Kit.card, Kit.accent, 0.22f)
-                f && style == Style.HALO -> Kit.accent.copy(alpha = 0.9f)
                 f -> Kit.card2
                 selected -> Kit.card
                 else -> Color.Transparent
@@ -1050,9 +1024,9 @@ private fun GroupItem(g: Page, selected: Boolean, modifier: Modifier, onClick: (
             .padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             IconTile(g, 32.dp)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                val ink = if (f && style == Style.HALO) Kit.onAccent else if (f || selected) Palette.Text else Palette.TextDim
+                val ink = if (f || selected) Palette.Text else Palette.TextDim
                 Text(g.name, color = ink, fontSize = 15.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
-                if (f || selected) Text(g.summary(), color = if (f && style == Style.HALO) Kit.onAccent.copy(alpha = 0.7f) else Palette.TextDim, fontSize = 12.sp, maxLines = 1)
+                if (f || selected) Text(g.summary(), color = Palette.TextDim, fontSize = 12.sp, maxLines = 1)
             }
         }
     }
@@ -1140,13 +1114,12 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
                 items(options.size) { i ->
                     val (id, name) = options[i]
                     Focusable({ onPick(id); saved = true; open = false }, Modifier.focusRequester(reqs[i]).padding(top = 4.dp).fillMaxWidth(), shape = RoundedCornerShape(Kit.rowR)) { f ->
-                        val halo = f && Kit.style == Style.HALO
-                        Row(Modifier.fillMaxWidth().background(if (halo) Kit.accent else if (f) Kit.lerp(Kit.card2, Kit.accent, 0.2f) else if (id == current) Kit.card2 else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
+                        Row(Modifier.fillMaxWidth().background(if (f) Kit.lerp(Kit.card2, Kit.accent, 0.2f) else if (id == current) Kit.card2 else Color.Transparent).padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, color = if (halo) Kit.onAccent else Palette.Text, fontSize = 16.sp, fontWeight = if (id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                            Text(name, color = Palette.Text, fontSize = 16.sp, fontWeight = if (id == current) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
                             if (id == recommended) Text("Recommended", color = Good, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                             else if (id == current && recommended != null) Text("Your choice", color = BrandCyan, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
-                            if (id == current) androidx.compose.material3.Icon(Icons.Check, null, tint = if (halo) Kit.onAccent else Kit.accent, modifier = Modifier.size(20.dp))
+                            if (id == current) androidx.compose.material3.Icon(Icons.Check, null, tint = Kit.accent, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -1157,38 +1130,26 @@ private fun ChoiceOf(title: String, sub: String, current: String, options: List<
 }
 
 /**
- * A settings row in the look: Tonal = coloured block, focused in the accent's tone; Marquee = hairline tile, focused a
- * shade lighter; Halo = plain list line that fills with the accent when focused. The value (or switch) sits right.
+ * A settings row: a hairline tile, focused a shade lighter. The value (or switch) sits right.
  */
 @Composable
 private fun RowText(title: String, sub: String, value: String?, focused: Boolean, switch: Boolean? = null, hint: String? = null, badge: String? = null) {
-    val style = Kit.style
-    val halo = style == Style.HALO && focused
-    val fg = if (halo) Kit.onAccent else Palette.Text
-    val dim = if (halo) Kit.onAccent.copy(alpha = 0.72f) else if (focused) Palette.Text.copy(alpha = 0.82f) else Palette.TextDim
+    val fg = Palette.Text
+    val dim = if (focused) Palette.Text.copy(alpha = 0.82f) else Palette.TextDim
     val shape = RoundedCornerShape(Kit.rowR)
-    val bg = when (style) {
-        Style.TONAL -> Modifier.background(if (focused) Kit.lerp(Kit.card, Kit.accent, 0.2f) else Kit.card)
-        Style.MARQUEE -> Modifier.background(if (focused) Kit.card2 else Kit.card).border(1.dp, Kit.line, shape)
-        Style.HALO -> if (focused) Modifier.background(Kit.accent.copy(alpha = 0.92f)) else Modifier.background(Color(0x0DFFFFFF))
-    }
-    Row(Modifier.fillMaxWidth().then(bg).padding(horizontal = 18.dp, vertical = if (style == Style.TONAL) 14.dp else 13.dp),
+    val bg = Modifier.background(if (focused) Kit.card2 else Kit.card).border(1.dp, Kit.line, shape)
+    Row(Modifier.fillMaxWidth().then(bg).padding(horizontal = 18.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = fg, fontSize = 16.sp, fontWeight = if (style == Style.HALO) FontWeight.Bold else FontWeight.SemiBold)
+            Text(title, color = fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             if (sub.isNotEmpty()) Text(sub, color = dim, fontSize = 12.sp, maxLines = 2)
             if (hint != null || badge != null) Row {
-                if (badge != null) Text(badge, color = if (halo) Kit.onAccent else Kit.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 10.dp))
-                if (hint != null) Text(hint, color = if (halo) Kit.onAccent else Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                if (badge != null) Text(badge, color = Kit.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 10.dp))
+                if (hint != null) Text(hint, color = Good, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
         }
         if (switch != null) KitSwitch(switch, focused, Modifier.padding(start = 16.dp))
-        else if (value != null) when (style) {
-            Style.TONAL -> Text(value, color = if (focused) Kit.onAccent else Kit.lerp(Palette.Text, Kit.accent, 0.4f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                modifier = Modifier.padding(start = 16.dp).clip(RoundedCornerShape(12.dp)).background(if (focused) Kit.accent else Kit.tonal).padding(horizontal = 12.dp, vertical = 6.dp))
-            Style.MARQUEE -> Text(value, color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
-            Style.HALO -> Text(if (value == "›") value else "$value  ›", color = if (halo) Kit.onAccent else dim, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
-        }
+        else if (value != null) Text(value, color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
     }
 }
 

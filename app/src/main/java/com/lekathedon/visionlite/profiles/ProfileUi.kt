@@ -125,7 +125,7 @@ private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Pro
             }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) title.uppercase() else title, 30.sp, maxLines = 1)
+            com.lekathedon.visionlite.ui.DisplayText(title.uppercase(), 30.sp, maxLines = 1)
             LazyRow(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 items(list, key = { it.id }) { p ->
                     val source = remember { MutableInteractionSource() }
