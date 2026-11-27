@@ -29,7 +29,7 @@ object Suggest {
         val list = withContext(Dispatchers.IO) {
             runCatching {
                 val q = URLEncoder.encode(key, "UTF-8").replace("+", "%20")
-                val req = Request.Builder().url("https://v3.sg.media-imdb.com/suggestion/x/$q.json").build()
+                val req = Request.Builder().url("${com.lekathedon.visionlite.data.Our.suggest}$q.json").build()
                 Net.http.newCall(req).execute().use { r -> if (!r.isSuccessful) null else Net.json.decodeFromString(Res.serializer(), r.body!!.string()) }
             }.getOrNull()?.d
         } ?: return emptyList()

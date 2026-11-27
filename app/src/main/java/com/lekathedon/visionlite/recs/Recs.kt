@@ -45,7 +45,7 @@ import java.util.TimeZone
  */
 object Recs {
     private const val TAG = "Recs"
-    private const val IMDB = "https://api.graphql.imdb.com/"
+    private val IMDB get() = com.lekathedon.visionlite.data.Our.imdb
     private const val SEED_BATCH = 6
     private const val FACT_BATCH = 20
     private const val SIMILAR = 20

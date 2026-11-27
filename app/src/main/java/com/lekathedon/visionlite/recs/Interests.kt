@@ -288,7 +288,7 @@ object Interests {
             "userRatingsConstraint: { aggregateRatingRange: { min: ${maxOf(min, 6.0f)} }, ratingsCountRange: { min: 2000 } } }, " +
             "sort: { sortBy: POPULARITY, sortOrder: ASC }) { edges { node { $node } } } }"
         val d = runCatching {
-            Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
+            Net.http.newCall(Request.Builder().url(com.lekathedon.visionlite.data.Our.imdb).post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
                 .header("x-imdb-client-name", "imdb-web-next-localized").build()).execute().use { JSONObject(it.body!!.string()) }
         }.getOrNull() ?: return emptyList()
         val edges = d.optJSONObject("data")?.optJSONObject("advancedTitleSearch")?.optJSONArray("edges") ?: return emptyList()
@@ -313,7 +313,7 @@ object Interests {
             val main = if (region != null) id.split(':')[2] else parent
             if (main != null && !isMainly(main, ins)) return@mapNotNull null
             MetaPreview(tid, if (kind == "movie") "movie" else "series", t.optJSONObject("titleText")?.optString("text") ?: return@mapNotNull null,
-                img ?: "https://images.metahub.space/poster/medium/$tid/img", "https://images.metahub.space/background/medium/$tid/img",
+                img ?: com.lekathedon.visionlite.data.Our.poster(tid, "medium"), com.lekathedon.visionlite.data.Our.backdrop(tid, "medium"),
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
                 imdbRating = t.optJSONObject("ratingsSummary")?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toString()) to cs
         }

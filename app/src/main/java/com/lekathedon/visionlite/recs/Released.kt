@@ -126,7 +126,7 @@ object Released {
         val q = ids.mapIndexed { i, id -> "t$i: title(id: \"$id\") { titleType { canHaveEpisodes } releaseDate { day month year } " +
             "releaseDates(first: 250) { edges { node { day month year attributes { text } } } } }" }
         val body = JSONObject().put("query", "query { ${q.joinToString(" ")} }").toString().toRequestBody("application/json".toMediaType())
-        val req = Request.Builder().url("https://api.graphql.imdb.com/").post(body)
+        val req = Request.Builder().url(com.lekathedon.visionlite.data.Our.imdb).post(body)
             .header("x-imdb-client-name", "imdb-web-next").header("Accept", "application/json").build()
         val data = Net.http.newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body!!.string()).optJSONObject("data") else null } ?: return false
         val today = today()

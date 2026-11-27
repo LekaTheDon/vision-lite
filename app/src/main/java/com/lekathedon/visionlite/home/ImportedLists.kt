@@ -143,7 +143,7 @@ object ImportedLists {
     /** A public IMDb list (keyless GraphQL): its name and up to 250 titles. */
     private fun imdbList(ls: String): Pair<String?, List<MetaPreview>> {
         val q = "{ list(id: \"$ls\") { name { originalText } titleListItemSearch(first: 250) { edges { node: title { id titleText { text } titleType { canHaveEpisodes } } } } } }"
-        val text = Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").header("x-imdb-client-name", "imdb-web-next-localized")
+        val text = Net.http.newCall(Request.Builder().url(com.lekathedon.visionlite.data.Our.imdb).header("x-imdb-client-name", "imdb-web-next-localized")
             .header("Accept", "application/json").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType())).build())
             .execute().use { it.body?.string().orEmpty() }
         val l = JSONObject(text).optJSONObject("data")?.optJSONObject("list") ?: return null to emptyList()

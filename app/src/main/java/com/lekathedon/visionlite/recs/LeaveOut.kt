@@ -437,7 +437,7 @@ object LeaveOut {
         val q = ids.mapIndexed { i, id -> "t$i: title(id: \"$id\") { titleGenres { genres { genre { text } } } " +
             "spokenLanguages { spokenLanguages { id } } countriesOfOrigin { countries { id } } }" }
         val body = JSONObject().put("query", "query { ${q.joinToString(" ")} }").toString().toRequestBody("application/json".toMediaType())
-        val req = Request.Builder().url("https://api.graphql.imdb.com/").post(body)
+        val req = Request.Builder().url(com.lekathedon.visionlite.data.Our.imdb).post(body)
             .header("x-imdb-client-name", "imdb-web-next").header("Accept", "application/json").build()
         val data = Net.http.newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body!!.string()).optJSONObject("data") else null } ?: return false
         ids.forEachIndexed { i, id -> data.optJSONObject("t$i")?.let { fromImdb(id, it) } }

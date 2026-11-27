@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object Imdb {
     private const val TAG = "LiteImdb"
-    private const val ENDPOINT = "https://api.graphql.imdb.com/"
+    private val ENDPOINT get() = com.lekathedon.visionlite.data.Our.imdb
     private const val CACHE_MS = 6 * 3600_000L
 
     enum class Link(val category: String, val heading: String) {

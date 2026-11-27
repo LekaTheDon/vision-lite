@@ -96,7 +96,7 @@ object TrailerChain {
                 return pick?.optString("key") ?: search(m, n)
             }
         }
-        val meta = runCatching { Net.getJson<com.lekathedon.visionlite.addons.MetaResponse>("https://v3-cinemeta.strem.io/meta/series/$imdb.json", 10).meta }.getOrNull() ?: return null
+        val meta = runCatching { Net.getJson<com.lekathedon.visionlite.addons.MetaResponse>("${com.lekathedon.visionlite.data.Our.cinemeta}/meta/series/$imdb.json", 10).meta }.getOrNull() ?: return null
         val starts = meta.videos.orEmpty().filter { (it.season ?: 0) > 0 }.groupBy { it.season!! }
             .mapNotNull { (n, eps) -> eps.mapNotNull { dayMs(it.released) }.minOrNull()?.let { n to it } }.toMap()
         val n = recentSeason(starts) ?: return null

@@ -75,7 +75,7 @@ object SwitchDns : Dns {
     suspend fun test(): String = withContext(Dispatchers.IO) {
         val key = choice()
         val d = dohFor(key) ?: Dns.SYSTEM
-        listOf("api.themoviedb.org", "v3-cinemeta.strem.io").joinToString("  ·  ") { h ->
+        listOf("api.themoviedb.org", Our.metaHost).joinToString("  ·  ") { h ->
             val t0 = System.nanoTime()
             runCatching { d.lookup(h) }.fold({ "$h ${(System.nanoTime() - t0) / 1_000_000} ms" }, { "$h: no answer" })
         }
@@ -89,7 +89,7 @@ object SwitchDns : Dns {
  */
 object NetCheck {
     /** Hosts the app needs all the time, and the add-on / debrid ones providers like to block. */
-    private val HOSTS = listOf("api.themoviedb.org", "v3-cinemeta.strem.io", "torrentio.strem.fun", "api.torbox.app", "api.real-debrid.com")
+    private val HOSTS get() = listOf("api.themoviedb.org", Our.metaHost, "torrentio.strem.fun", "api.torbox.app", "api.real-debrid.com")
 
     /** Which internet: Wi-Fi or cable, plus the network's DNS servers and domain (no location permission needed). */
     fun fingerprint(ctx: Context): String = runCatching {

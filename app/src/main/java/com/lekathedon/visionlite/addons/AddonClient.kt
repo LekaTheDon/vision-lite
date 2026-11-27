@@ -72,7 +72,7 @@ class AddonClient(private val store: AddonStore) {
                     released = e.airedMs?.let { java.time.Instant.ofEpochMilli(it).toString() }, thumbnail = e.image, overview = e.plot)
             } + later
             Meta(id = imdb, type = type, name = t.name, poster = t.poster,
-                background = "https://images.metahub.space/background/large/$imdb/img", logo = "https://images.metahub.space/logo/medium/$imdb/img",
+                background = com.lekathedon.visionlite.data.Our.backdrop(imdb, "large"), logo = com.lekathedon.visionlite.data.Our.logo(imdb, "medium"),
                 description = t.plot, releaseInfo = t.year?.let { y -> t.endYear?.let { "$y-$it" } ?: "$y" },
                 imdbRating = t.rating?.toString(), genres = t.genres, runtime = t.runtimeMin?.let { "$it min" },
                 cast = t.cast.map { it.name }, videos = videos)

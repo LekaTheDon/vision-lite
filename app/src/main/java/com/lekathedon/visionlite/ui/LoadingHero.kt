@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.sp
 fun LoadingHero(id: String, title: String, status: String, sub: String = "", modifier: Modifier = Modifier, extra: @Composable () -> Unit = {}) {
     val imdb = id.substringBefore(':').takeIf { it.startsWith("tt") }
     Box(modifier.fillMaxSize().background(Palette.Base)) {
-        if (imdb != null) Img("https://images.metahub.space/background/large/$imdb/img", 1280.dp, 720.dp, Modifier.fillMaxSize())
+        if (imdb != null) Img(com.lekathedon.visionlite.data.Our.backdrop(imdb, "large"), 1280.dp, 720.dp, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xF0000000), 0.5f to Color(0x99000000), 0.85f to Color(0x22000000))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xE6000000))))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 64.dp, bottom = 56.dp)) {
@@ -46,7 +46,7 @@ fun LoadingHero(id: String, title: String, status: String, sub: String = "", mod
             Spacer(Modifier.height(12.dp))
             var logoFailed by remember(imdb) { mutableStateOf(imdb == null) }
             val name = title.replace(Regex("""\s+S\d+E\d+$"""), "")
-            if (!logoFailed) coil3.compose.AsyncImage("https://images.metahub.space/logo/medium/$imdb/img", name,
+            if (!logoFailed) coil3.compose.AsyncImage(com.lekathedon.visionlite.data.Our.logo(imdb, "medium"), name,
                 Modifier.sizeIn(maxWidth = 380.dp, maxHeight = 110.dp), contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
                 onError = { logoFailed = true })
             else DisplayText(name.uppercase(), 32.sp, maxLines = 2)
@@ -105,7 +105,7 @@ fun HubLoading(hub: String, status: String = "Loading", modifier: Modifier = Mod
     val pick = remember(hub) { (HUB_BACKDROPS[hub] ?: HUB_BACKDROPS.getValue("NUVIO")).random() }
     val word = when (hub) { "ANIME" -> "Anime"; "IPTV" -> "Live TV"; else -> "Films & TV" }
     Box(modifier.fillMaxSize().background(Palette.Base)) {
-        Img("https://images.metahub.space/background/large/$pick/img", 1280.dp, 720.dp, Modifier.fillMaxSize())
+        Img(com.lekathedon.visionlite.data.Our.backdrop(pick, "large"), 1280.dp, 720.dp, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color(0xF0000000), 0.5f to Color(0x99000000), 0.85f to Color(0x22000000))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xE6000000))))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 64.dp, bottom = 56.dp)) {

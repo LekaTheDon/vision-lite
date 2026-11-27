@@ -33,7 +33,10 @@ class AddonStore(private val prefs: Prefs) {
 
     private fun load(): List<Addon> = runCatching {
         prefs.sp.getString(KEY, null)?.let { Net.json.decodeFromString(ListSerializer(Addon.serializer()), it) }
-    }.getOrNull() ?: emptyList()
+    }.getOrNull()?.map { a ->
+        // Cinemeta saved before our server existed: ask through ours (same add-on, same answers).
+        if (com.lekathedon.visionlite.data.Our.on && a.base.trimEnd('/') == "https://v3-cinemeta.strem.io") a.copy(base = CINEMETA) else a
+    } ?: emptyList()
 
     private fun save(list: List<Addon>) {
         everything.value = list
@@ -75,7 +78,7 @@ class AddonStore(private val prefs: Prefs) {
         private const val KEY = "addons"
         private const val KEY_SEEDED = "addons_seeded"
         private const val KEY_OFF = "addons_off"
-        const val CINEMETA = "https://v3-cinemeta.strem.io"
+        val CINEMETA get() = com.lekathedon.visionlite.data.Our.cinemeta
 
         fun normalize(url: String): String = url.trim()
             .replaceFirst(Regex("^stremio://"), "https://")

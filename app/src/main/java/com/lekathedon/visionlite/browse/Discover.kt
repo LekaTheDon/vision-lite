@@ -156,7 +156,7 @@ object DiscoverSources {
     /** Cinemeta asked directly (no add-on needed). */
     private suspend fun cinemeta(type: String, id: String, genre: String?, skip: Int): List<MetaPreview> = withContext(Dispatchers.IO) {
         val extras = listOfNotNull(genre?.let { "genre=" + java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }, skip.takeIf { it > 0 }?.let { "skip=$it" })
-        val url = "https://v3-cinemeta.strem.io/catalog/$type/$id" + (if (extras.isEmpty()) "" else "/" + extras.joinToString("&")) + ".json"
+        val url = "${com.lekathedon.visionlite.data.Our.cinemeta}/catalog/$type/$id" + (if (extras.isEmpty()) "" else "/" + extras.joinToString("&")) + ".json"
         runCatching {
             JSONObject(Net.get(url, 15)).optJSONArray("metas").let { a ->
                 (0 until (a?.length() ?: 0)).mapNotNull { i ->

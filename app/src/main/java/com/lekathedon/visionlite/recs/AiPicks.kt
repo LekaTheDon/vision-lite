@@ -142,7 +142,7 @@ object AiPicks {
         s.imdb?.let { return it }
         val q = java.net.URLEncoder.encode(s.title.lowercase(), "UTF-8").replace("+", "%20")
         return runCatching {
-            val o = JSONObject(Net.http.newCall(Request.Builder().url("https://v3.sg.media-imdb.com/suggestion/x/$q.json").build()).execute().use { it.body!!.string() })
+            val o = JSONObject(Net.http.newCall(Request.Builder().url("${com.lekathedon.visionlite.data.Our.suggest}$q.json").build()).execute().use { it.body!!.string() })
             val d = o.optJSONArray("d") ?: return null
             (0 until d.length()).mapNotNull { d.optJSONObject(it) }.filter { it.optString("id").startsWith("tt") }
                 .firstOrNull { e ->

@@ -79,7 +79,7 @@ object Screensaver {
         val r = o?.optJSONArray(if (m.type == "movie") "movie_results" else "tv_results")?.optJSONObject(0)
             ?: o?.optJSONArray("movie_results")?.optJSONObject(0) ?: o?.optJSONArray("tv_results")?.optJSONObject(0)
         com.lekathedon.visionlite.home.Tmdb.img(r?.optString("backdrop_path"), "original")
-            ?: "https://images.metahub.space/background/large/${m.id}/img"
+            ?: com.lekathedon.visionlite.data.Our.backdrop(m.id, "large")
     }.also { arts[m.id] = it }
 
     fun dismiss(e: KeyEvent): Boolean {
@@ -167,7 +167,7 @@ fun ScreensaverHost(nav: Nav) {
             horizontalAlignment = Alignment.CenterHorizontally) {
             var logoFailed by remember(m.id) { mutableStateOf(false) }
             Box(Modifier.graphicsLayer { this.alpha = titleA.value }) {
-                if (!logoFailed) coil3.compose.AsyncImage(m.logo ?: "https://images.metahub.space/logo/medium/${m.id}/img", m.name,
+                if (!logoFailed) coil3.compose.AsyncImage(m.logo ?: com.lekathedon.visionlite.data.Our.logo(m.id, "medium"), m.name,
                     Modifier.sizeIn(maxWidth = 460.dp, maxHeight = 150.dp), contentScale = ContentScale.Fit, onError = { logoFailed = true })
                 else Text(m.name, color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
             }

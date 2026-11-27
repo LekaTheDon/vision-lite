@@ -67,6 +67,16 @@ object AnimeMeta {
             ?.let { (it.groupValues[1].ifEmpty { it.groupValues[2] }).toIntOrNull() })
     }
 
+    /** The anime entry an IMDb show was found for (any of its seasons), null when the show isn't known as anime. */
+    fun animeOf(imdb: String): String? = saved().entries.firstOrNull { it.value == imdb }?.key
+
+    /** The AniList id of any anime entry ("anilist:N", "mal:N", "kitsu:N"), from the same cached ani.zip answer. */
+    suspend fun anilistOf(id: String): Int? = withContext(Dispatchers.IO) {
+        val base = id.split(':').take(2).joinToString(":")
+        if (base.startsWith("anilist:")) return@withContext base.substringAfter(':').toIntOrNull()
+        zip(base)?.optJSONObject("mappings")?.optInt("anilist_id")?.takeIf { it > 0 }
+    }
+
     /** Found show per anime id, kept across runs (prefs "anime_parent2"; v1 dropped 2026-11-26, it held prequel-chain guesses): one lookup per anime, ever. */
     private fun saved(): MutableMap<String, String> = runCatching {
         JSONObject(com.lekathedon.visionlite.App.instance.prefs.sp.getString("anime_parent2", "{}")!!).let { o -> o.keys().asSequence().associateWith { o.getString(it) }.toMutableMap() }
@@ -165,7 +175,7 @@ object AnimeMeta {
         val year = z.optJSONObject("episodes")?.optJSONObject("1")?.optString("airDateUtc")?.take(4)?.toIntOrNull() ?: extraYear
         for (n in names) {
             val q = java.net.URLEncoder.encode(n.trim().lowercase(), "UTF-8").replace("+", "%20")
-            val hit = runCatching { JSONObject(Net.get("https://v3.sg.media-imdb.com/suggestion/x/$q.json", 10)).optJSONArray("d") }.getOrNull() ?: continue
+            val hit = runCatching { JSONObject(Net.get("${com.lekathedon.visionlite.data.Our.suggest}$q.json", 10)).optJSONArray("d") }.getOrNull() ?: continue
             (0 until hit.length()).mapNotNull { hit.optJSONObject(it) }.firstOrNull { h ->
                 h.optString("id").startsWith("tt") && h.optString("qid") in setOf("tvSeries", "tvMiniSeries") && norm(h.optString("l")) == norm(n) &&
                     (year == null || h.optInt("y", 0).let { y -> y == 0 || kotlin.math.abs(y - year) <= 1 })

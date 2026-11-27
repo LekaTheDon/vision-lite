@@ -703,7 +703,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             engine = current,
             onEngine = { switchTo(if (current == Engine.EXO) Engine.MPV else Engine.EXO, "manual", player.currentPosition) })
         else if (!sourcesOpen) Controls(player, s.title, canNext = s.type == "series", focusSources = sourcesClosed, plot = pausePlot,
-            logo = s.id.substringBefore(':').takeIf { it.startsWith("tt") && s.type != "live" }?.let { "https://images.metahub.space/logo/medium/$it/img" },
+            logo = s.id.substringBefore(':').takeIf { it.startsWith("tt") && s.type != "live" }?.let { com.lekathedon.visionlite.data.Our.logo(it, "medium") },
             release = s.name,
             onSubStyle = {
                 if (current == Engine.MPV) mpvView?.subtitleStyle(1.0, prefs.subStyle.value, hdr = mpvHdr && prefs.subHdr.value, live = true)

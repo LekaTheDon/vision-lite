@@ -11,8 +11,8 @@ import java.io.File
 
 object LastWatched {
     data class Item(val type: String, val imdb: String, val name: String, val season: Int?, val episode: Int?, val progress: Float) {
-        val backdrop get() = "https://images.metahub.space/background/medium/$imdb/img"
-        val logo get() = "https://images.metahub.space/logo/medium/$imdb/img"
+        val backdrop get() = com.lekathedon.visionlite.data.Our.backdrop(imdb, "medium")
+        val logo get() = com.lekathedon.visionlite.data.Our.logo(imdb, "medium")
     }
 
     private fun file(id: Int) = File(Profiles.dir(id), "last_watched.json")

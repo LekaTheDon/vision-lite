@@ -389,8 +389,8 @@ object Charts {
         if (com.lekathedon.visionlite.recs.LeaveOut.on()) com.lekathedon.visionlite.recs.LeaveOut.fromImdb(id, n)
         MetaPreview(id, type, n.optJSONObject("titleText")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null,
             n.optJSONObject("primaryImage")?.optString("url")?.takeIf { it.startsWith("http") }?.let { if ("._V1_" in it) it.substringBefore("._V1_") + "._V1_QL75_UX342_.jpg" else it }
-                ?: "https://images.metahub.space/poster/medium/$id/img",
-            "https://images.metahub.space/background/medium/$id/img",
+                ?: com.lekathedon.visionlite.data.Our.poster(id, "medium"),
+            com.lekathedon.visionlite.data.Our.backdrop(id, "medium"),
             releaseInfo = n.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
             imdbRating = n.optJSONObject("ratingsSummary")?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toString(),
             genres = n.optJSONObject("titleGenres")?.optJSONArray("genres").objects().mapNotNull { it.optJSONObject("genre")?.optString("text") })
@@ -412,7 +412,7 @@ object Charts {
 
     private fun season(d: LocalDate) = when (d.monthValue) { 12 -> "WINTER" to d.year + 1; 1, 2 -> "WINTER" to d.year; 3, 4, 5 -> "SPRING" to d.year; 6, 7, 8 -> "SUMMER" to d.year; else -> "FALL" to d.year }
 
-    internal const val IMDB_URL = "https://api.graphql.imdb.com/"
+    internal val IMDB_URL get() = com.lekathedon.visionlite.data.Our.imdb
     private const val F = "edges { node { id titleText { text } releaseYear { year } ratingsSummary { aggregateRating } primaryImage { url } titleGenres { genres { genre { text } } } } }"
     private const val IMDB_QUERY = "{ popMovies: chartTitles(first: 100, chart: {chartType: MOST_POPULAR_MOVIES}) { $F } " +
         "topMovies: chartTitles(first: 250, chart: {chartType: TOP_RATED_MOVIES}) { $F } " +
@@ -588,7 +588,7 @@ object People {
         val q = java.net.URLEncoder.encode(name.trim().lowercase(), "UTF-8").replace("+", "%20")
         if (q.length < 2) return@withContext emptyList()
         runCatching {
-            JSONObject(Net.get("https://v3.sg.media-imdb.com/suggestion/x/$q.json", 10)).optJSONArray("d").objects()
+            JSONObject(Net.get("${com.lekathedon.visionlite.data.Our.suggest}$q.json", 10)).optJSONArray("d").objects()
                 .filter { it.optString("id").startsWith("nm") }.take(8)
                 .map { Person(it.optString("id"), it.optString("l"), it.optJSONObject("i")?.optString("imageUrl")?.let(::small)) to it.optString("s") }
         }.getOrDefault(emptyList())
@@ -598,7 +598,7 @@ object People {
     suspend fun find(name: String): Person? = withContext(Dispatchers.IO) {
         val q = java.net.URLEncoder.encode(name.lowercase(), "UTF-8").replace("+", "%20")
         runCatching {
-            JSONObject(Net.get("https://v3.sg.media-imdb.com/suggestion/x/$q.json", 10)).optJSONArray("d").objects()
+            JSONObject(Net.get("${com.lekathedon.visionlite.data.Our.suggest}$q.json", 10)).optJSONArray("d").objects()
                 .firstOrNull { it.optString("id").startsWith("nm") }?.let { Person(it.optString("id"), it.optString("l"), it.optJSONObject("i")?.optString("imageUrl")?.let(::small)) }
         }.getOrNull()
     }
@@ -614,7 +614,7 @@ object People {
         val q = "{ name(id: \"$id\") { nameText { text } primaryImage { url } " +
             "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\"]}) { edges { node { category { id } ... on Cast { episodeCredits(first: 0) { total } } $node } } } } }"
         val d = runCatching {
-            Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
+            Net.http.newCall(Request.Builder().url(com.lekathedon.visionlite.data.Our.imdb).post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
                 .header("x-imdb-client-name", "imdb-web-next-localized").build()).execute().use { JSONObject(it.body!!.string()).optJSONObject("data")?.optJSONObject("name") }
         }.getOrNull() ?: return@withContext Triple(null, emptyList(), emptyList())
         val person = Person(id, d.optJSONObject("nameText")?.optString("text").orEmpty(), d.optJSONObject("primaryImage")?.optString("url")?.let(::small))
@@ -626,8 +626,8 @@ object People {
             val kind = t.optJSONObject("titleType")?.optString("id").orEmpty()
             if (kind !in setOf("movie", "tvSeries", "tvMiniSeries", "tvMovie")) return@forEach
             val m = MetaPreview(tid, if (kind.startsWith("tvS") || kind == "tvMiniSeries") "series" else "movie", t.optJSONObject("titleText")?.optString("text") ?: return@forEach,
-                t.optJSONObject("primaryImage")?.optString("url")?.let(::small) ?: "https://images.metahub.space/poster/medium/$tid/img",
-                "https://images.metahub.space/background/medium/$tid/img",
+                t.optJSONObject("primaryImage")?.optString("url")?.let(::small) ?: com.lekathedon.visionlite.data.Our.poster(tid, "medium"),
+                com.lekathedon.visionlite.data.Our.backdrop(tid, "medium"),
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
                 imdbRating = t.optJSONObject("ratingsSummary")?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toString())
             val cat = n.optJSONObject("category")?.optString("id").orEmpty()
@@ -667,7 +667,7 @@ object People {
             "credits(first: 250, filter: {categories: [\"actor\", \"actress\", \"director\", \"creator\", \"writer\", \"producer\"]}) { edges { node { $node } } } " +
             "knownFor(first: 30) { edges { node { title { id titleText { text } releaseYear { year } titleType { id } ratingsSummary { aggregateRating } primaryImage { url } } } } } } }"
         val d = runCatching {
-            Net.http.newCall(Request.Builder().url("https://api.graphql.imdb.com/").post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
+            Net.http.newCall(Request.Builder().url(com.lekathedon.visionlite.data.Our.imdb).post(JSONObject().put("query", q).toString().toRequestBody("application/json".toMediaType()))
                 .header("x-imdb-client-name", "imdb-web-next-localized").build()).execute().use { JSONObject(it.body!!.string()).optJSONObject("data")?.optJSONObject("name") }
         }.getOrNull() ?: return@withContext Roles(null, emptyList(), emptyList())
         val person = Person(id, d.optJSONObject("nameText")?.optString("text").orEmpty(), d.optJSONObject("primaryImage")?.optString("url")?.let(::small))
@@ -676,8 +676,8 @@ object People {
             val kind = t.optJSONObject("titleType")?.optString("id").orEmpty()
             if (kind !in setOf("movie", "tvSeries", "tvMiniSeries", "tvMovie")) return null
             return MetaPreview(tid, if (kind.startsWith("tvS") || kind == "tvMiniSeries") "series" else "movie", t.optJSONObject("titleText")?.optString("text") ?: return null,
-                t.optJSONObject("primaryImage")?.optString("url")?.let(::small) ?: "https://images.metahub.space/poster/medium/$tid/img",
-                "https://images.metahub.space/background/medium/$tid/img",
+                t.optJSONObject("primaryImage")?.optString("url")?.let(::small) ?: com.lekathedon.visionlite.data.Our.poster(tid, "medium"),
+                com.lekathedon.visionlite.data.Our.backdrop(tid, "medium"),
                 releaseInfo = t.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 0 }?.toString(),
                 imdbRating = t.optJSONObject("ratingsSummary")?.optDouble("aggregateRating")?.takeIf { !it.isNaN() && it > 0 }?.toString())
         }

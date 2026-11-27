@@ -79,7 +79,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val ImdbYellow = Color(0xFFF5C518)
 
 /** One episode on the page: the add-on's art and words where it has them, IMDb's rating (and the rest when it doesn't). */
 private data class Ep(val season: Int, val episode: Int, val videoId: String, val title: String?, val plot: String?, val image: String?,
@@ -147,8 +146,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
     val m = meta
     val t = imdb
     val name = m?.name?.ifBlank { null } ?: t?.name?.ifBlank { null } ?: s.name
-    val backdrop = m?.background ?: imdbId?.let { "https://images.metahub.space/background/large/$it/img" }
-    val logo = m?.logo ?: imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
+    val backdrop = m?.background ?: imdbId?.let { com.lekathedon.visionlite.data.Our.backdrop(it, "large") }
+    val logo = m?.logo ?: imdbId?.let { com.lekathedon.visionlite.data.Our.logo(it, "medium") }
     val isSeries = if (m != null && t == null && AnimeMeta.isAnimeId(s.id)) m.type == "series" else s.type == "series" || t?.type == "series"
     var sheet by remember(s.id) { mutableStateOf<Sheet?>(null) }
     // "Play with VOD" (user 2026-11-26): only when your IPTV VOD lists this title (vod.db, no network) and IPTV is on.
@@ -235,7 +234,11 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                         Eyebrow(listOfNotNull(genres.ifBlank { null }, crew.ifBlank { null }?.let { (if (isSeries) "Created by " else "By ") + it }).joinToString("  ·  "))
                         TitleArt(logo, name, 52.sp, Modifier.padding(top = 12.dp, bottom = 6.dp), 320.dp, 100.dp)
                         Facts(m, t, isSeries)
-                        Ratings(t, traktRating, more)
+                        // Our own score: anime from the anime sources, films & TV from theirs (each averaged).
+                        val animeId = remember(s.id, imdbId) { if (AnimeMeta.isAnimeId(s.id)) s.id else imdbId?.let { AnimeMeta.animeOf(it) } }
+                        val score by androidx.compose.runtime.produceState<OwnScore.Score?>(null, imdbId, animeId, t, traktRating, more) {
+                            value = animeId?.let { OwnScore.anime(it) } ?: imdbId?.let { OwnScore.film(it, isSeries, t, traktRating, more) } }
+                        ScoreLine(score)
                         plot?.let {
                             Row(Modifier.padding(top = 14.dp)) {
                                 Box(Modifier.padding(top = 9.dp, end = 12.dp).size(30.dp, 2.dp).background(Kit.accent))
@@ -622,29 +625,14 @@ private fun Facts(m: Meta?, t: Imdb.Title?, series: Boolean) {
     }
 }
 
-/** Vision's ratings row: up to 8 sources, each a small mark plus its value; the ones without a value stay out. */
+/** Our score: one number with our own mark, and the sources it averages as plain names (no other sites' logos). */
 @Composable
-private fun Ratings(t: Imdb.Title?, trakt: Double?, more: MoreRatings.R) {
-    val chips = buildList<Triple<String, Color, String>> {
-        t?.rating?.let { add(Triple("IMDb", ImdbYellow, "%.1f".format(it) + (Imdb.votes(t.votes)?.let { v -> " ($v)" } ?: ""))) }
-        more.tmdb?.let { add(Triple("TMDB", Color(0xFF01B4E4), it)) }
-        trakt?.let { add(Triple("Trakt", Color(0xFFED1C24), "${(it * 10).toInt()}%")) }
-        more.letterboxd?.let { add(Triple("LB", Color(0xFF00C030), "%.1f".format(it))) }
-        more.tomatoes?.let { add(Triple(if (it >= 60) "RT 🍅" else "RT", Color(0xFFFA320A), "$it%")) }
-        more.audience?.let { add(Triple("RT 🍿", Color(0xFFFFB800), "$it%")) }
-        t?.metascore?.let { add(Triple("MC", if (it >= 61) Color(0xFF54A72A) else if (it >= 40) Color(0xFFFFCC33) else Color(0xFFFF0000), "$it")) }
-        more.mal?.let { add(Triple("MAL", Color(0xFF2E51A2), "%.2f".format(it))) }
-    }
-    if (chips.isEmpty()) return
-    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        chips.forEach { (mark, color, value) ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(mark, color = if (color == ImdbYellow || color == Color(0xFFFFB800) || color == Color(0xFFFFCC33)) Color.Black else Color.White,
-                    fontSize = 11.sp, fontWeight = FontWeight.Black,
-                    modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(color).padding(horizontal = 4.dp, vertical = 1.dp))
-                Text(" $value", color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
+private fun ScoreLine(sc: OwnScore.Score?) {
+    sc ?: return
+    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("★ " + sc.label, color = Kit.onAccent, fontSize = 15.sp, fontWeight = FontWeight.Black,
+            modifier = Modifier.clip(RoundedCornerShape(Kit.rowR)).background(Kit.accent).padding(horizontal = 8.dp, vertical = 2.dp))
+        Text("  " + sc.from, color = Palette.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -863,8 +851,8 @@ private fun PosterRow(items: List<Imdb.Ref>, firstFocus: FocusRequester? = null,
                         if (art != null) Img(art, 120.dp, 180.dp, Modifier.fillMaxSize(), fallback = r.poster)
                         else Text(r.title, color = Palette.Text, fontSize = 13.sp, modifier = Modifier.align(Alignment.Center).padding(8.dp))
                         r.rating?.let {
-                            Text("%.1f".format(it), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).clip(RoundedCornerShape(3.dp)).background(ImdbYellow).padding(horizontal = 4.dp, vertical = 1.dp))
+                            Text("%.1f".format(it), color = Kit.onAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).clip(RoundedCornerShape(3.dp)).background(Kit.accent).padding(horizontal = 4.dp, vertical = 1.dp))
                         }
                     }
                     Text(r.title, color = if (f) Color.White else Palette.TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp, start = 2.dp))
@@ -916,7 +904,7 @@ private fun Reviews(imdbId: String, series: Boolean, open: (Sheet) -> Unit) {
                     Column(Modifier.fillMaxSize().background(if (f) Kit.card2 else Kit.card).padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(r.author, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            r.rating?.let { Text("★ $it/10", color = ImdbYellow, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp)) }
+                            r.rating?.let { Text("★ $it/10", color = Kit.accent, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp)) }
                         }
                         Text(listOfNotNull(r.date, if (r.likes > 0) "👍 ${r.likes}" else null).joinToString(" · "), color = Palette.TextDim, fontSize = 11.sp)
                         if (!reveal) Text("Spoiler · OK to read", color = Color(0xFFFFC266), fontSize = 13.sp, modifier = Modifier.padding(top = 14.dp))

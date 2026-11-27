@@ -280,11 +280,10 @@ private fun Slot(i: Int, content: @Composable () -> Unit) = CompositionLocalProv
 private val TopBand = 52.dp
 /** Where the rows start: the hero's copy sits above, the wall-to-wall backdrop behind both. */
 private val RowsTop = 262.dp
-private val ImdbYellow = Color(0xFFF5C518)
 
 /** Metahub art for IMDb ids when the catalog gave none. */
 private fun MetaPreview.wide(): String? = background ?: if (id.startsWith("tt")) backdropOf(id) else poster
-private fun MetaPreview.logoUrl(): String? = logo ?: if (id.startsWith("tt")) "https://images.metahub.space/logo/medium/$id/img" else null
+private fun MetaPreview.logoUrl(): String? = logo ?: if (id.startsWith("tt")) com.lekathedon.visionlite.data.Our.logo(id, "medium") else null
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -1433,7 +1432,7 @@ private fun cwStill(r: com.lekathedon.visionlite.trakt.Resume): String? {
         value = pick(runCatching { App.instance.client.meta("series", r.imdb) }.getOrNull())
             ?: if (!r.imdb.startsWith("tt")) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 pick(runCatching { com.lekathedon.visionlite.data.Net.getJson<com.lekathedon.visionlite.addons.MetaResponse>(
-                    "https://v3-cinemeta.strem.io/meta/series/${r.imdb}.json", 10).meta }.getOrNull())
+                    "${com.lekathedon.visionlite.data.Our.cinemeta}/meta/series/${r.imdb}.json", 10).meta }.getOrNull())
             }
     }
     return still
@@ -1531,8 +1530,8 @@ private fun Dot(color: Color) = Text("•", color = color, fontSize = 12.sp, mod
 @Composable
 private fun RatingBadge() {
     Text(
-        "IMDb", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.02).em,
-        modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(ImdbYellow).padding(horizontal = 3.dp, vertical = 1.dp)
+        "★", color = com.lekathedon.visionlite.ui.Kit.onAccent, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.02).em,
+        modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(com.lekathedon.visionlite.ui.Kit.accent).padding(horizontal = 3.dp, vertical = 1.dp)
     )
 }
 

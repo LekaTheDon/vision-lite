@@ -18,6 +18,8 @@ object Net {
         .retryOnConnectionFailure(true)
         // Settings › Speed and network › DNS (the box's own unless a DNS-over-HTTPS service is picked).
         .dns(SwitchDns)
+        // Our server's key on requests to it (none elsewhere).
+        .addInterceptor(Our.Key)
         .build()
 
     suspend fun get(url: String, timeoutSec: Long = 0): String = withContext(Dispatchers.IO) {

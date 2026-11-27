@@ -22,7 +22,7 @@ import kotlin.coroutines.resume
 
 /** A title's main trailer straight from IMDb's data service: one small request, then a direct video link. */
 object Trailers {
-    private const val ENDPOINT = "https://api.graphql.imdb.com/"
+    private val ENDPOINT get() = com.lekathedon.visionlite.data.Our.imdb
     private const val CLIENT_NAME = "nuvio-tv"
     private const val BUDGET_MS = 4_000L
     // Up to 20 of the title's videos with their kind and owner: IMDb's first one is often a clip, an interview or a

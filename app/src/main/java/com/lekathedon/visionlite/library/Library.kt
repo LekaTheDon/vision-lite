@@ -30,8 +30,8 @@ import com.lekathedon.visionlite.ui.Nav
 import com.lekathedon.visionlite.ui.Palette
 import com.lekathedon.visionlite.ui.Screen
 
-fun posterOf(imdb: String) = "https://images.metahub.space/poster/medium/$imdb/img"
-fun backdropOf(imdb: String) = "https://images.metahub.space/background/medium/$imdb/img"
+fun posterOf(imdb: String) = com.lekathedon.visionlite.data.Our.poster(imdb, "medium")
+fun backdropOf(imdb: String) = com.lekathedon.visionlite.data.Our.backdrop(imdb, "medium")
 
 /** Library = local saves, then the Trakt watchlist (newest first): movies and shows, each a row like Home's. */
 @Composable
