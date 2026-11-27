@@ -403,7 +403,8 @@ fun Detail(nav: Nav, s: Screen.Detail) {
                             val CU = com.lekathedon.visionlite.home.ComingUp
                             val fr by CU.followRev.collectAsState()
                             val following = remember(imdbId, fr) { CU.isFollowed(imdbId) }
-                            KitIcon(if (following) "Following" else "Follow", I.Bell, { CU.follow(imdbId, name, !following) },
+                            val ended = remember(imdbId, t?.endYear, m?.releaseInfo) { CU.ended(imdbId, m?.releaseInfo, t?.endYear) }
+                            if (following || !ended) KitIcon(if (following) "Following" else "Follow", I.Bell, { CU.follow(imdbId, name, !following) },
                                 Modifier.hint(if (following) "Following · new seasons in Coming up · press to stop" else "Follow · new seasons in Coming up"), on = following)
                         }
                         // The one engine behind every recommendation: each verdict its own icon; pressed again, it's undone.

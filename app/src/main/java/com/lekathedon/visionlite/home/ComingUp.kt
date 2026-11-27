@@ -111,6 +111,21 @@ object ComingUp {
     fun followed(): Map<String, String> = App.instance.prefs.sp.getStringSet("comingup_follow", emptySet()).orEmpty()
         .associate { it.substringBefore('|') to it.substringAfter('|', "") }
     fun isFollowed(imdb: String) = imdb.substringBefore(':') in followed()
+
+    // Follow only for shows still running (user 2026-11-27): finished or cancelled shows get no Follow (unfollow stays).
+    @Volatile private var statusCache: Pair<Long, Map<String, String>>? = null
+    /** Finished or cancelled: an end year (IMDb "2019-2022") or TVmaze / TMDB status Ended / Canceled (files on disk). */
+    fun ended(imdb: String, releaseInfo: String? = null, endYear: Int? = null): Boolean {
+        if (endYear != null) return true
+        if (releaseInfo != null && Regex("""\d{4}\s*[-–]\s*\d{4}""").containsMatchIn(releaseInfo)) return true
+        val now = System.currentTimeMillis()
+        val m = statusCache?.takeIf { now - it.first < 600_000 }?.second ?: runCatching {
+            (read("tmdb_shows.json", showSer) ?: emptyMap()).mapValues { it.value.status } +
+                (read("shows.json", showSer) ?: emptyMap()).mapValues { it.value.status }
+        }.getOrDefault(emptyMap()).also { statusCache = now to it }
+        val st = m[imdb.substringBefore(':')] ?: return false
+        return st.equals("Ended", true) || st.contains("cancel", true)
+    }
     fun follow(imdb: String, name: String, on: Boolean) {
         val id = imdb.substringBefore(':')
         val now = followed().toMutableMap()

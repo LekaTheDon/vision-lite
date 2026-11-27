@@ -1773,7 +1773,7 @@ private fun HoldMenu(row: Row, m: MetaPreview, scope: kotlinx.coroutines.Corouti
             }
             if (tv && m.id.startsWith("tt")) {
                 val following = remember(m.id) { ComingUp.isFollowed(m.id) }
-                Choice(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up") { ComingUp.follow(m.id, m.name, !following) }
+                if (following || !ComingUp.ended(m.id, m.releaseInfo)) Choice(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up") { ComingUp.follow(m.id, m.name, !following) }
             }
             if (VisionRows.base(row.key) == VisionRows.COMING_UP) Choice("Drop from Coming up", removes = true) { ComingUp.drop(m.id) }
             // Wrong hub: the title moves to the other one, everywhere (its IMDb id too, when the card has another id).

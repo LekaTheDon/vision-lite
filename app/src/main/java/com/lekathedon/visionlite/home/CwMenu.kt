@@ -59,7 +59,7 @@ fun CwMenu(r: Resume, nav: Nav, onDrop: () -> Unit, onClose: () -> Unit) {
             // Follow: the next season shows in Coming up the day it's dated.
             if (r.type == "series" && r.imdb.startsWith("tt")) {
                 val following = remember(r.imdb) { ComingUp.isFollowed(r.imdb) }
-                com.lekathedon.visionlite.ui.KitMenuItem(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up", {
+                if (following || !ComingUp.ended(r.imdb)) com.lekathedon.visionlite.ui.KitMenuItem(if (following) "Following ✓ (stop)" else "Follow · new seasons in Coming up", {
                     ComingUp.follow(r.imdb, r.name, !following); onClose()
                 }, Modifier.fillMaxWidth())
             }
