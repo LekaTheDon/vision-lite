@@ -188,7 +188,7 @@ private class RowSlots(val key: String, val home: Boolean = true) {
  * (by its place on screen) is asked for its entry card directly, a held key carrying on from where the last press went.
  * One screen is composed at a time, so one registry serves every page.
  */
-private object PageRows {
+private object PageRowMoves {
     class Entry(val slots: RowSlots) { var y = Float.NaN }
     val rows = HashMap<String, Entry>()
     /** The row the last press sent focus to, until it gets there. */
@@ -1409,8 +1409,8 @@ fun PageRow(
     val state = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
     slots.state = state; slots.scope = scope
-    val entry = remember(slots) { PageRows.Entry(slots) }
-    androidx.compose.runtime.DisposableEffect(entry) { PageRows.rows[key] = entry; onDispose { if (PageRows.rows[key] === entry) PageRows.rows.remove(key) } }
+    val entry = remember(slots) { PageRowMoves.Entry(slots) }
+    androidx.compose.runtime.DisposableEffect(entry) { PageRowMoves.rows[key] = entry; onDispose { if (PageRowMoves.rows[key] === entry) PageRowMoves.rows.remove(key) } }
     var rowFocus by remember { mutableStateOf(false) }
     val withSub = metas.any { sub(it) != null }
     EchoRowTitle(title)
@@ -1420,7 +1420,7 @@ fun PageRow(
                 .onGloballyPositioned { entry.y = it.positionInRoot().y }
                 .onFocusChanged {
                     if (it.hasFocus && !rowFocus) slots.entered = true
-                    if (it.hasFocus && PageRows.heading == key) PageRows.heading = null
+                    if (it.hasFocus && PageRowMoves.heading == key) PageRowMoves.heading = null
                     rowFocus = it.hasFocus
                 }
                 .focusRestorer { slots.reqs[slots.target] ?: FocusRequester.Default }
@@ -1429,8 +1429,8 @@ fun PageRow(
                     if (e.type != KeyEventType.KeyDown) false
                     else when (e.key) {
                         Key.DirectionRight -> slots.last >= metas.size - 1 && metas.isNotEmpty()
-                        Key.DirectionDown -> PageRows.move(key, true)
-                        Key.DirectionUp -> PageRows.move(key, false)
+                        Key.DirectionDown -> PageRowMoves.move(key, true)
+                        Key.DirectionUp -> PageRowMoves.move(key, false)
                         else -> false
                     }
                 },
