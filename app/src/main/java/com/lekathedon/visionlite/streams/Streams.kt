@@ -82,7 +82,7 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
     val target = EpisodeCheck.targetOf(s.id)
     val order = AutoPick.order(all, s.id)
     if (order.isEmpty()) { say(if (all.any { it.playable }) "Autoplay: no link is surely this episode, pick one" else ""); return false }
-    android.util.Log.i("AutoPick", "${order.size} safe links of ${all.size}; top: " + order.take(5).mapIndexed { i, l -> "\n  ${i + 1}. ${AutoPick.describe(l)}" }.joinToString(""))
+    LinkLog.add("${s.title}: ${order.size} safe links of ${all.size}; top: " + order.take(5).mapIndexed { i, l -> "\n  ${i + 1}. ${AutoPick.describe(l)}" }.joinToString(""))
     var wrong = 0
     for (l in order.take(4)) {
         val url = l.stream.url
@@ -94,9 +94,9 @@ private suspend fun autoplay(nav: Nav, s: Screen.Streams, all: List<Link>, say: 
             }
         }
         // A TorBox link that won't come (removed from TorBox meanwhile) moves on to the next pick.
-        android.util.Log.i("AutoPick", "try: ${AutoPick.describe(l)}")
+        LinkLog.add("try: ${AutoPick.describe(l)}")
         if (play(nav, s, l, replace = true, order, say = say)) { say(""); return true }
-        android.util.Log.i("AutoPick", "didn't start, next")
+        LinkLog.add("didn't start, next")
     }
     say("Autoplay: those links were another episode, pick one")
     return false
@@ -154,6 +154,8 @@ fun Streams(nav: Nav, s: Screen.Streams,
         // here is in, the rest get a short grace (AutoPick.settleMs), then it plays. Sources still answering keep
         // filling the list in case autoplay finds nothing safe.
         val started = android.os.SystemClock.elapsedRealtime()
+        LinkLog.add("${s.title} (${s.id}): asking $asked source(s), autoplay=$auto")
+        fun took() = android.os.SystemClock.elapsedRealtime() - started
         // Vision TB still searching: autoplay never settles without its answer (user 2026-11-26: Next episode from the
         // phone played an add-on's 1080p because TorBox's 4K came in after the grace; 15 s at most, its own budget).
         var tbOut = tbOn
@@ -171,10 +173,13 @@ fun Streams(nav: Nav, s: Screen.Streams,
                 val waited = android.os.SystemClock.elapsedRealtime() - topAt
                 val tbWait = tbOut && android.os.SystemClock.elapsedRealtime() - started < 15_000
                 if (!tbWait && waited >= AutoPick.settleMs(t)) {
-                    android.util.Log.i("AutoPick", "settled after ${android.os.SystemClock.elapsedRealtime() - started} ms, $pending source(s) still out")
+                    LinkLog.add("settled after ${android.os.SystemClock.elapsedRealtime() - started} ms, $pending source(s) still out")
                     break
                 }
             }
+            // The title's original language must be known before the pick (one TMDB call per title, ever; 3 s at most).
+            if (com.lekathedon.visionlite.player.OriginalLang.ORIGINAL in listOf(app.prefs.audioLang.value, app.prefs.audioLang2.value))
+                kotlinx.coroutines.withTimeoutOrNull(3_000) { com.lekathedon.visionlite.player.OriginalLang.resolve(s.metaId.ifBlank { s.id }, s.type) }
             if (!autoplay(nav, s, arrange(links.toList(), app.prefs)) { getting = it }) auto = false
         } else null
         kotlinx.coroutines.coroutineScope {
@@ -194,6 +199,7 @@ fun Streams(nav: Nav, s: Screen.Streams,
                     }
                 }
                 tbOut = false
+                LinkLog.add("Vision TB answered after ${took()} ms")
                 pending--
             }
             if (vodOn) launch {
@@ -216,13 +222,14 @@ fun Streams(nav: Nav, s: Screen.Streams,
                     com.lekathedon.visionlite.tb.AddonHarvest.candidate(st.infoHash, st.url, st.title, st.description,
                         st.behaviorHints?.filename, st.behaviorHints?.videoSize, st.fileIdx)
                 })
+                LinkLog.add("${r.addon.manifest.name}: ${r.streams.size} links after ${took()} ms")
                 if (r.addon.manifest.name.startsWith("Torrentio", true))
                     AutoPick.vouch(s.id, r.streams.mapNotNull { st -> st.infoHash?.let { it to (st.behaviorHints?.filename ?: st.title ?: st.description) } })
                 pending--
             }
             harvest?.close()
         }
-        android.util.Log.i("AutoPick", "all sources in after ${android.os.SystemClock.elapsedRealtime() - started} ms")
+        LinkLog.add("${s.title}: all sources in after ${android.os.SystemClock.elapsedRealtime() - started} ms")
         decider?.join()
     }
     // Links in installed add-on order (Vision TB's group first), so "Add-on order" is stable however answers land.

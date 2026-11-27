@@ -53,6 +53,37 @@ object DubLang {
         return lang.takeIf { "D" in segs || WORDS.any { w -> w.first == it } }
     }
 
+    /** Flags add-ons print for the audio (🇪🇸, 🇮🇹…): country → language. */
+    private val FLAG_LANG = mapOf("GB" to "en", "US" to "en", "AU" to "en", "CA" to "en", "ES" to "es", "MX" to "es", "AR" to "es",
+        "IT" to "it", "FR" to "fr", "DE" to "de", "AT" to "de", "JP" to "ja", "KR" to "ko", "CN" to "zh", "TW" to "zh", "HK" to "zh",
+        "RU" to "ru", "UA" to "uk", "PT" to "pt", "BR" to "pt", "TR" to "tr", "IN" to "hi", "SA" to "ar", "AE" to "ar", "EG" to "ar",
+        "PL" to "pl", "NL" to "nl", "SE" to "sv", "DK" to "da", "NO" to "no", "FI" to "fi", "GR" to "el", "CZ" to "cs", "HU" to "hu",
+        "RO" to "ro", "IL" to "he", "TH" to "th", "VN" to "vi", "ID" to "id", "RS" to "sr", "HR" to "hr", "IS" to "is")
+    private val MULTI = Regex("""(?i)\b(multi|dual[ .-]?audio|dual|multi[ .-]?audio)\b|🌐""")
+
+    /**
+     * Every audio language a link names (words, the provider's tag, flags), or null when it names none or says
+     * MULTI / Dual audio (any language may be inside). Used by autoplay for Audio "Original" (user 2026-11-27).
+     */
+    fun named(text: String): Set<String>? {
+        if (MULTI.containsMatchIn(text)) return null
+        val out = HashSet<String>()
+        WORDS.forEach { (c, r) -> if (r.containsMatchIn(text)) out += c }
+        IMPLIED.forEach { (r, c) -> if (r.containsMatchIn(text)) out += c }
+        if (ARABIC.containsMatchIn(text)) out += "ar"
+        val cps = text.codePoints().toArray()
+        var i = 0
+        while (i + 1 < cps.size) {
+            val a = cps[i]; val b = cps[i + 1]
+            if (a in 0x1F1E6..0x1F1FF && b in 0x1F1E6..0x1F1FF) {
+                val cc = "${'A' + (a - 0x1F1E6)}${'A' + (b - 0x1F1E6)}"
+                FLAG_LANG[cc]?.let { out += it }
+                i += 2
+            } else i++
+        }
+        return out.ifEmpty { null }
+    }
+
     /** The dub language of [text] (a name, plus its category), or null when it doesn't say it is dubbed. */
     fun of(text: String): String? {
         IMPLIED.firstOrNull { it.first.containsMatchIn(text) }?.let { return it.second }

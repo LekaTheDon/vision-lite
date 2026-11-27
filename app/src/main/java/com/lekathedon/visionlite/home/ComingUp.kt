@@ -17,7 +17,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 
@@ -214,6 +216,7 @@ object ComingUp {
             write("tvmaze_ids.json", idSer, ids); write("shows.json", showSer, shows)
             write("tmdb_ids.json", idSer, tmdbIds); write("tmdb_shows.json", showSer, tmdbShows); write("films.json", filmSer, filmDates)
         }
+        if (this.aniShows.isEmpty()) this.aniShows = read("anilist_shows.json", showSer).orEmpty()
         fun show() = publish(names, films, lastWatched, ids, shows, tmdbShows, filmDates, now)
 
         var done = 0
@@ -248,12 +251,20 @@ object ComingUp {
         }
         save()
 
+        // AniList for anime (user 2026-11-27: TVmaze lists Steel Ball Run, Chainsaw Man… as running with no next
+        // episode; AniList has the airing time). One batched call per 50 shows, by MAL id; a show without one is
+        // searched by name once and its AniList id kept.
+        val aniShows = (read("anilist_shows.json", showSer) ?: emptyMap()).toMutableMap()
+        runCatching { anilist(names, shows, aniShows, now) }.onFailure { Log.w(TAG, "AniList: ${it.message}") }
+        write("anilist_shows.json", showSer, aniShows)
+        this.aniShows = aniShows
+
         // TMDB, the second source (needs your TMDB key): shows TVmaze doesn't know, running shows TVmaze has no date
         // for, and followed shows (an ended show can come back). Once a day each (followed: every 6 h).
         if (com.lekathedon.visionlite.home.Tmdb.key() != null) {
             val ask = names.keys.filter { imdb ->
                 val tv = shows[imdb]
-                val undated = tv == null || (tv.status != "Ended" && tv.nextAt <= now)
+                val undated = (tv == null || (tv.status != "Ended" && tv.nextAt <= now)) && (aniShows[imdb]?.nextAt ?: 0) <= now
                 val age = now - (tmdbShows[imdb]?.readAt ?: 0)
                 (imdb in follows && age > 6 * 3600_000L) || (undated && age > 20 * 3600_000L)
             }.sortedByDescending { it in follows }
@@ -345,6 +356,99 @@ object ComingUp {
     }.getOrDefault(emptyList())
 
     private var films: List<Item> = emptyList()
+    @Volatile private var aniShows: Map<String, Show> = emptyMap()
+
+    // ---- AniList (anime airing times) ----
+
+    private const val ANILIST = "https://graphql.anilist.co"
+    private const val AF = "id idMal status title { romaji english } nextAiringEpisode { episode airingAt }"
+
+    private fun aniPost(query: String, vars: JSONObject): JSONObject? = Net.http.newCall(Request.Builder().url(ANILIST)
+        .post(JSONObject().put("query", query).put("variables", vars).toString().toRequestBody("application/json".toMediaType()))
+        .header("Accept", "application/json").build()).execute().use { r ->
+        if (r.code == 429) throw java.io.IOException("AniList busy")
+        if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
+        JSONObject(r.body!!.string()).optJSONObject("data")
+    }
+
+    /** IMDb id → MAL ids, from the anime id list Vision already keeps (anime_hub's weekly download). */
+    private fun malByImdb(): Map<String, List<Int>> = runCatching {
+        com.lekathedon.visionlite.anime.AnimeIds.malFile.readLines().mapNotNull { l ->
+            val p = l.split(' '); val mal = p.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+            p.getOrNull(1)?.takeIf { it.startsWith("tt") }?.let { it to mal }
+        }.groupBy({ it.first }, { it.second })
+    }.getOrDefault(emptyMap())
+
+    /**
+     * Running anime that TVmaze has no next episode for: AniList's next airing (RELEASING entries only). The episode
+     * is numbered as TVmaze numbers the show (its last aired + 1), the season TVmaze's latest.
+     */
+    private suspend fun anilist(names: Map<String, String>, shows: Map<String, Show>, out: MutableMap<String, Show>, now: Long) {
+        val want = names.keys.filter { imdb ->
+            val tv = shows[imdb]
+            val anime = tv?.anime == true || com.lekathedon.visionlite.anime.AnimeIds.isAnime(imdb)
+            anime && (tv == null || (tv.status != "Ended" && tv.nextAt <= now)) && now - (out[imdb]?.readAt ?: 0) > 10 * 3600_000L
+        }
+        out.keys.retainAll(names.keys)
+        if (want.isEmpty()) return
+        _status.value = "Checking anime airing times…"
+        val mal = malByImdb()
+        val aniIds = (read("anilist_ids.json", idSer) ?: emptyMap()).toMutableMap()
+        // Answers: imdb → the RELEASING entry with the soonest next episode.
+        val found = HashMap<String, JSONObject>()
+        fun take(imdb: String, m: JSONObject) {
+            if (m.optString("status") != "RELEASING" || m.optJSONObject("nextAiringEpisode") == null) return
+            val at = m.getJSONObject("nextAiringEpisode").optLong("airingAt")
+            val old = found[imdb]?.optJSONObject("nextAiringEpisode")?.optLong("airingAt")
+            if (old == null || at < old) found[imdb] = m
+        }
+        // 1. By MAL id (all of a show's seasons/cours in the list), 50 per call.
+        val byMal = HashMap<Int, String>()
+        want.forEach { imdb -> mal[imdb]?.forEach { byMal[it] = imdb } }
+        byMal.keys.chunked(50).forEach { chunk ->
+            val d = aniPost("query (\$ids: [Int]) { Page(perPage: 50) { media(idMal_in: \$ids, type: ANIME) { $AF } } }",
+                JSONObject().put("ids", org.json.JSONArray(chunk)))
+            d?.optJSONObject("Page")?.optJSONArray("media")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { m -> byMal[m.optInt("idMal")]?.let { take(it, m) } } }
+            delay(700)
+        }
+        // 2. Not in the id list yet (new shows): by the AniList id found once by name.
+        val rest = want.filter { it !in found && it !in mal.keys }
+        val known = rest.mapNotNull { imdb -> aniIds[imdb]?.takeIf { it > 0 }?.let { it to imdb } }.toMap()
+        known.keys.chunked(50).forEach { chunk ->
+            val d = aniPost("query (\$ids: [Int]) { Page(perPage: 50) { media(id_in: \$ids, type: ANIME) { $AF } } }",
+                JSONObject().put("ids", org.json.JSONArray(chunk)))
+            d?.optJSONObject("Page")?.optJSONArray("media")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { m -> known[m.optInt("id")]?.let { take(it, m) } } }
+            delay(700)
+        }
+        for (imdb in rest.filter { it !in aniIds }) {
+            val name = shows[imdb]?.name?.ifBlank { null } ?: names[imdb]?.ifBlank { null } ?: continue
+            val d = runCatching { aniPost("query (\$q: String) { Page(perPage: 5) { media(search: \$q, type: ANIME, status: RELEASING) { $AF } } }",
+                JSONObject().put("q", name)) }.getOrNull()
+            delay(700)
+            if (d == null) continue
+            val a = d.optJSONObject("Page")?.optJSONArray("media")
+            val key = norm(name)
+            val m = (0 until (a?.length() ?: 0)).mapNotNull { a!!.optJSONObject(it) }.firstOrNull { m ->
+                val t = m.optJSONObject("title")
+                listOf(t?.optString("english"), t?.optString("romaji")).any { x -> !x.isNullOrBlank() && norm(x).let { it.contains(key) || key.contains(it) } }
+            }
+            aniIds[imdb] = m?.optInt("id") ?: -1
+            m?.let { take(imdb, it) }
+        }
+        write("anilist_ids.json", idSer, aniIds)
+        for (imdb in want) {
+            val tv = shows[imdb]
+            val m = found[imdb]
+            val ne = m?.optJSONObject("nextAiringEpisode")
+            val at = (ne?.optLong("airingAt") ?: 0L) * 1000
+            out[imdb] = Show(-1, tv?.name ?: names[imdb].orEmpty(), tv?.image, m?.optString("status").orEmpty(),
+                nextS = tv?.prevS ?: 1, nextE = tv?.prevE?.plus(1) ?: ne?.optInt("episode"), nextTitle = null,
+                nextAt = if (at > now) at else 0L, readAt = now, anime = true)
+        }
+        Log.i(TAG, "AniList: ${found.size} of ${want.size} anime have a next airing")
+    }
+
+    private fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9]"), "")
 
     private fun publish(names: Map<String, String>, filmNames: Map<String, String>, lastWatched: Map<String, Long>, ids: Map<String, Int>,
                         shows: Map<String, Show>, tmdbShows: Map<String, Show>, filmDates: Map<String, Film>, now: Long) {
@@ -370,7 +474,7 @@ object ComingUp {
                             p.prevAt, true, tv?.image ?: tm?.image, dateOnly = true, back = true))
                 }
                 // Next: TVmaze's (with its time); when TVmaze has no date, TMDB's day.
-                val n = tv?.takeIf { it.nextAt > now } ?: tm?.takeIf { it.nextAt > now - DAY / 2 }
+                val n = tv?.takeIf { it.nextAt > now } ?: aniShows[imdb]?.takeIf { it.nextAt > now } ?: tm?.takeIf { it.nextAt > now - DAY / 2 }
                 if (n != null) add(Item(imdb, "series", name, n.nextS, n.nextE, n.nextTitle, n.nextAt, false, tv?.image ?: tm?.image, dateOnly = n.tvmaze == 0))
             }
         }

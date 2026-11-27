@@ -12,9 +12,9 @@ object PlayLog {
     private const val KEEP = 60
 
     fun add(title: String, release: String, reason: String?, decoder: String?, ass: String?, dv: Boolean, fel: Boolean,
-            dropped: Long, rebuffers: Int, posMs: Long) {
-        val line = "%tF %<tT | %s | %s | %s | dec=%s | ass=%s | dvRoute=%s | fel=%s | dropped=%d | rebuffers=%d | %.1f min".format(
-            System.currentTimeMillis(), title, release.take(120), reason ?: "-", decoder ?: "-", ass ?: "off", dv, fel, dropped, rebuffers, posMs / 60_000.0)
+            dropped: Long, rebuffers: Int, posMs: Long, subs: String = "-", audio: String = "-") {
+        val line = "%tF %<tT | %s | %s | %s | dec=%s | ass=%s | dvRoute=%s | fel=%s | dropped=%d | rebuffers=%d | %.1f min | audio=%s | subs=%s".format(
+            System.currentTimeMillis(), title, release.take(120), reason ?: "-", decoder ?: "-", ass ?: "off", dv, fel, dropped, rebuffers, posMs / 60_000.0, audio, subs)
         Thread {
             runCatching {
                 val f = File(App.instance.filesDir, "reports/playback.log").apply { parentFile?.mkdirs() }

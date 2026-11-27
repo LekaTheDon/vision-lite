@@ -339,10 +339,31 @@ object AutoPick {
      * Best link: no CAM, then your preferred dub (when set), 4K first; on a FEL box DV7 FEL next (user 2026-11-20: Frankenstein autoplayed DV8 over FEL),
      * then the bigger file always; SeaDex best, quality and Vision TB break ties.
      */
-    fun rank(pool: List<Link>, minutes: Int = 0): List<Link> {
+    /**
+     * Audio autoplay looks for (user 2026-11-27: Audio "Original" on, The Killing autoplayed a Spanish 🇪🇸 copy):
+     * the Audio setting with "Original" swapped for the title's language; empty = no wish or not known yet.
+     */
+    fun audioWanted(videoId: String): Set<String> = runCatching {
+        val p = com.lekathedon.visionlite.App.instance.prefs
+        com.lekathedon.visionlite.player.OriginalLang.audioLangs(p.audioLang.value, p.audioLang2.value, videoId).toSet()
+    }.getOrDefault(emptySet())
+
+    /** The link names only other languages than the wanted ones (a MULTI / Dual audio or untagged link is fine). */
+    fun wrongAudio(l: Link, wanted: Set<String>): Boolean {
+        if (wanted.isEmpty()) return false
+        val named = DubLang.named(textFor(l)) ?: return false
+        return named.none { it in wanted }
+    }
+
+    /** The source says the file isn't ready (debrid not cached: "❌ Not Ready", "Uncached", "⏳"): it would have to download first. */
+    private val NOT_READY = Regex("""(?i)not\s*ready|un-?cached|not\s*cached|\[(tb|rd|ad|pm|dl)\s*(download|⏳)\]|⏳|⬇️""")
+    fun notReady(l: Link): Boolean = l.tb == null && NOT_READY.containsMatchIn(listOfNotNull(l.stream.name, l.stream.title, l.stream.description).joinToString(" "))
+
+    fun rank(pool: List<Link>, minutes: Int = 0, audio: Set<String> = emptySet()): List<Link> {
         val fel = felBox
         val dub = DubLang.wanted()
         val subs = SubsIn.wanted()
+        val mySubs = SubsIn.yours()
         val parsed = pool.map { l -> l to ReleaseQuality.parse(textFor(l)) }
         // This box / TV / internet (user 2026-11-24): what can't play here is out (unless nothing else is left),
         // what would struggle goes after everything that plays well.
@@ -350,7 +371,13 @@ object AutoPick {
         val usable = parsed.filter { fits[it.first] != DeviceFit.NO }.ifEmpty { parsed }
         return usable.sortedWith(
         compareBy<Pair<Link, ReleaseQuality>> { it.second.lowQuality }
+            // Not ready on the debrid (would download first, may never start): after every ready link.
+            .thenBy { notReady(it.first) }
             .thenByDescending { fits[it.first] ?: DeviceFit.GOOD }
+            // Audio "Original" / your audio language: a copy only in another language goes after the rest.
+            .thenBy { wrongAudio(it.first, audio) }
+            // Subtitles in your language (always, user 2026-11-27): a link that says its subtitles are only other languages goes after.
+            .thenBy { SubsIn.lacksYours(textFor(it.first), mySubs) }
             // Preferred dub (user 2026-11-24): a link dubbed in that language beats 4K original audio.
             .thenByDescending { dub.isNotEmpty() && (it.first.dub ?: DubLang.of(textFor(it.first))) == dub }
             // Subtitles in your language (user 2026-11-26, when switched on): the add-on whose link has them wins.
@@ -415,7 +442,7 @@ object AutoPick {
     fun order(links: List<Link>, videoId: String): List<Link> {
         // Link memory: a link that failed or kept buffering this week is skipped; your pick for the show goes first.
         val t = EpisodeCheck.targetOf(videoId)
-        val ranked = rank(pool(links, t, videoId), minutesFor(videoId, t)).filter { LinkMemory.bad(it) == null && clashOf(it, videoId, t) == null }
+        val ranked = rank(pool(links, t, videoId), minutesFor(videoId, t), audioWanted(videoId)).filter { LinkMemory.bad(it) == null && clashOf(it, videoId, t) == null }
         val mine = ranked.filter { LinkMemory.pickMatch(videoId, it) > 0 }.sortedByDescending { LinkMemory.pickMatch(videoId, it) }
         return mine.take(1) + ranked.filter { it !in mine.take(1) }
     }

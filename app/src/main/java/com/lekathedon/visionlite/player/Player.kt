@@ -580,7 +580,8 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             session.resumeAt = player.currentPosition
             // One line per play in files/reports/playback.log (last 60): what played how, so a stutter is measured next time.
             if (current == Engine.EXO && s.type != "live") PlayLog.add(title, s.name.lineSequence().firstOrNull().orEmpty(), session.reason,
-                exoStats.videoDecoder, myAss?.renderType?.name, dvOn[0], felNow.get(), exoStats.dropped, exoStats.rebuffers, player.currentPosition)
+                exoStats.videoDecoder, myAss?.renderType?.name, dvOn[0], felNow.get(), exoStats.dropped, exoStats.rebuffers, player.currentPosition,
+                subs = picked(player, androidx.media3.common.C.TRACK_TYPE_TEXT), audio = picked(player, androidx.media3.common.C.TRACK_TYPE_AUDIO))
             com.lekathedon.visionlite.link.LinkState.setPlayer(null); player.removeListener(listener); player.release()
             runCatching { myAss?.release() }; if (assRef[0] === myAss) assRef[0] = null
         }
@@ -944,3 +945,13 @@ internal object SourceSwitch {
     fun set(id: String, ms: Long) { this.id = id; at = ms }
     fun take(id: String): Long? = at.takeIf { it > 0 && id == this.id }?.also { at = -1L }
 }
+
+/** The playing track of [type] for playback.log: "en", "en (add-on)", or "none". */
+private fun picked(player: androidx.media3.common.Player, type: Int): String = runCatching {
+    player.currentTracks.groups.firstNotNullOfOrNull { g ->
+        if (g.type != type) null else (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { i ->
+            val f = g.getTrackFormat(i)
+            (f.language ?: "und") + if (f.id?.contains("ext", true) == true || f.sampleMimeType?.contains("subrip") == true) " (add-on)" else ""
+        }
+    } ?: "none"
+}.getOrDefault("-")
