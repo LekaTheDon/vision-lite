@@ -120,6 +120,7 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         cwJob = viewModelScope.launch {
             runCatching { app.trakt.continueWatching() }.getOrNull()?.let { cwRaw = it }
             cwState.value = cwRaw.filter { cwKeeps(it) }
+            cwRaw.firstOrNull()?.let { com.lekathedon.visionlite.profiles.LastWatched.save(it) }
         }
     }
     private fun cwKeeps(r: com.lekathedon.visionlite.trakt.Resume) = Hubs.showsId(hub, r.imdb) && !com.lekathedon.visionlite.recs.LeaveOut.hidesId(r.imdb)

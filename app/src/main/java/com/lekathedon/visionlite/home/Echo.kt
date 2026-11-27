@@ -4,6 +4,7 @@
 
 package com.lekathedon.visionlite.home
 
+import androidx.compose.animation.animateContentSize
 import com.lekathedon.visionlite.ui.remembersFocus
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
@@ -1015,12 +1016,17 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
     LaunchedEffect(Unit) {
         while (true) { delay(60_000 - System.currentTimeMillis() % 60_000); now = fmt.format(java.util.Date()) }
     }
+    // Greeting (user 2026-11-27): once per app start the clock opens out to the left with "Welcome back, <profile>"
+    // for 5 s, then rolls back into the time.
+    var greet by remember { mutableStateOf(Greeting.take()) }
+    LaunchedEffect(greet) { if (greet != null) { delay(5_000); greet = null } }
     val source = remember { MutableInteractionSource() }
     val f by source.collectIsFocusedAsState()
     LaunchedEffect(f) { onFocus(f) }
     val shape = homeShape()
     Box(
         modifier.padding(top = 12.dp, end = 25.dp).height(25.dp)
+            .animateContentSize(androidx.compose.animation.core.tween(450))
             .then(if (f && !com.lekathedon.visionlite.ui.Theme.homeLook) Modifier.border(1.5.dp, pillRing(), shape) else Modifier)
             .focusRequester(me)
             // Between the menu and the billboard (Vision's LegacyClockFocus): Up = the menu's Home, Left = the menu's
@@ -1039,7 +1045,22 @@ private fun ClockPill(modifier: Modifier, me: FocusRequester, up: FocusRequester
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = 11.dp),
         contentAlignment = Alignment.Center
-    ) { Text(now, color = if (!com.lekathedon.visionlite.ui.Theme.homeLook) Color.White else if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+    ) {
+        val ink = if (!com.lekathedon.visionlite.ui.Theme.homeLook) Color.White else if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text
+        androidx.compose.animation.Crossfade(greet, animationSpec = androidx.compose.animation.core.tween(350), label = "greet") { g ->
+            Text(if (g != null) "Welcome back, $g" else now, color = ink, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        }
+    }
+}
+
+/** The clock's welcome: the profile's name once per app start (the process restarts on a profile switch). */
+internal object Greeting {
+    @Volatile private var shown = false
+    fun take(): String? {
+        if (shown) return null
+        shown = true
+        return com.lekathedon.visionlite.data.Profiles.current().name.trim().takeIf { it.isNotEmpty() }
+    }
 }
 
 /**

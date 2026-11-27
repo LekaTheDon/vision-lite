@@ -260,9 +260,9 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Hide cinema recordings", "CAM and TS copies", p.hideCam, m) }
         more = false
         head("Autoplay")
-        row { m -> Toggle("Smart autoplay", "Plays the right episode, 4K first, then the biggest file. Off until Vision TB is autoplay safe", p.autoplay, m) }
+        row { m -> Toggle("Smart autoplay", "Plays the correct episode in the best available quality", p.autoplay, m) }
         more = true
-        row { m -> Toggle("IPTV VOD also in Vision TB", "Off (default): VOD stays separate, on the title page's Play with VOD button. On: VOD copies also join Vision TB's links", p.vodInTb, m) }
+        row { m -> Toggle("IPTV VOD also in Vision TB", "When on, your playlist's films and series also appear among Vision TB links. When off, use Play with VOD on the title page", p.vodInTb, m) }
         head("Debrid accounts (torrent links from your add-ons)")
         row { m -> ServiceRow("realdebrid", nav, m) }
         row { m -> ServiceRow("alldebrid", nav, m) }
@@ -310,7 +310,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Rate after watching", "Asks for a Trakt rating when you finish a film or a show's episode; it steers your recommendations", p.rateAfter, m) }
         head("Picture, sound and engine")
         row { m -> Choice("Controls size", "How big the player's buttons, bars and panels are (films, shows and Live TV)", p.controlsSize, ControlsSizeOpts, m) }
-        row { m -> Toggle("True black bars", "Bars around the film are the TV's own black, not the app's grey-ish black in HDR/DV (Vision)", p.blackBars, m) }
+        row { m -> Toggle("True black bars", "The bars around the picture stay fully black in HDR and Dolby Vision", p.blackBars, m) }
         more = false
         row { m -> Link("This TV", "Dolby Vision, frame rate, passthrough, engine and buffer are set for this TV", m) { picked = pages.indexOfFirst { it.name == "This TV" }; jumpPane = true } }
     }
@@ -335,8 +335,8 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Subtitle language", "", p.subLang, Langs, m) }
         more = true
         row { m -> Choice("If that's missing", "Second subtitle language", p.subLang2, Langs, m) }
-        row { m -> Toggle("Autoplay picks links with these subtitles", "A link that says it has subtitles in your language wins, even over 4K (like Preferred dub does for audio)", p.autoplaySubs, m) }
-        row { m -> Toggle("Remove hearing-impaired tags", "Add-on subtitles: [sighs], (door creaks), JOHN: and lone ♪ taken out", p.subsStripSdh, m) }
+        row { m -> Toggle("Autoplay picks links with these subtitles", "Links with subtitles in your language are preferred, even over higher quality", p.autoplaySubs, m) }
+        row { m -> Toggle("Remove hearing-impaired tags", "Removes sound descriptions and speaker names from add-on subtitles", p.subsStripSdh, m) }
         row { m -> Toggle("Subtitles from OpenSubtitles", "When the file has none in your languages: OpenSubtitles' copies, the one made for the same release first (no account needed)", p.openSubtitles, m) }
         row { m -> Toggle("Auto-sync add-on subtitles", "Lined up with the file's own subtitles while it plays, section by section", p.subsAutoSync, m) }
         more = false
@@ -344,16 +344,16 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Choice("Size", "", p.subSize, com.lekathedon.visionlite.player.SubStyle.Sizes, m) }
         more = true
         row { m -> Choice("Colour", "", p.subColor, com.lekathedon.visionlite.player.SubStyle.TextColors, m) }
-        row { m -> Choice("Edge", "Shadow = old Vision's soft shadow", p.subEdge, com.lekathedon.visionlite.player.SubStyle.Edges, m) }
+        row { m -> Choice("Edge", "Shadow, outline or none", p.subEdge, com.lekathedon.visionlite.player.SubStyle.Edges, m) }
         row { m -> Choice("Outline colour", "For the Outline edge", p.subOutlineColor, com.lekathedon.visionlite.player.SubStyle.OutlineColors, m) }
         row { m -> Choice("Background", "", p.subBack, com.lekathedon.visionlite.player.SubStyle.Backgrounds, m) }
         row { m -> Toggle("Bold", "", p.subBold, m) }
         row { m -> Choice("Position", "How high above the bottom", p.subPos, com.lekathedon.visionlite.player.SubStyle.Positions, m) }
-        row { m -> Toggle("HDR and Dolby Vision subtitles", "White and dimmed on HDR/DV films, so they don't glare (Vision)", p.subHdr, m) }
+        row { m -> Toggle("HDR and Dolby Vision subtitles", "Subtitles are dimmed on HDR and Dolby Vision titles to avoid glare", p.subHdr, m) }
         row { m -> Choice("HDR subtitle brightness", "", p.subHdrBright, SubHdrBrightOpts, m) }
-        row { m -> Toggle("Seek thumbnails", "Nuvio Arc's: pictures of the spots either side while you seek, made in the background and kept per title (ExoPlayer)", p.seekThumbs, m) }
+        row { m -> Toggle("Seek thumbnails", "Shows preview images while seeking (ExoPlayer)", p.seekThumbs, m) }
         row { m -> Choice("Seek thumbnails for", "", p.seekThumbsMode, SeekThumbOpts, m) }
-        row { m -> Toggle("Content warnings at the start", "IMDb's parents guide top left for 15 s, as old Vision", p.ageRating, m) }
+        row { m -> Toggle("Content warnings at the start", "Shows the IMDb parents guide for 15 seconds when playback starts", p.ageRating, m) }
         row { m -> Toggle("Styled anime subtitles", "Anime subtitles keep their own fonts, colours and places (libass)", p.libass, m) }
         more = false
     }
@@ -422,7 +422,8 @@ fun Settings(nav: Nav, start: String? = null) {
     }) {
         head("Spoilers")
         row { m -> Toggle("Hide episode pictures", "Unwatched episodes' pictures stay blurred until watched, here and in Continue watching", p.blurUnwatched, m) }
-        row { m -> Toggle("Hide episode plots", "Unwatched episodes' plots stay hidden until watched, here and in Continue watching", p.hidePlots, m) }
+        row { m -> Toggle("Hide episode plots", "Unwatched episodes' plots stay hidden until watched: title page, Continue watching and the pause screen", p.hidePlots, m) }
+        row { m -> Toggle("Plot when paused", "Shows the film's or episode's plot while paused", p.pausePlot, m) }
         more = true
         row { m -> Choice("Episode ratings", "IMDb rating on each episode", p.epRatings, EpRatingOpts, m) }
         more = false
@@ -480,11 +481,11 @@ fun Settings(nav: Nav, start: String? = null) {
             val lo by p.leaveOut.flow.collectAsState()
             val l = remember(lo) { com.lekathedon.visionlite.recs.LeaveOut.lists() }
             val n = l.genres.size + l.langs.size + l.regions.size
-            Link("Leave out genres, languages and countries", "Never shown anywhere: no row, tile, page or pick. Only Search finds them, marked Left out", m,
+            Link("Leave out genres, languages and countries", "Hidden everywhere in the app. Search still finds them, marked as left out", m,
                 value = if (n == 0) "Nothing" else "$n left out") { nav.push(Screen.LeaveOut) }
         }
-        head("Hide adult titles")
-        row { m -> Toggle("Hide adult titles", "Explicit films (9 Songs, softcore, porn) leave every row, page, search and pick; R-rated stays. Each title is checked once", p.hideAdult, m) }
+        head("Adult content")
+        row { m -> Toggle("Hide adult content", "Titles with explicit adult content are hidden everywhere in the app. Mature ratings such as R remain visible", p.hideAdult, m) }
         more = true
         head("AI (free tiers): helps every recommendation, no row of its own")
         row { m -> ServiceRow("gemini", nav, m) }
@@ -510,7 +511,7 @@ fun Settings(nav: Nav, start: String? = null) {
             p.iptvUpdateHours, listOf("12" to "Every 12 hours", "24" to "Every day", "48" to "Every 2 days"), m) }
         row { m -> Toggle("Switch to another version", "A channel that won't play moves to another copy of it in your playlists (4K, FHD, HD, SD; same country)", p.iptvAutoSwitch, m) }
         row { m -> Toggle("Hide +1 channels", "Leave the hour-later copies out of the channel lists", p.iptvHidePlus1, m) }
-        row { m -> Toggle("Update on app start", "Also update every time the app starts (heavier; off like TiviMate)", p.iptvUpdateOnStart, m) }
+        row { m -> Toggle("Update on app start", "Also updates each time the app starts (uses more data and time)", p.iptvUpdateOnStart, m) }
         row { m -> Choice("Live rewind", "Pause and rewind live channels: what you watch is kept on disk (never more than 30 % of free space; emptied on channel change)",
             p.liveRewind, listOf("0" to "Off", "15" to "15 minutes", "30" to "30 minutes", "60" to "1 hour", "120" to "2 hours"), m) }
         head("Remote buttons in Live TV")
@@ -522,7 +523,7 @@ fun Settings(nav: Nav, start: String? = null) {
                     com.lekathedon.visionlite.player.LiveKeys.set(b, com.lekathedon.visionlite.player.LiveKeys.Action.valueOf(pick)) }
             }
         }
-        row { m -> Link("Reset all buttons", "Back to the defaults (TiviMate's layout, Left / Right rewind)", m, value = "Reset") { com.lekathedon.visionlite.player.LiveKeys.reset() } }
+        row { m -> Link("Reset all buttons", "Restores the default remote control layout", m, value = "Reset") { com.lekathedon.visionlite.player.LiveKeys.reset() } }
         more = false
         head("Sports")
         row { m -> Link("My teams", "Follow teams and leagues", m) { nav.push(Screen.SportsTeams) } }

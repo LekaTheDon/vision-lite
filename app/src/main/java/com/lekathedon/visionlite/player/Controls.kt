@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -115,6 +116,8 @@ internal fun Controls(
     release: String = "",
     /** Just back from the Sources panel: focus starts on the Sources button. */
     focusSources: Boolean = false,
+    /** The film's or episode's plot, shown while paused (Settings › Plot when paused); null = none. */
+    plot: String? = null,
 ) {
     val context = LocalContext.current
     val prefs = com.lekathedon.visionlite.App.instance.prefs
@@ -283,6 +286,13 @@ internal fun Controls(
             .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)
             .border(1.5.dp, com.lekathedon.visionlite.ui.KitInk.accent.copy(alpha = 0.85f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
             androidx.compose.material3.Icon(Icons.Pause, "Paused", Modifier.size(24.dp), tint = Color.White)
+        }
+        // Paused: the plot bottom left (above the buttons when they show).
+        if (!playing && panel == null && !nextUp && !plot.isNullOrBlank()) {
+            val shade = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.9f), blurRadius = 12f))
+            Text(plot, color = Color.White.copy(alpha = 0.9f), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, style = shade,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 48.dp, bottom = if (visible) 150.dp * buttonScale() else 56.dp).then(Modifier.widthIn(max = 900.dp)))
         }
         if (!visible) return@Box
 
@@ -542,14 +552,20 @@ private fun Pill(text: String, modifier: Modifier = Modifier, onClick: () -> Uni
 @Composable
 internal fun SidePanel(title: String, items: List<String>, selected: Int, bottom: Boolean = false, onPick: (Int) -> Unit) {
     val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(30); runCatching { first.requestFocus() } }
+    // The ticked line can sit far down a long list (add-on subtitles): the list opens scrolled to it, so it exists to
+    // take focus; tried for a few frames (user 2026-11-27: Subtitles opened with nothing focused).
+    val state = androidx.compose.foundation.lazy.rememberLazyListState((selected - 3).coerceAtLeast(0))
+    LaunchedEffect(Unit) {
+        delay(30)
+        repeat(10) { if (runCatching { first.requestFocus() }.isSuccess) return@LaunchedEffect; androidx.compose.runtime.withFrameNanos { } }
+    }
     Box(Modifier.fillMaxSize()) {
         // bottom = the live player's popup over its control bar (TiviMate style), not a side panel.
         com.lekathedon.visionlite.ui.Inside(true) { Column((if (bottom) Modifier.align(Alignment.BottomStart).padding(start = 48.dp, bottom = 120.dp).width(440.dp)
             .heightIn(max = 470.dp).background(K.panel.copy(alpha = 0.96f), RoundedCornerShape(K.cardR)).border(1.dp, K.line, RoundedCornerShape(K.cardR)).padding(20.dp)
         else Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(K.panel.copy(alpha = 0.96f)).padding(24.dp))) {
             com.lekathedon.visionlite.ui.DisplayText(if (K.style == com.lekathedon.visionlite.ui.Style.MARQUEE) title.uppercase() else title, 20.sp, Modifier.padding(bottom = 12.dp), maxLines = 1)
-            LazyColumn {
+            LazyColumn(state = state) {
                 itemsIndexed(items) { i, label ->
                     Focusable({ onPick(i) }, (if (i == selected.coerceAtLeast(0)) Modifier.focusRequester(first) else Modifier).padding(top = 6.dp).fillMaxWidth(), RoundedCornerShape(K.rowR)) { f ->
                         val ink = if (f) com.lekathedon.visionlite.ui.kitFocus.second else com.lekathedon.visionlite.ui.Palette.Text

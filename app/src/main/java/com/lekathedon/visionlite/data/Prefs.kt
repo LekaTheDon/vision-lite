@@ -202,6 +202,8 @@ class Prefs(context: Context) {
     val blurUnwatched = Flag("blur_unwatched", false)
     /** Spoiler plots: unwatched episodes' plots hidden (its own switch since 0.39.0; starts as the picture switch was). */
     val hidePlots = Flag("hide_plots", sp.getBoolean("blur_unwatched", false))
+    /** The film's or episode's plot while paused (off by default); Hide episode plots also hides episode plots there. */
+    val pausePlot = Flag("pause_plot", false)
     /** Custom poster source (the built-in postersplus pattern) on every poster and wide card. */
     val customPosters = Flag("custom_posters", true)
     /** Reviews row source: "imdb" or "trakt". */

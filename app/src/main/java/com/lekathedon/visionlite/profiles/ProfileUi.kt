@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -99,12 +101,39 @@ fun ProfileGate(atStart: Boolean, pinOnly: Boolean = false, onManage: (() -> Uni
 private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Profile) -> Unit, onManage: (() -> Unit)? = null) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // The profile in focus: its latest Continue watching title behind the faces (not for PIN profiles).
+    var at by remember { mutableStateOf<Profile?>(null) }
+    val last = remember(at?.id) { at?.takeIf { !it.locked }?.let { LastWatched.of(it.id) } }
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.animation.Crossfade(last, animationSpec = androidx.compose.animation.core.tween(400), label = "who") { l ->
+            if (l != null) Box(Modifier.fillMaxSize()) {
+                coil3.compose.AsyncImage(l.backdrop, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.55f), 0.45f to Color.Black.copy(alpha = 0.7f), 1f to Color.Black)))
+                Column(Modifier.align(Alignment.BottomStart).padding(start = 64.dp, bottom = 56.dp).width(560.dp)) {
+                    Text("Continue watching", color = Color(0xB3FFFFFF), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    coil3.compose.SubcomposeAsyncImage(l.logo, l.name, Modifier.padding(top = 10.dp).then(Modifier.sizeIn(maxWidth = 360.dp, maxHeight = 96.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit, alignment = Alignment.CenterStart,
+                        error = { Text(l.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 2) })
+                    if (l.season != null) Text("S${l.season} · E${l.episode}", color = Color.White, fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+                    val pct = l.progress.coerceIn(0f, 100f)
+                    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.width(320.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x40FFFFFF))) {
+                            Box(Modifier.fillMaxWidth(pct / 100f).height(4.dp).background(Color.White))
+                        }
+                        Text("${pct.toInt()}% watched", color = Color(0xCCFFFFFF), fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+        }
+    Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
         LazyRow(Modifier.padding(top = 36.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
             items(list, key = { it.id }) { p ->
                 val source = remember { MutableInteractionSource() }
                 val focused by source.collectIsFocusedAsState()
+                LaunchedEffect(focused) { if (focused) at = p }
                 val mod = if (p.id == current || (list.none { it.id == current } && p === list.first())) Modifier.focusRequester(first) else Modifier
                 Column(mod.clickable(interactionSource = source, indication = null) { onPick(p) }, horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.size(124.dp).then(if (focused) Modifier.border(3.dp, Color.White, CircleShape) else Modifier).padding(6.dp)) {
@@ -117,6 +146,7 @@ private fun Faces(title: String, list: List<Profile>, current: Int, onPick: (Pro
             }
         }
         if (onManage != null) Button("Manage profiles", onManage, Modifier.padding(top = 36.dp))
+    }
     }
 }
 

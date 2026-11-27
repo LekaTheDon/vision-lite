@@ -674,6 +674,19 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         val baseDensity = androidx.compose.ui.platform.LocalDensity.current
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides
             androidx.compose.ui.unit.Density(baseDensity.density * controlsScale, baseDensity.fontScale)) {
+        // Plot when paused (Settings, off by default): fetched only when switched on; episodes follow Hide episode plots.
+        val plotOn by prefs.pausePlot.flow.collectAsState()
+        val plotsHidden by prefs.hidePlots.flow.collectAsState()
+        val pausePlot by androidx.compose.runtime.produceState<String?>(null, s.id, plotOn, plotsHidden) {
+            value = null
+            if (!plotOn || s.type == "live" || !s.id.startsWith("tt")) return@produceState
+            val ep = s.type == "series" && s.id.count { it == ':' } >= 2
+            if (ep && plotsHidden) return@produceState
+            value = runCatching {
+                val meta = App.instance.client.meta(if (s.type == "series") "series" else "movie", s.id.substringBefore(':'))
+                if (ep) meta?.videos?.firstOrNull { it.id == s.id }?.let { it.overview ?: it.description } else meta?.description
+            }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+        }
         if (s.type == "live") LiveControls(player, s,
             tune = { c, list ->
                 if (list != null) com.lekathedon.visionlite.iptv.Iptv.zapList = list
@@ -689,7 +702,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             },
             engine = current,
             onEngine = { switchTo(if (current == Engine.EXO) Engine.MPV else Engine.EXO, "manual", player.currentPosition) })
-        else if (!sourcesOpen) Controls(player, s.title, canNext = s.type == "series", focusSources = sourcesClosed,
+        else if (!sourcesOpen) Controls(player, s.title, canNext = s.type == "series", focusSources = sourcesClosed, plot = pausePlot,
             logo = s.id.substringBefore(':').takeIf { it.startsWith("tt") && s.type != "live" }?.let { "https://images.metahub.space/logo/medium/$it/img" },
             release = s.name,
             onSubStyle = {
