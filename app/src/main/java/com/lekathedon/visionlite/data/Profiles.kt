@@ -213,7 +213,7 @@ object Profiles {
     enum class Share(val label: String, val sub: String) {
         LOOK("Look and player", "Skin, look, sizes, Home rows, subtitles and audio choices"),
         NO_KEYS("Everything except keys and sign-ins", "All settings; no API keys, Trakt, Simkl, debrid or other sign-ins"),
-        NO_WATCHING("Everything except Trakt and Nuvio", "Settings and keys; not Trakt, Simkl or Nuvio watch history and sign-ins"),
+        NO_WATCHING("Everything except Trakt", "Settings and keys; not Trakt or Simkl watch history and sign-ins"),
         ALL("Everything", "All settings, keys and sign-ins"),
     }
     private val SECRET = Regex("^si_|token|refresh|_key$|^int_[a-z]+_|^arabp2p_|^debrid|^tb_|^rd_|^ad_|^pm_")

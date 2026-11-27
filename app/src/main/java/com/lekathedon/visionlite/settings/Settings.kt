@@ -121,7 +121,7 @@ private val PageStyle by lazy { mapOf(
     "About" to (Icons.Info to Color(0xFF64748B)),
 ) }
 
-/** The brand's two colours (from the Nuvio Vision logo). */
+/** The brand's two colours (from the Vision logo). */
 private val BrandCyan = Color(0xFF22D3EE)
 private val BrandViolet = Color(0xFF8B5CF6)
 private val Glass = Color(0x12FFFFFF)
@@ -285,7 +285,7 @@ fun Settings(nav: Nav, start: String? = null) {
         row { m -> Toggle("Resume", "Start where you stopped", p.resume, m) }
         more = true
         row { m -> Choice("Watched titles on Home", "Not Continue watching; needs Trakt", p.watchedOnHome, WatchedOpts, m) }
-        head("Not in Lite yet")
+        head("Not in Vision yet")
         row { m -> ServiceRow("simkl", nav, m) }
         row { m -> ServiceRow("anilist", nav, m) }
         row { m -> ServiceRow("mal", nav, m) }
@@ -440,7 +440,7 @@ fun Settings(nav: Nav, start: String? = null) {
         head("On the page")
         row { m -> Toggle("Sequel and prequel", "IMDb's Follows / Followed by", p.sequelPrequel, m) }
         row { m -> Toggle("Connections", "Spin-offs, remakes and other versions", p.connections, m) }
-        head("Not in Lite yet")
+        head("Not in Vision yet")
         if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("tvdb", nav, m) }
         if (!com.lekathedon.visionlite.data.Our.on) row { m -> ServiceRow("mdblist", nav, m) }
     }
@@ -671,8 +671,8 @@ fun Settings(nav: Nav, start: String? = null) {
     }
     pages += page("About", "Version, report a problem, cache, first-start setup", { "Version ${com.lekathedon.visionlite.BuildConfig.VERSION_NAME}" }) {
         head("Help")
-        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Vision Lite team (no keys or logins)", m) { nav.push(Screen.Report()) } }
-        head("Vision Lite")
+        row { m -> Link("Report a problem", "Sends this box's details and the app's log to the Vision team (no keys or logins)", m) { nav.push(Screen.Report()) } }
+        head("Vision")
         row { m -> Link("Version", "", m, value = com.lekathedon.visionlite.BuildConfig.VERSION_NAME) {} }
         row { m -> Link("Clear image cache", "Frees memory and disk; posters load again", m, value = cleared) { scope.launch { cleared = clearImages() } } }
         row { m -> Link("Run the first-start setup again", "One page per service, then back to Home", m) { Integrations.setupDone.value = false; nav.pop() } }
@@ -961,7 +961,7 @@ private fun ServiceRow(id: String, nav: Nav, m: Modifier) {
         Integrations.helper(s).value -> "Helping"
         else -> "Off"
     }
-    val sub = s.live ?: "Coming to Lite; a saved key waits here and makes no calls"
+    val sub = s.live ?: "Coming to Vision; a saved key waits here and makes no calls"
     Link(s.name, sub, m, value = value) {
         when {
             s.id == "trakt" && !set -> nav.push(Screen.Trakt)
@@ -1206,7 +1206,7 @@ fun Addons() {
                 onSave = { v -> byCode = false; v.firstOrNull()?.takeIf { it.isNotBlank() }?.let { code ->
                     msg = runCatching { com.lekathedon.visionlite.data.SetupShare.import(code) }.fold(
                         { "Got $it. Restarting…" }, { "That code didn't work: ${it.message}" })
-                    if (msg.startsWith("Got")) scope.launch { kotlinx.coroutines.delay(1500); com.lekathedon.visionlite.integrations.CloudSetup.restart(ctx) }
+                    if (msg.startsWith("Got")) scope.launch { kotlinx.coroutines.delay(1500); com.lekathedon.visionlite.App.restart(ctx) }
                 } },
                 onCancel = { byCode = false })
             if (byPhone) com.lekathedon.visionlite.phone.PhoneBox("Add an add-on",

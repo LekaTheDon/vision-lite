@@ -96,7 +96,7 @@ class PhoneForm private constructor(
     private fun html() = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nuvio Vision</title>
+<title>Vision</title>
 <style>
 :root{color-scheme:dark}
 body{margin:0;background:#0d0f1a;color:#e8eaf2;font:16px system-ui,-apple-system,sans-serif}

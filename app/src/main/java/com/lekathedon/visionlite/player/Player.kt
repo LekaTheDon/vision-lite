@@ -658,7 +658,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     url = s.url, headers = s.headers, identity = s.id.ifBlank { s.title },
                     holdBeforePlay = false, playbackConnections = 1, identityExact = s.id.startsWith("tt"),
                     usenet = com.nuvio.tv.ui.screens.player.SlowStartServer.isUsenet(s.url),
-                    kindNote = { "Lite addon HTTP" }),
+                    kindNote = { "Vision addon HTTP" }),
                 playerProvider = { player as? ExoPlayer })
         }
         DisposableEffect(Unit) { onDispose { com.nuvio.tv.core.player.thumbnail.SeekThumbnails.playerClosed() } }

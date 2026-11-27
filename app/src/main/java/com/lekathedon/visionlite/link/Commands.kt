@@ -20,14 +20,14 @@ class Commands(private val ctx: Context) {
     fun handle(cmd: String, a: JSONObject): JSONObject = when (cmd) {
         "ping" -> ok().put("app", "visionlite").put("version", com.lekathedon.visionlite.BuildConfig.VERSION_NAME)
         "status" -> status()
-        "wake" -> if (wake()) ok() else err("Android didn't let Nuvio Vision wake the box")
+        "wake" -> if (wake()) ok() else err("Android didn't let Vision wake the box")
         "start" -> open(null)
         "play" -> play(a)
         "details" -> details(a)
         "media" -> media(a)
         "watch" -> watch(a)
         "rows" -> LinkState.rows?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")).put("hubs", it.optJSONArray("hubs")) }
-            ?: err("Lite hasn't shown Home yet since it started")
+            ?: err("Vision hasn't shown Home yet since it started")
         // The anime list + your moves, so the phone splits Films & TV / Anime exactly like the TV (list only when it changed).
         "anime" -> com.lekathedon.visionlite.anime.AnimeIds.let { ids ->
             ok().put("stamp", ids.stamp()).put("moves", ids.movesText()).apply { if (a.optLong("since", -1) != ids.stamp()) put("ids", ids.listText()) }
@@ -61,7 +61,7 @@ class Commands(private val ctx: Context) {
 
     /** The player's Next episode, as its own button. */
     private fun next(): JSONObject {
-        if (LinkState.mediaJson() == null) return err("Nothing is playing in Nuvio Vision")
+        if (LinkState.mediaJson() == null) return err("Nothing is playing in Vision")
         LinkState.next.trySend(Unit)
         return ok()
     }
@@ -108,7 +108,7 @@ class Commands(private val ctx: Context) {
         val i = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         if (Settings.canDrawOverlays(ctx) && runCatching { ctx.startActivity(i) }.isSuccess) return ok()
         if (Root.run("am start -n ${ctx.packageName}/.MainActivity", 6) != null) return ok()
-        return err("Android blocked opening Nuvio Vision (needs root once for 'draw over apps')")
+        return err("Android blocked opening Vision (needs root once for 'draw over apps')")
     }
 
     /** Play = the title's link list, as Play from the remote does (smart autoplay picks for you only when it's on). */
@@ -198,7 +198,7 @@ class Commands(private val ctx: Context) {
                 "seekBy" -> p.seekTo(clamp(p.currentPosition + a.optLong("ms")))
                 "stop" -> LinkState.open.trySend(Screen.Home)
             }
-        } ?: return err("Nothing is playing in Nuvio Vision")
+        } ?: return err("Nothing is playing in Vision")
         Thread.sleep(200)
         return ok().put("media", LinkState.mediaJson() ?: JSONObject.NULL)
     }

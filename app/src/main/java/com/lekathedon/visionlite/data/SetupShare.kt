@@ -40,7 +40,7 @@ object SetupShare {
         val raw = code.trim().removePrefix("VL1:")
         val json = GZIPInputStream(ByteArrayInputStream(Base64.decode(raw, Base64.URL_SAFE or Base64.NO_WRAP))).bufferedReader().use { it.readText() }
         val o = JSONObject(json)
-        require(o.optInt("v") == 1) { "not a Vision Lite setup code" }
+        require(o.optInt("v") == 1) { "not a Vision setup code" }
         val e = App.instance.prefs.sp.edit()
         STRINGS.forEach { k -> if (o.has(k)) e.putString(k, o.getString(k)) }
         SETS.forEach { k -> o.optJSONArray(k)?.let { a -> e.putStringSet(k, (0 until a.length()).map { a.getString(it) }.toSet()) } }

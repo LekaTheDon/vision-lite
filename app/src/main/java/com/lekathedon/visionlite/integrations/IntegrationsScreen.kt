@@ -48,8 +48,8 @@ private fun watchChanges() {
 }
 
 private fun roleOf(s: Service): String = when {
-    !Integrations.isSet(s) -> if (s.fields.isEmpty() && !s.signIn) "Not in Lite yet" else "Not set up"
-    s.live == null -> "Key kept · not in Lite yet, makes no calls"
+    !Integrations.isSet(s) -> if (s.fields.isEmpty() && !s.signIn) "Not in Vision yet" else "Not set up"
+    s.live == null -> "Key kept · not in Vision yet, makes no calls"
     s.group == Group.EXTRAS -> "On"
     Integrations.driver(s.group)?.id == s.id -> "Driving"
     Integrations.helper(s).value -> "Helper · on"
@@ -77,16 +77,14 @@ fun Setup(nav: Nav) {
     val steps = if (quick) all.filter { it.id == "torbox" || it.id == "trakt" } else all
     var step by rememberSaveable { mutableStateOf(-1) }
     val first = remember { FocusRequester() }
-    val nuvio = SignIns.signedIn("nuvio")
-    LaunchedEffect(step, nuvio) { runCatching { first.requestFocus() } }
+    LaunchedEffect(step) { runCatching { first.requestFocus() } }
     androidx.activity.compose.BackHandler(enabled = step >= 0) { step-- }
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp).verticalScroll(rememberScrollState())) {
         when {
             step < 0 -> {
-                com.lekathedon.visionlite.ui.Eyebrow(if (nuvio) "Signed in to Nuvio" else "Set up")
+                com.lekathedon.visionlite.ui.Eyebrow("Set up")
                 Title("Connect your services")
-                Body((if (nuvio) "Your account has no Vision setup yet (keys you saved in Nuvio came over). It's kept in your Nuvio account, so other devices get it when you sign in there. " else "") +
-                    "Quick setup asks for two: TorBox (the links) and Trakt (what you watch, resume). Each is a QR on your phone, or skip it. " +
+                Body("Quick setup asks for two: TorBox (the links) and Trakt (what you watch, resume). Each is a QR on your phone, or skip it. " +
                     "Anything not set up makes no calls; the rest waits in Settings → Integrations.")
                 Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     com.lekathedon.visionlite.ui.KitButton("Quick setup", null, { quick = true; step = 0 }, Modifier.focusRequester(first), primary = true)
@@ -126,14 +124,14 @@ private fun Drivers(first: FocusRequester?) {
         val mod = if (first != null && !firstUsed) Modifier.focusRequester(first).also { firstUsed = true } else Modifier
         Item("Driver: ${driver?.name ?: "none yet"}",
             when {
-                driver == null -> "None of these works in Lite yet: ${set.joinToString { it.name }} (keys kept, no calls)"
+                driver == null -> "None of these works in Vision yet: ${set.joinToString { it.name }} (keys kept, no calls)"
                 able.size > 1 -> "${g.driverDoes}. OK switches to ${able[(able.indexOf(driver) + 1) % able.size].name}"
                 else -> g.driverDoes
             }, mod) {
             if (driver != null && able.size > 1) Integrations.setDriver(g, able[(able.indexOf(driver) + 1) % able.size])
         }
         set.filter { it.id != driver?.id }.forEach { s ->
-            if (s.live == null) Item("${s.name}: not in Lite yet", "Key kept; it can drive or help once it works here. Makes no calls.") {}
+            if (s.live == null) Item("${s.name}: not in Vision yet", "Key kept; it can drive or help once it works here. Makes no calls.") {}
             else {
                 val on = Integrations.helper(s).value
                 Item("${s.name} helps: ${if (on) "On" else "Off"}", if (on) g.helperDoes else "Off: makes no calls") { Integrations.setHelper(s, !on) }
@@ -164,7 +162,7 @@ fun IntegrationsScreen(nav: Nav) {
         Group.entries.forEach { g ->
             item { Section("All · ${g.title}") }
             Integrations.inGroup(g).forEach { s ->
-                item { Item("${s.name}: ${roleOf(s)}${checkText(s)}", s.live?.let { "In Lite: $it" } ?: "Coming to Lite") { open = s.id } }
+                item { Item("${s.name}: ${roleOf(s)}${checkText(s)}", s.live?.let { "In Vision: $it" } ?: "Coming to Vision") { open = s.id } }
             }
         }
     }
@@ -191,7 +189,7 @@ private fun ServicePanel(s: Service, nav: Nav, first: FocusRequester, setup: Boo
     val set = Integrations.isSet(s)
     LaunchedEffect(asking) { if (!asking) runCatching { first.requestFocus() } }
     Title(s.name)
-    Body(s.live?.let { "In Lite: $it." } ?: "Not in Lite yet: its key is kept for when it arrives and it makes no calls until then.")
+    Body(s.live?.let { "In Vision: $it." } ?: "Not in Vision yet: its key is kept for when it arrives and it makes no calls until then.")
     Body("Where: ${s.where}")
     Body("Status: ${roleOf(s)}${checkText(s)}${if (note.isNotEmpty()) " · $note" else ""}")
     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

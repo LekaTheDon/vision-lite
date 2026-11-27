@@ -106,9 +106,7 @@ object Join {
                     o.optLong("last_watched"), o.optLong("position"), o.optLong("duration"))
             }
         }.getOrDefault(emptyList())
-        // A Lite / Vision setup this account kept (other devices): taken whole, once, like before.
-        val restored = runCatching { App.instance.prefs.cloudSetup.value && CloudSetup.pull(firstTime = true) }.getOrDefault(false)
-        Haul("Nuvio", addons, keys, library, watched, progress, restored).also { forgetNuvio() }
+        Haul("Nuvio", addons, keys, library, watched, progress).also { forgetNuvio() }
     }
 
     /** Signed out of Nuvio and its saved account bits wiped: nothing here can call it again. */

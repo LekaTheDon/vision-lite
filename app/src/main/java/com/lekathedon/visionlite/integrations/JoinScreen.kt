@@ -82,7 +82,7 @@ fun JoinFirst(nav: Nav, onPast: () -> Unit) {
         val h = runCatching { Join.fromNuvio(p) }.getOrNull()
         done = if (h == null) "Couldn't read your Nuvio account. You can carry on and set up here." else Join.apply(h)
         msg = ""
-        if (h?.restart == true) { Integrations.setupDone.value = true; kotlinx.coroutines.delay(1500); CloudSetup.restart(ctx) }
+        if (h?.restart == true) { Integrations.setupDone.value = true; kotlinx.coroutines.delay(1500); com.lekathedon.visionlite.App.restart(ctx) }
     }
 
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp)) {

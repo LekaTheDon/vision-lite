@@ -154,8 +154,8 @@ private fun darken(src: Bitmap): ImageBitmap {
     return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
-/** The app's logo (Nuvio Vision wordmark, Vision's own art), [height] tall. */
+/** The app's logo (Vision wordmark, Vision's own art), [height] tall. */
 @androidx.compose.runtime.Composable
 fun VisionWordmark(height: androidx.compose.ui.unit.Dp, modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier) =
-    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.lekathedon.visionlite.R.drawable.vision_wordmark), "Nuvio Vision",
+    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.lekathedon.visionlite.R.drawable.vision_wordmark), "Vision",
         modifier.height(height), contentScale = androidx.compose.ui.layout.ContentScale.FillHeight)

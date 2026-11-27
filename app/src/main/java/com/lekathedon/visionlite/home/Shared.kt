@@ -88,7 +88,7 @@ internal fun leaveApp(activity: android.app.Activity?) {
     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 400)
 }
 
-/** "Leave Nuvio Vision?" in the look and skin (Settings › Home and look), like every page past Home. */
+/** "Leave Vision?" in the look and skin (Settings › Home and look), like every page past Home. */
 @Composable
 internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
     val stay = remember { FocusRequester() }
@@ -100,7 +100,7 @@ internal fun ExitAsk(onLeave: () -> Unit, onStay: () -> Unit) {
             Column(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).background(K.panel)
                 .border(1.dp, K.line, androidx.compose.foundation.shape.RoundedCornerShape(K.cardR)).padding(horizontal = 36.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                com.lekathedon.visionlite.ui.Eyebrow("Nuvio Vision")
+                com.lekathedon.visionlite.ui.Eyebrow("Vision")
                 com.lekathedon.visionlite.ui.DisplayText("LEAVE?", 28.sp, Modifier.padding(top = 6.dp), maxLines = 1)
                 Row(Modifier.padding(top = 22.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     com.lekathedon.visionlite.ui.KitButton("Stay", null, onStay, Modifier.focusRequester(stay), primary = true)

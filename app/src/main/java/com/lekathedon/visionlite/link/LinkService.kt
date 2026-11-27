@@ -17,7 +17,7 @@ import android.util.Log
 import com.lekathedon.visionlite.App
 
 /**
- * The phone link, inside Nuvio Vision (what Vision needed the separate Vision Link app for). Runs only while
+ * The phone link, inside Vision (what Vision needed the separate Vision Link app for). Runs only while
  * Settings › Phone companion is on: started then, at boot and after an update. Idle cost: one thread blocked in
  * accept(), no polling, no timers. Announces itself as _visionlite._tcp so the phone finds the box again.
  */
@@ -33,7 +33,7 @@ class LinkService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Phone companion", NotificationManager.IMPORTANCE_MIN))
         val n = Notification.Builder(this, CHANNEL)
-            .setContentTitle("Nuvio Vision").setContentText("Waiting for your phone")
+            .setContentTitle("Vision").setContentText("Waiting for your phone")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).setOngoing(true).build()
         if (Build.VERSION.SDK_INT >= 34) startForeground(7, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) else startForeground(7, n)
         Thread { grantOnce(this) }.start()
@@ -58,7 +58,7 @@ class LinkService : Service() {
             override fun onServiceUnregistered(info: NsdServiceInfo) {}
             override fun onUnregistrationFailed(info: NsdServiceInfo, code: Int) {}
         }
-        val info = NsdServiceInfo().apply { serviceName = "Nuvio Vision ${Build.MODEL}"; serviceType = Pairing.SERVICE_TYPE; port = Pairing.PORT }
+        val info = NsdServiceInfo().apply { serviceName = "Vision ${Build.MODEL}"; serviceType = Pairing.SERVICE_TYPE; port = Pairing.PORT }
         runCatching { m.registerService(info, NsdManager.PROTOCOL_DNS_SD, l); nsd = m; nsdListener = l }
     }
 

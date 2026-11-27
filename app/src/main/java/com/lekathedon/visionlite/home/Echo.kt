@@ -1,4 +1,4 @@
-// Vision's Echo look (Nuvio Echo, github.com/Laking22/Nuvio-Echo, GPL-3.0, as ported to Nuvio Vision), drawn the
+// Vision's Echo look (Nuvio Echo, github.com/Laking22/Nuvio-Echo, GPL-3.0, as ported to Vision), drawn the
 // Lite way: no motion, focus and scroll in one frame, posters open to landscape at once, images at drawn size.
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 
@@ -546,7 +546,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         heroTrailer = trailerAfterRest(hm, trailerLook.delayMs, com.lekathedon.visionlite.device.Tier.trailerHeight(2160))?.let { id to it }
     }
 
-    // Back on Home: first to the top (the pill), then out of the app (asking first when "Leave Nuvio Vision?" is on).
+    // Back on Home: first to the top (the pill), then out of the app (asking first when "Leave Vision?" is on).
     androidx.activity.compose.BackHandler(enabled = !askExit) {
         if (!pillFocused) scope.launch { runCatching { listState.scrollToItem(0) }; repeat(3) { withFrameNanos { } }; runCatching { pillHome.requestFocus() } }
         else if (exitConfirm) askExit = true else leaveApp(activity)
@@ -1684,15 +1684,15 @@ private fun ComingCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onHo
 
 /**
  * A streaming service, drawn as Vision's ServiceTileOverlay: backdrop from its shows, its logo in its own colours on a
- * soft round shade (white for the dark-on-clear ones), and resting on it plays the service's intro clip (ServiceClips),
- * fading in on its first frame and back to the still tile when it ends or focus leaves.
+ * soft round shade (white for the dark-on-clear ones). No intro clips (user 2026-11-27: the services' own animations
+ * are their artwork; logos only name the service).
  */
+/** Logos that are dark on clear on TMDB: drawn white. */
+private val LIGHT_LOGO = setOf("apple", "peacock", "hidive", "danime", "unext", "toei")
+
 @Composable
 private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onClick: () -> Unit) {
     val sid = m.id.removePrefix("svc:")
-    // Light boxes: logos only (each clip is cached 20-40 MB and needs a decoder while it plays).
-    LaunchedEffect(Unit) { if (com.lekathedon.visionlite.device.Tier.videoTiles) ServiceClips.preloadAll() }
-    val look = LocalTrailer.current
     EchoCard(dims.cwWidth, dims.cwHeight, dims.radius, Modifier, onFocus, onClick) { focused ->
         Img(m.background, dims.cwWidth, dims.cwHeight, Modifier.fillMaxSize())
         if (m.logo != null) {
@@ -1701,21 +1701,11 @@ private fun ServiceCard(m: MetaPreview, dims: EchoDims, onFocus: () -> Unit, onC
                 val context = LocalContext.current
                 val req = remember(m.logo) { ImageRequest.Builder(context).data(m.logo).build() }
                 coil3.compose.AsyncImage(req, m.name, Modifier.fillMaxWidth(0.62f).fillMaxHeight(0.42f), contentScale = ContentScale.Fit,
-                    colorFilter = if (sid in ServiceClips.LIGHT_LOGO) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null)
+                    colorFilter = if (sid in LIGHT_LOGO) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null)
             }
         } else {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
             Text(m.name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
-        }
-        var clip by remember(sid) { mutableStateOf<ServiceClips.Clip?>(null) }
-        LaunchedEffect(focused, sid, look.paused) {
-            clip = null
-            if (!focused || look.paused || !com.lekathedon.visionlite.device.Tier.videoTiles || !ServiceClips.has(sid)) return@LaunchedEffect
-            delay(ServiceClips.START_AFTER_MS)
-            clip = ServiceClips.clipFor(sid)
-        }
-        clip?.takeIf { focused }?.let { c ->
-            com.lekathedon.visionlite.trailer.TrailerVideo(c.video, look.muted || !look.on, Modifier.fillMaxSize(), c.audio) { clip = null }
         }
     }
 }

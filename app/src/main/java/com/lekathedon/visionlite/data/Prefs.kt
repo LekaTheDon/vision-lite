@@ -230,8 +230,6 @@ class Prefs(context: Context) {
     val vodOrder = Text("vod_order", "")
     /** Hidden IPTV groups, "kind\tgroup" lines (kind live / movie / series); iptv/Groups.kt. */
     val groupsHidden = Text("groups_hidden", "")
-    /** Keep this setup in the Nuvio account (integrations/CloudSetup), box-wide; on = restored on any device you sign in on. */
-    val cloudSetup = Flag("cloud_setup", true)
     /** Rotating rows (home/Rotation.kt): a fresh set of themed rows under your own every start. */
     val rotation = Flag("home_rotation", true)
     // Library + search

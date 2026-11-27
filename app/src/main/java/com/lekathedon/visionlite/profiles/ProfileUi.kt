@@ -316,7 +316,7 @@ fun ProfileEdit(nav: Nav, id: Int) {
                             if (confirmDelete) { Profiles.delete(id); nav.pop() } else confirmDelete = true
                         }
                     }
-                    if (inUse) item { Text("In use now. Its accounts (Trakt, Nuvio profile, TorBox…) are set in Settings while it's in use.",
+                    if (inUse) item { Text("In use now. Its accounts (Trakt, TorBox…) are set in Settings while it's in use.",
                         color = Palette.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 14.dp)) }
                 }
             }
@@ -355,8 +355,8 @@ private fun AvatarPicker(p: Profile, onPick: (String) -> Unit, onLink: () -> Uni
             Button("No picture", { onPick("") })
         }
         when {
-            pics == null -> Text("Loading Nuvio's pictures…", color = Palette.TextDim, fontSize = 14.sp)
-            pics!!.isEmpty() -> Text("Sign in to Nuvio (Settings › Tracking) for Nuvio's pictures, or send any picture link from the phone.",
+            pics == null -> Text("Loading…", color = Palette.TextDim, fontSize = 14.sp)
+            pics!!.isEmpty() -> Text("Send any picture or GIF link from the phone, or keep the colour and initial.",
                 color = Palette.TextDim, fontSize = 14.sp)
             else -> LazyVerticalGrid(GridCells.Adaptive(96.dp), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 itemsIndexed(pics!!) { _, url ->

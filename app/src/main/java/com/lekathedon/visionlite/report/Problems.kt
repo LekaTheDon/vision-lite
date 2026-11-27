@@ -23,7 +23,7 @@ object Problems {
 
     private fun find(context: Context, seen: Long): Problem? = runCatching {
         val found = mutableListOf<Problem>()
-        Crash.saved(context).map { Crash.timeOf(it) }.filter { it > seen }.maxOrNull()?.let { found += Problem("crash", "Nuvio Vision crashed", it) }
+        Crash.saved(context).map { Crash.timeOf(it) }.filter { it > seen }.maxOrNull()?.let { found += Problem("crash", "Vision crashed", it) }
         if (Build.VERSION.SDK_INT >= 30) exits(context).filter { it.timestamp > seen }.forEach { e -> problemOf(e)?.let { found += it } }
         found.maxByOrNull { it.at }
     }.getOrNull()
@@ -40,11 +40,11 @@ object Problems {
         if (Build.VERSION.SDK_INT < 30) return null
         val onScreen = e.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
         return when (e.reason) {
-            ApplicationExitInfo.REASON_CRASH -> Problem("crash", "Nuvio Vision crashed", e.timestamp)
-            ApplicationExitInfo.REASON_CRASH_NATIVE -> Problem("native", "Nuvio Vision crashed (in the player or a native part)", e.timestamp)
-            ApplicationExitInfo.REASON_ANR -> Problem("anr", "Nuvio Vision froze and Android closed it", e.timestamp)
-            ApplicationExitInfo.REASON_LOW_MEMORY -> if (onScreen) Problem("memory", "Android closed Nuvio Vision: the box ran out of memory", e.timestamp) else null
-            ApplicationExitInfo.REASON_SIGNALED -> if (onScreen) Problem("killed", "Android closed Nuvio Vision while it was on screen", e.timestamp) else null
+            ApplicationExitInfo.REASON_CRASH -> Problem("crash", "Vision crashed", e.timestamp)
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> Problem("native", "Vision crashed (in the player or a native part)", e.timestamp)
+            ApplicationExitInfo.REASON_ANR -> Problem("anr", "Vision froze and Android closed it", e.timestamp)
+            ApplicationExitInfo.REASON_LOW_MEMORY -> if (onScreen) Problem("memory", "Android closed Vision: the box ran out of memory", e.timestamp) else null
+            ApplicationExitInfo.REASON_SIGNALED -> if (onScreen) Problem("killed", "Android closed Vision while it was on screen", e.timestamp) else null
             else -> null
         }
     }

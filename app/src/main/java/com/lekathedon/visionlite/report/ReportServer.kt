@@ -57,19 +57,19 @@ class ReportServer private constructor(private val server: ServerSocket, private
     private fun esc(t: String) = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     private fun html() = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nuvio Vision report</title><style>
+<title>Vision report</title><style>
 body{margin:0;background:#0d0f1a;color:#e8eaf2;font:16px system-ui,sans-serif}
 .bar{position:sticky;top:0;display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#161a2b}
 button,a.b{flex:1;min-width:90px;padding:12px;border:0;border-radius:10px;background:#3d6bff;color:#fff;font:600 15px system-ui;text-align:center;text-decoration:none}
 p{margin:12px 16px;color:#aab}pre{margin:0 16px 32px;white-space:pre-wrap;word-break:break-all;font:12px ui-monospace,monospace;color:#cfd3e0}
 </style></head><body><div class="bar"><button id="c">Copy</button><button id="s">Share</button><a class="b" href="$token/$name" download>Download</a></div>
-<p id="m">Send this report to the Nuvio Vision team (Share or Download, then attach it). Keys and logins are already blanked.</p>
+<p id="m">Send this report to the Vision team (Share or Download, then attach it). Keys and logins are already blanked.</p>
 <pre id="t">${esc(text)}</pre><script>
 var t=document.getElementById('t').textContent,m=document.getElementById('m');
 document.getElementById('c').onclick=function(){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){m.textContent='Copied.'},function(){var r=document.createRange();r.selectNodeContents(document.getElementById('t'));var s=getSelection();s.removeAllRanges();s.addRange(r);m.textContent='Selected: copy it from the menu.'})};
 document.getElementById('s').onclick=function(){var f;try{f=new File([t],'$name',{type:'text/plain'})}catch(e){}
-if(f&&navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],title:'Nuvio Vision report'});
-else if(navigator.share)navigator.share({title:'Nuvio Vision report',text:t});else m.textContent='Sharing is not available here: use Download.'};
+if(f&&navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],title:'Vision report'});
+else if(navigator.share)navigator.share({title:'Vision report',text:t});else m.textContent='Sharing is not available here: use Download.'};
 </script></body></html>"""
 
     companion object {

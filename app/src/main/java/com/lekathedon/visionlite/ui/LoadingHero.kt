@@ -97,7 +97,7 @@ private val HUB_BACKDROPS = mapOf(
 
 /**
  * A hub's loading screen (user 2026-11-26), the same kind as opening a title: a random backdrop of the hub's kind,
- * "Nuvio Vision" with the hub's word small beside it (as "Vision" sits by "Nuvio"), the comet and one short word.
+ * "Vision" with the hub's word small beside it (as "Vision" sits by "Nuvio"), the comet and one short word.
  * [hub] = "NUVIO" (Films & TV), "ANIME" or "IPTV" (Live TV). Cost: one picture + one infinite animation while it shows.
  */
 @Composable

@@ -47,7 +47,7 @@ internal class Phone(private val secret: () -> String) {
         val active = com.lekathedon.visionlite.data.Profiles.currentId()
         val profiles = JSONArray().apply {
             val all = com.lekathedon.visionlite.data.Profiles.all()
-            if (all.isEmpty()) put(JSONObject().put("id", 1).put("name", "Lite"))
+            if (all.isEmpty()) put(JSONObject().put("id", 1).put("name", "Vision"))
             all.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("color", it.color).put("avatar", it.pic)) }
         }
         val store = App.instance.addons
@@ -168,9 +168,9 @@ internal class Phone(private val secret: () -> String) {
         when (o.optString("kind")) {
             "setting" -> {
                 val key = o.optString("key")
-                require(o.optString("store") == STORE && key in Commands.SAFE) { "not a Lite setting" }
+                require(o.optString("store") == STORE && key in Commands.SAFE) { "not a Vision setting" }
                 val v = o.opt("value")
-                require(p.setByKey(key, if (v is Boolean) v.toString() else v.toString())) { "not a Lite setting" }
+                require(p.setByKey(key, if (v is Boolean) v.toString() else v.toString())) { "not a Vision setting" }
             }
             "verdict" -> {
                 val item = o.optJSONObject("item") ?: error("no title")
@@ -194,7 +194,7 @@ internal class Phone(private val secret: () -> String) {
                 }
                 if (o.optString("op") == "import") {
                     require(com.lekathedon.visionlite.home.ImportedLists.supports(l)) {
-                        "Vision Lite shows Trakt lists, MDBList lists and IMDb Picks (not ${l.optString("source")} yet)"
+                        "Vision shows Trakt lists, MDBList lists and IMDb Picks (not ${l.optString("source")} yet)"
                     }
                     kept.put(l)
                 }
@@ -239,15 +239,15 @@ internal class Phone(private val secret: () -> String) {
             }
             "signin" -> {
                 val data = o.optString("sealed").let { open(it, "vision-link-signin") }?.let(::JSONObject) ?: error("couldn't open it (pair again)")
-                val s = Integrations.all.firstOrNull { it.id == o.optString("service") } ?: error("Lite has no ${o.optString("service")}")
+                val s = Integrations.all.firstOrNull { it.id == o.optString("service") } ?: error("Vision has no ${o.optString("service")}")
                 Integrations.save(s, listOf(data.optString("key")))
             }
             "signout" -> {
-                val s = Integrations.all.firstOrNull { it.id == o.optString("service") } ?: error("Lite has no ${o.optString("service")}")
+                val s = Integrations.all.firstOrNull { it.id == o.optString("service") } ?: error("Vision has no ${o.optString("service")}")
                 Integrations.clear(s)
             }
             "profile" -> error("rename profiles on the TV (Settings › Profiles)")
-            else -> error("Lite doesn't know this change")
+            else -> error("Vision doesn't know this change")
         }
         return "applied"
     }

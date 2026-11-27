@@ -4,7 +4,7 @@ import android.content.Context
 import java.security.SecureRandom
 
 /**
- * The secret shared with the phone (Nuvio Vision Companion), shown once as a QR + code in Settings › Phone companion.
+ * The secret shared with the phone (Vision Companion), shown once as a QR + code in Settings › Phone companion.
  * Every command is HMAC-SHA256 signed with it ([Server]), so only the paired phone is obeyed.
  */
 class Pairing(context: Context) {

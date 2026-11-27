@@ -38,6 +38,8 @@ class App : Application(), SingletonImageLoader.Factory {
         client = AddonClient(addons)
         trakt = com.lekathedon.visionlite.trakt.Trakt(prefs)
         Thread { runCatching { com.lekathedon.visionlite.data.Profiles.keepPictures() } }.start()
+        // Service intro clips are gone (0.41.15): the 20-40 MB they kept on the box goes too.
+        Thread { runCatching { java.io.File(filesDir, "service_clips").takeIf { it.exists() }?.deleteRecursively() } }.start()
         // A Nuvio / Stremio import still waiting for Trakt or Simkl (nothing when there's none).
         com.lekathedon.visionlite.integrations.Join.later()
         com.lekathedon.visionlite.integrations.Join.migrate()
@@ -69,5 +71,13 @@ class App : Application(), SingletonImageLoader.Factory {
 
     companion object {
         lateinit var instance: App; private set
+
+        /** Starts the app again (after a whole setup came in), like a profile switch. */
+        fun restart(c: android.content.Context) {
+            val i = c.packageManager.getLaunchIntentForPackage(c.packageName)!!
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            c.startActivity(i)
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
     }
 }

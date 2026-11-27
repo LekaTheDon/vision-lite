@@ -67,7 +67,7 @@ object IptvSync {
         Vod.ensureLoaded(force)
         Vod.prepare()          // the whole VOD page, ready before you open it
         if (firstEver && Vod.count() > 0L) android.os.Handler(android.os.Looper.getMainLooper()).post {
-            android.widget.Toast.makeText(App.instance, "Nuvio Vision: VOD is ready", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(App.instance, "Vision: VOD is ready", android.widget.Toast.LENGTH_LONG).show()
         }
         warmLogos()
     }
