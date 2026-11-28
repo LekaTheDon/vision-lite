@@ -25,3 +25,13 @@ no school classes, no training/test jobs.
 | 16 | Data licences (TMDB commercial, IMDb data in the star) | 10% | before charging |
 
 Worker free tier: 100k calls/day; ~100 users ≈ 30–80k/day. $5 plan only when the free limit is really hit.
+
+## Weak boxes, NuvioTV-Lite's lessons (user 2026-11-28: after seek thumbnails)
+1. Ship a Baseline Profile (fast from first launch on every sideloaded box, no adb compile).
+2. Light/Standard: posters RGB565, hardware bitmaps off.
+3. Light: no looping loading animations (static).
+4. Size caps on every in-memory list/map (title facts, anime pages, art).
+5. Catalogue rows: in-memory cache + one request in flight per row.
+6. Light: no background poster re-checks.
+7. Release: no debug logging / per-frame work.
+8. Startup: everything lazy, nothing blocks the first screen.
