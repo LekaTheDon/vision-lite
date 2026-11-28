@@ -96,6 +96,7 @@ object VisionTb {
         // Slow sources that add almost nothing: autoplay stops waiting for them once a 4K cached link is in.
         val slow = runCatching { TbSources.keys().filter(TbSources::skippable).toSet() }.getOrDefault(emptySet())
         val jobs = HashMap<String, MutableList<kotlinx.coroutines.Job>>()
+        val teacher = Teacher(type, id)
         withTimeoutOrNull(TOTAL_MS) {
             val watch = if (slow.isEmpty()) null else launch {
                 while (true) {
@@ -113,10 +114,11 @@ object VisionTb {
             var budget = DiscoveryPipeline.MAX_CACHE_CHECKS
             suspend fun pass(source: DiscoverySource, rows: List<DiscoveryCandidate>, target: DiscoveryTarget, src: String = source.name) {
                 val out = DiscoveryPipeline.processSource(source, rows, target,
-                    claim = { rel -> synchronized(claimed) { rel.filter { claimed.add(it.hash) }.take(budget.coerceAtLeast(0)).also { budget -= it.size } } },
+                    claim = { rel -> teacher.matched(src, rows.size, rel); synchronized(claimed) { rel.filter { claimed.add(it.hash) }.take(budget.coerceAtLeast(0)).also { budget -= it.size } } },
                     check = { hashes, _ -> check(key, hashes) })
                 val list = out.verified.shown.map { it.toStream() to Pick(it.release.hash, it.file?.path?.substringAfterLast('/')) }
                 search.shown(src, list.map { it.second.hash }, out.verified.shown.any { it.is4k })
+                teacher.shown(src, out.verified.shown, target)
                 if (list.isNotEmpty()) onRows(list)
             }
             coroutineScope {
@@ -199,6 +201,7 @@ object VisionTb {
             watch?.cancel()
         }
         runCatching { search.finish() }.onFailure { Log.w(TAG, "report: ${it.message}") }
+        runCatching { teacher.save(SystemClock.elapsedRealtime() - t0) }.onFailure { Log.w(TAG, "teacher: ${it.message}") }
         harvest?.cancel()
         Log.i(TAG, "VISION_TB_MS total=${SystemClock.elapsedRealtime() - t0}")
     }
