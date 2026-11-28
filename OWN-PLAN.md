@@ -39,11 +39,11 @@ snappy in every hub. Audit: ~/work/lite-audit/REPORT.md (re-scan: `python3 ~/wor
 2. [ ] **Server foundation** (vision-meta): IMDb mirror + downloaded queries, daily IMDb files, own score
        (movies/series blend; anime from AniList/MAL/Kitsu, min 7), no IMDb logos. Move secrets out of the APK
        (REPORT_TOKEN, TRAKT_SECRET, MAL secret). Needs the user's OK on the daily/hourly jobs.
-3. [ ] **FEL player** (Arc's code, ~95%): own renderer + JNI from our kernel knowledge (port open, amlvideo route, sideband after seek).
-4. [ ] **Dolby Vision chain**: unmodified media3 extractor (Apache-2.0) + own DV7→8.1 bridge on libdovi (MIT), own RPU / HDR10+ strippers.
-5. [ ] **Seek thumbnails** (Arc, 48 files in com/nuvio/tv): own smaller design, then delete the com/nuvio package.
-6. [ ] **IPTV**: own M3U / XMLTV / catch-up readers.
-7. [ ] **Small pieces**: poster URL resolver, blur, audio delay, Hdr10 SEI, chapters; replace the Echo look with our own.
+3. [x] **FEL player** (Lab 0.41.30: FelRenderer + vl_fel.cpp, untested on TV) (Arc's code, ~95%): own renderer + JNI from our kernel knowledge (port open, amlvideo route, sideband after seek).
+4. [x] **Dolby Vision chain** (Lab 0.41.30: stock MKV reader + vldovi Rust on dolby_vision 3.3.2 MIT, untested): unmodified media3 extractor (Apache-2.0) + own DV7→8.1 bridge on libdovi (MIT), own RPU / HDR10+ strippers.
+5. [x] **Seek thumbnails** (Lab 0.41.29, untested) (Arc, 48 files in com/nuvio/tv): own smaller design, then delete the com/nuvio package.
+6. [x] **IPTV** (Lab 0.41.31: IptvFiles.kt Playlists/Guides/Replay; probe readers FileReader.kt, untested): own M3U / XMLTV / catch-up readers.
+7. [x] **Small pieces** (Lab 0.41.32: posters, SpoilerBlur, DelayedAudio, SPS transfer, overlay curve, trailers, page wash, badges+24 pictures removed; Hdr10 SEI in vldovi; chapters dropped; Echo look → 1b): poster URL resolver, blur, audio delay, Hdr10 SEI, chapters; replace the Echo look with our own.
 8. [ ] **Product**: own accounts + Nuvio import, subscriptions + licence check, drop api.nuvio.tv and the "nuvio-tv" client name.
 9. [ ] **Hardening**: stronger R8 rules, valuable logic on the server, tamper / signature check; full scan = 0%; full test pass.
 
@@ -68,3 +68,7 @@ snappy in every hub. Audit: ~/work/lite-audit/REPORT.md (re-scan: `python3 ~/wor
       game's page. On a game page it looks again for that game only (fresh TV guide + scores + channel match, each step
       shown, "Updated 14:05 · 3 channels"); on the Sports page it does all live games. One shared refresh job, so
       pressing it in two places never runs it twice.
+
+## Scan 2026-11-28 (Lab b471fa1): 5.8% matched (was 52%), all of it the user's own Vision code (LekaTheDon in the fork
+worktrees) or the companion repo, except: addons/Models.kt 14 lines (Stremio field names), home/Echo.kt 4 lines (1b).
+Assets: scout_awards.json + scout_occasions.json compiled by ysosrs123 (Wikidata CC0 facts): rebuild from vision-data.
