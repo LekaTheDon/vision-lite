@@ -439,9 +439,9 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         if (!firstFrame || current != Engine.EXO || !dvOn[0] || DvRoute.of(prefs, felAllowed, s.url)?.config?.active != true ||
             !com.lekathedon.visionlite.player.dv.DvPolicy.resolve(context, false).displayDv) return@LaunchedEffect
         kotlinx.coroutines.delay(6_000)
-        val tried = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionCallCount()
+        val tried = com.lekathedon.visionlite.player.dv.Dovi.tried.get()
         if (tried == 0L) return@LaunchedEffect   // no profile 7 in this file: nothing to prove
-        val done = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionSuccessCount()
+        val done = com.lekathedon.visionlite.player.dv.Dovi.converted.get()
         val dvDec = com.lekathedon.visionlite.player.dv.DvDecoders.reachedDv
         val ok = done > 0 && dvDec
         val why = when { done == 0L -> "the converter failed on every frame"; !dvDec -> "the TV opened its HEVC decoder (${exoStats.videoDecoder ?: "?"}), not Dolby Vision"; else -> "Dolby Vision decoder ${exoStats.videoDecoder}" }

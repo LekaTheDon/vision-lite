@@ -15,6 +15,17 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
+      - name: Dolby Vision rewriter (native/vldovi, Rust)
+        if: hashFiles('native/vldovi/Cargo.toml') != ''
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --target aarch64-linux-android,armv7-linux-androideabi
+          cargo +1.88.0 install cargo-ndk --version 3.5.4 --locked
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/29.0.14206865"
+          [ -d "$ANDROID_NDK_HOME" ] || yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865" >/dev/null
+          cd native/vldovi
+          cargo +1.88.0 ndk -t arm64-v8a -t armeabi-v7a build --release
+          for p in "arm64-v8a aarch64-linux-android" "armeabi-v7a armv7-linux-androideabi"; do set -- $p
+            mkdir -p out/$1 && cp target/$2/release/libvldovi.a out/$1/ && ls -la out/$1; done
       - name: Signing key
         env: { KS: "${{ secrets.VL_KEYSTORE_B64 }}" }
         run: |

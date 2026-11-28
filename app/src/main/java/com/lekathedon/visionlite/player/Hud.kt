@@ -88,13 +88,13 @@ object Hud {
         val p = com.lekathedon.visionlite.App.instance.prefs
         val route = "Route  " + (com.lekathedon.visionlite.player.dv.DvRoute.lastWhy ?: "-")
         if (com.lekathedon.visionlite.player.dv.DvRoute.last?.config?.active != true) return route
-        val st = com.lekathedon.visionlite.player.dv.DolbyVisionConversionStats
-        val n = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionSuccessCount()
-        val tried = com.lekathedon.visionlite.player.dv.DoviBridge.getConversionCallCount()
-        val from = st.getLastSourceProfile()
+        val st = com.lekathedon.visionlite.player.dv.DvStats
+        val n = com.lekathedon.visionlite.player.dv.Dovi.converted.get()
+        val tried = com.lekathedon.visionlite.player.dv.Dovi.tried.get()
+        val from = st.sourceProfile
         return "$route\n8.1 converter  " + when {
             !com.lekathedon.visionlite.player.dv.DvRoute.converterAvailable() -> "not loaded on this box"
-            n > 0 -> "converting" + (from?.let { " profile $it" } ?: "") + " → 8.1 · $n of $tried frames" + (st.getLastSelectedConversionMode()?.let { " · mode $it" } ?: "")
+            n > 0 -> "converting" + (from?.let { " profile $it" } ?: "") + " → 8.1 · $n of $tried frames" + (st.mode?.let { " · mode $it" } ?: "")
             tried > 0 -> "FAILED · 0 of $tried frames converted"
             else -> "not used for this file"
         }

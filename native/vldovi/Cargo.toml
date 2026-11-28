@@ -1,0 +1,18 @@
+[package]
+name = "vldovi"
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary (Vision); uses dolby_vision (MIT, quietvoid)"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+dolby_vision = { version = "=3.3.2", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "unwind"   # on purpose: a bad RPU must unwind into catch_unwind, never abort the app

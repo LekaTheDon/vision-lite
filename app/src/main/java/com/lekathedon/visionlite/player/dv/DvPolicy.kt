@@ -69,7 +69,7 @@ object DvPolicy {
 
     /** [felUsable]: the box's dual-layer port works (AmlFelSupport). */
     fun resolve(ctx: Context, felUsable: Boolean): Result {
-        val conv = DoviBridge.isAvailable()
+        val conv = Dovi.available()
         val hdr = displayHdr(ctx)
         val known = hdr != null
         val dvTv = hdr?.contains(Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION) == true

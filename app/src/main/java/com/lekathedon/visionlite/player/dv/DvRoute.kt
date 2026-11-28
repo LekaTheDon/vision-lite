@@ -10,7 +10,7 @@ import com.lekathedon.visionlite.data.Prefs
  * stripped, HDR10 colour signalled), and HDR10+ strip. Native FEL and "the box decides" keep Lite's plain path.
  */
 @UnstableApi
-class DvRoute private constructor(internal val config: DolbyVisionConversionConfig, val strip: Boolean, val stripHdr10Plus: Boolean, val injectHdr10: Boolean = false) {
+class DvRoute private constructor(internal val config: DvPlan, val strip: Boolean, val stripHdr10Plus: Boolean, val injectHdr10: Boolean = false) {
     companion object {
         /** What Let the app decide chose for the last play (Stats / play log). */
         @Volatile var lastWhy: String? = null
@@ -24,7 +24,7 @@ class DvRoute private constructor(internal val config: DolbyVisionConversionConf
         fun of(p: Prefs, nativeFel: Boolean, url: String? = null, ctx: android.content.Context = com.lekathedon.visionlite.App.instance): DvRoute? {
             if (nativeFel) { lastWhy = "Native FEL"; return null }
             val mode = p.dv7.value
-            val conv = DoviBridge.isAvailable()
+            val conv = Dovi.available()
             val pol = if (mode == "auto" || mode == "fel") DvPolicy.resolve(ctx, false) else null
             val forcedHdr10 = url != null && url in DvRetry.hdr10
             val mode1 = url != null && url in DvRetry.mode1
@@ -48,16 +48,12 @@ class DvRoute private constructor(internal val config: DolbyVisionConversionConf
             if (!to81 && !dv5 && !strip && !plus) return null
             val manual = mode == "dv81" || mode == "box"
             val override = p.dvConvMode.value.toIntOrNull()?.takeIf { it in 0..4 }
-            val cfg = DolbyVisionConversionConfig(
-                active = to81 || dv5,
-                manualDv81 = (to81 && manual && !mode1) || dv5,
-                autoMode2 = to81 && !manual && pol?.mode2 == true && !mode1,
-                dv5Enabled = dv5,
-                // DV5 alone: profile 7 is left as is only where it is allowed through (see strip above).
-                nativeProfile7 = !to81,
-                // Arc: the hand-picked mode applies to a hand-picked Convert; a failed mode 2 retries at mode 1.
-                forcedMode = when { mode1 -> 1; manual && override != null -> override; else -> -1 },
-            )
+            val mode2 = (to81 && manual && !mode1) || (to81 && !manual && pol?.mode2 == true && !mode1)
+            // Arc's choices: a hand-picked mode applies to a hand-picked Convert; mode 2 falls back to 1 per RPU;
+            // a failed mode 2 on this link retries at mode 1; profile 5 converts only by hand.
+            val forced = when { mode1 -> 1; manual && override != null -> override; else -> -1 }
+            val cfg = DvPlan(convert7 = to81, convert5 = dv5, mode = if (forced >= 0) forced else if (mode2) 2 else 1,
+                fallback1 = mode2 && forced < 0)
             return DvRoute(cfg, strip, plus, strip && p.dvInjectHdr10.value)
         }
 
@@ -76,11 +72,11 @@ class DvRoute private constructor(internal val config: DolbyVisionConversionConf
         fun namedDv(name: String) = dvName.containsMatchIn(name)
 
         fun factory(base: ExtractorsFactory, r: DvRoute): ExtractorsFactory {
-            DolbyVisionConversionStats.reset(); DoviBridge.resetRuntimeCounters(); DvDecoders.openedAs = null
-            return DolbyVisionExtractorsFactory(base, r.config, stripDvRpu = r.strip, stripHdr10PlusSei = r.stripHdr10Plus, injectHdr10Sei = r.injectHdr10)
+            DvStats.reset(); DvDecoders.openedAs = null
+            return DvExtractors(base, r.config, strip = r.strip, stripPlus = r.stripHdr10Plus, inject = r.injectHdr10)
         }
 
         /** The converter's native library is in this build and loads on this box. */
-        fun converterAvailable(): Boolean = runCatching { DoviBridge.isAvailable() }.getOrDefault(false)
+        fun converterAvailable(): Boolean = Dovi.available()
     }
 }

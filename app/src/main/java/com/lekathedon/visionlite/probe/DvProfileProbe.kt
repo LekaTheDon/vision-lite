@@ -1,14 +1,14 @@
 package com.lekathedon.visionlite.probe
 
 import android.util.Log
-import com.lekathedon.visionlite.player.dv.DoviBridge
+import com.lekathedon.visionlite.player.dv.Dovi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * Reads a link's Dolby Vision profile from the file itself, the way the player learns it: the container's DV
  * configuration (Matroska BlockAdditionMapping / MP4 dvcC) gives profile and base-layer compatibility, and for
- * profile 7 the first keyframe's RPU tells FEL from MEL (libdovi, as [DoviBridge.detectRpuElType] at playback).
+ * profile 7 the first keyframe's RPU tells FEL from MEL (libdovi, as [Dovi.info] at playback).
  * Files without a DV configuration are checked for an in-band RPU, then for HDR10+ / HDR10 SEI.
  *
  * Bounded Range reads only (head 256 KB, the Cues, one keyframe): never the whole file. Never logs URLs.
@@ -81,15 +81,15 @@ object DvProfileProbe {
         val rpu = frame?.let { f -> findNal(f, NAL_DV_RPU)?.let { f to it } }
         if (dv != null) {
             // Profile 7: FEL or MEL from the first RPU. Dual-track MP4 keeps the RPU with the EL track.
-            val el = rpu?.let { (f, at) -> elName(DoviBridge.detectRpuElType(f, at.first, at.second)) }
+            val el = rpu?.let { (f, at) -> elName(Dovi.info(f, at.first, at.second)?.second ?: -1) }
             return checked(dvText(7, dv.blCompatId, el) + if (el == null) " · FEL or MEL unknown" else "")
         }
         if (rpu != null) {
             // No DV configuration in the container, but the stream carries RPUs: the player still sees Dolby Vision.
             val (f, at) = rpu
-            val profile = DoviBridge.getRpuDmInfo(f, at.first, at.second)?.guessedProfile
+            val profile = Dovi.info(f, at.first, at.second)?.first
                 ?: return checked("Dolby Vision (profile unreadable)")
-            val el = if (profile == 7) elName(DoviBridge.detectRpuElType(f, at.first, at.second)) else null
+            val el = if (profile == 7) elName(Dovi.info(f, at.first, at.second)?.second ?: -1) else null
             return checked(dvText(profile, if (profile == 8) 1 else null, el))
         }
         val sei = frame?.let(::hdrSei)
@@ -112,8 +112,8 @@ object DvProfileProbe {
     }
 
     private fun elName(code: Int): String? = when (code) {
-        DoviBridge.EL_TYPE_FEL -> "FEL"
-        DoviBridge.EL_TYPE_MEL -> "MEL"
+        Dovi.EL_FEL -> "FEL"
+        Dovi.EL_MEL -> "MEL"
         else -> null
     }
 
