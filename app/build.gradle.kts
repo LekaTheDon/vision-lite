@@ -16,6 +16,9 @@ android {
         targetSdk = 36
         versionCode = (findProperty("vlCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("vlName") as String?) ?: "0.1.0"
+        // Lab build (-PvlLab=1): a separate app next to the usable one ("Vision Lab"), for trying changes piece by piece.
+        if (findProperty("vlLab") == "1") { applicationIdSuffix = ".lab"; versionNameSuffix = "-lab"; manifestPlaceholders["appLabel"] = "Vision Lab" }
+        else manifestPlaceholders["appLabel"] = "@string/app_name"
         // Trakt app key from the build environment (repo secrets), never in the source.
         buildConfigField("String", "TRAKT_ID", "\"${System.getenv("TRAKT_CLIENT_ID") ?: ""}\"")
         buildConfigField("String", "TRAKT_SECRET", "\"${System.getenv("TRAKT_CLIENT_SECRET") ?: ""}\"")
