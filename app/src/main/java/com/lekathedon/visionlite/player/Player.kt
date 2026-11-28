@@ -316,7 +316,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             // MKV: the file's declared frame rate goes to the decoder (MkvFrameRate), libass reader when styled subs are on.
             val base = androidx.media3.extractor.DefaultExtractorsFactory()
             // SubFix.capture goes outside: the MKV swaps inside look for the plain Matroska reader.
-            val sources = if (useDv) DefaultMediaSourceFactory(data, SubFix.capture(DvRoute.factory(base, dv!!)))
+            val sources = if (useDv) DefaultMediaSourceFactory(data, SubFix.capture(DvRoute.factory(MkvFrameRate.factory(base, null), dv!!)))
             else if (ass == null) DefaultMediaSourceFactory(data, SubFix.capture(MkvFrameRate.factory(base, null))) else {
                 val parsers = io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory(ass)
                 DefaultMediaSourceFactory(data, SubFix.capture(MkvFrameRate.factory(base, parsers to ass))).also { it.setSubtitleParserFactory(parsers) }

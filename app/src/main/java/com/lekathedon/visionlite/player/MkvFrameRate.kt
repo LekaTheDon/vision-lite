@@ -57,7 +57,10 @@ object MkvFrameRate {
     private class Wrap(private val inner: Extractor, private val rates: Rates) : Extractor by inner {
         override fun init(output: ExtractorOutput) = inner.init(object : ExtractorOutput {
             override fun track(id: Int, type: Int): TrackOutput {
-                val t = output.track(id, type)
+                val o = output.track(id, type)
+                // Audio: DTS-HD / DTS:X named from the first frame (MkvDts); video: the declared fps.
+                if (type == androidx.media3.common.C.TRACK_TYPE_AUDIO) return MkvDts(o)
+                val t = o
                 return object : TrackOutput by t {
                     override fun format(format: Format) {
                         val fps = rates.byTrack[id]

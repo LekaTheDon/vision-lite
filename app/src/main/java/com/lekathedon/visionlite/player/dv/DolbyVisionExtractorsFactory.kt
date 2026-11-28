@@ -15,8 +15,6 @@ import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
-import androidx.media3.extractor.text.DefaultSubtitleParserFactory
-import com.lekathedon.visionlite.player.dv.mkv.MatroskaExtractor as DvMatroskaExtractor
 import java.io.EOFException
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
@@ -33,7 +31,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Matroska is special for two reasons:
  * 1. DV7 RPU arrives as BlockAdditional data that stock Media3 discards before
  *    any TrackOutput, so MKV swaps in the vendored
- *    [com.lekathedon.visionlite.player.dv.mkv.MatroskaExtractor] for RPU transform.
+ *    (old note; MKV now goes through Google's reader as Annex-B, like TS).
  * 2. That same vendored extractor sniffs the first DTS sample to distinguish
  *    core DTS vs DTS-HD MA / DTS:X (mkvmerge tags every DTS variant as A_DTS;
  *    stock media3 maps that to core DTS with no inspection). The Matroska swap
@@ -53,8 +51,6 @@ internal class DolbyVisionExtractorsFactory(
     autoSyncObservesText: Boolean = false
 ) : ExtractorsFactory {
 
-    // Vision passes its AutoSync-aware parsers here; Lite uses media3's default ones (as its own MKV path does).
-    private val subtitleParsers = DefaultSubtitleParserFactory()
 
     override fun createExtractors(): Array<Extractor> =
         delegate.createExtractors().map(::wrap).toTypedArray()
@@ -70,34 +66,8 @@ internal class DolbyVisionExtractorsFactory(
     }
 
     private fun wrapForDolbyVision(extractor: Extractor): Extractor {
-        // Matroska is swapped unconditionally: the vendored
-        // extractor carries the DTS-HD MA / DTS:X first-sample sniff (mkvmerge
-        // writes A_DTS for every DTS variant; stock media3 1.8 maps that to core
-        // DTS with no inspection). The devices most likely to bitstream HD audio
-        // are native-DV7 boxes where the policy resolves to OFF, and without the
-        // sniff they would negotiate core DTS for DTS-HD content. With an
-        // inactive config the transformer's shouldTransform() returns false,
-        // so non-DV HEVC samples stream through
-        // the stock write path at no extra cost.
-        // By type, never by class name: the release build renames media3's classes, so the old name check never
-        // matched and no MKV was ever converted (TCL C7K, Ray FEL, 2026-11-28: "8.1 converter: not used").
-        if (extractor.underlyingImplementation is androidx.media3.extractor.mkv.MatroskaExtractor) {
-            val mkv = DvMatroskaExtractor(
-                subtitleParsers,
-                /* flags= */ 0,
-                DolbyVisionMatroskaTransformer(
-                    config = config,
-                    stripRpuOnly = stripDvRpu && !config.active,
-                    stripHdr10PlusSei = stripHdr10PlusSei,
-                    injectHdr10Sei = injectHdr10Sei,
-                )
-            )
-            // On the MKV strip path the base layer is HDR10 but its Format
-            // carries no colorInfo; wrap so the video Format is tagged HDR10 and
-            // the display switches to HDR mode. Convert path is untouched (it
-            // outputs DV, whose own decoder path signals HDR).
-            return if (stripDvRpu && !config.active) HdrColorSignalingExtractor(mkv) else mkv
-        }
+        // MKV: Google's own reader (via MkvFrameRate, which also names DTS-HD) hands over Annex-B samples with the
+        // RPU in-band, so it takes the same sample path as TS. No vendored reader (Lab, 2026-11-28).
         if (!config.active && !stripDvRpu && !stripHdr10PlusSei) return extractor
         val nalFormat = nalFormatFor(extractor) ?: return extractor
         return DolbyVisionExtractor(extractor, config, nalFormat, stripDvRpu, stripHdr10PlusSei)
@@ -109,6 +79,7 @@ internal class DolbyVisionExtractorsFactory(
             is androidx.media3.extractor.mp4.FragmentedMp4Extractor -> NalFormat.LENGTH_DELIMITED
             is androidx.media3.extractor.mp4.Mp4Extractor -> NalFormat.LENGTH_DELIMITED
             is androidx.media3.extractor.ts.TsExtractor -> NalFormat.ANNEX_B
+            is androidx.media3.extractor.mkv.MatroskaExtractor -> NalFormat.ANNEX_B
             else -> null
         }
     }

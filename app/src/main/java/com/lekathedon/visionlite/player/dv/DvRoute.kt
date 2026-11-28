@@ -70,7 +70,6 @@ class DvRoute private constructor(internal val config: DolbyVisionConversionConf
 
         fun arm(r: DvRoute?) {
             last = r
-            com.lekathedon.visionlite.player.dv.mkv.DolbyVisionCompatibility.setHdr10BaseLayerModeActive(r?.strip == true)
         }
 
         private val dvName = Regex("""(?i)(\bDV\b|\bDoVi\b|dolby[ ._-]?vision|\bDV[ ._-]?HDR)""")
