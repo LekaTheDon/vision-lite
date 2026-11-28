@@ -27,11 +27,12 @@ no school classes, no training/test jobs.
 Worker free tier: 100k calls/day; ~100 users ≈ 30–80k/day. $5 plan only when the free limit is really hit.
 
 ## Weak boxes, NuvioTV-Lite's lessons (user 2026-11-28: after seek thumbnails)
-1. Ship a Baseline Profile (fast from first launch on every sideloaded box, no adb compile).
-2. Light/Standard: posters RGB565, hardware bitmaps off.
-3. Light: no looping loading animations (static).
-4. Size caps on every in-memory list/map (title facts, anime pages, art).
-5. Catalogue rows: in-memory cache + one request in flight per row.
-6. Light: no background poster re-checks.
-7. Release: no debug logging / per-frame work.
-8. Startup: everything lazy, nothing blocks the first screen.
+1. [x] Ship a Baseline Profile (fast from first launch on every sideloaded box, no adb compile).
+2. [x] Light/Standard: posters RGB565, hardware bitmaps off.
+3. [x] Light: no looping loading animations (static).
+4. [x] Size caps on every in-memory list/map (title facts, anime pages, art).
+5. [x] (already) Catalogue rows: in-memory cache + one request in flight per row.
+6. [x] (none exist) Light: no background poster re-checks.
+7. [x] (clean) Release: no debug logging / per-frame work.
+8. [x] (reviewed) Startup: everything lazy, nothing blocks the first screen.
+Done in Lab 7f98061 (0.41.33), untested on a weak box.
