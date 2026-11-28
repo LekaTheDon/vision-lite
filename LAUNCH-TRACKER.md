@@ -36,3 +36,5 @@ Worker free tier: 100k calls/day; ~100 users ≈ 30–80k/day. $5 plan only when
 7. [x] (clean) Release: no debug logging / per-frame work.
 8. [x] (reviewed) Startup: everything lazy, nothing blocks the first screen.
 Done in Lab 7f98061 (0.41.33), untested on a weak box.
+
+- [ ] When finished and the user asks: build a shared app (DEV=0) and send it to the user for testing.
