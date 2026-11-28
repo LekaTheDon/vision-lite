@@ -67,7 +67,7 @@ object DvPolicy {
         ctx.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)?.hdrCapabilities?.supportedHdrTypes
     }.getOrNull()
 
-    /** [felUsable]: the box's dual-layer port works (AmlFelSupport). */
+    /** [felUsable]: the box's dual-layer port works (FelSupport). */
     fun resolve(ctx: Context, felUsable: Boolean): Result {
         val conv = Dovi.available()
         val hdr = displayHdr(ctx)

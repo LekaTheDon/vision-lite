@@ -330,7 +330,7 @@ object AutoPick {
     /** True when this box shows DV7 FEL (This TV's DV7 = FEL and the native FEL path works). */
     private val felBox: Boolean get() = runCatching {
         com.lekathedon.visionlite.App.instance.prefs.dv7.value.let { it == "fel" || it == "auto" } &&
-            com.lekathedon.visionlite.player.fel.AmlFelSupport.nativeFelUsableOnce()
+            com.lekathedon.visionlite.player.fel.FelSupport.usable()
     }.getOrDefault(false)
 
     private fun textFor(l: Link) = listOfNotNull(l.stream.name, l.stream.title, l.stream.description, l.fileName).joinToString(" ")

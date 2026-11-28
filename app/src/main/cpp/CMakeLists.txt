@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(aml_fel C CXX)
-# Vision's FEL native code (aml_fel_native.cpp), unchanged except the JNI package.
-add_library(aml_fel SHARED aml_fel_native.cpp)
-target_compile_options(aml_fel PRIVATE -Os -fvisibility=default)
-target_link_libraries(aml_fel android log)
-target_link_options(aml_fel PRIVATE -Wl,--gc-sections -s)
+project(vl_native C CXX)
+# Amlogic dual-layer Dolby Vision port driver (vl_fel.cpp) for the FEL path (player/fel).
+add_library(vl_fel SHARED vl_fel.cpp)
+target_compile_options(vl_fel PRIVATE -Os)
+target_link_libraries(vl_fel android log)
+target_link_options(vl_fel PRIVATE -Wl,--gc-sections -s "-Wl,-z,max-page-size=16384")
 
 # Dolby Vision sample rewriter: native/vldovi (own Rust over the MIT dolby_vision crate), built by CI per ABI into
 # native/vldovi/out/<abi>/libvldovi.a, plus the JNI shim vl_dovi_jni.cpp.

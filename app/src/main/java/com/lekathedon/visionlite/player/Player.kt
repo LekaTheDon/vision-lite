@@ -41,8 +41,8 @@ import androidx.media3.ui.PlayerView
 import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.player.dv.DvRoute
-import com.lekathedon.visionlite.player.fel.AmlDvFelVideoRenderer
-import com.lekathedon.visionlite.player.fel.AmlFelSupport
+import com.lekathedon.visionlite.player.fel.FelRenderer
+import com.lekathedon.visionlite.player.fel.FelSupport
 import com.lekathedon.visionlite.ui.Screen
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -94,7 +94,7 @@ private class Renderers(context: Context, private val fel: Boolean, private val 
         eventHandler: Handler, eventListener: VideoRendererEventListener, allowedVideoJoiningTimeMs: Long, out: ArrayList<Renderer>
     ) {
         // Vision's FEL renderer, ahead of MediaCodec so it wins the DV7 track.
-        if (fel) out.add(AmlDvFelVideoRenderer(eventHandler, eventListener))
+        if (fel) out.add(FelRenderer(eventHandler, eventListener))
         val start = out.size
         super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
         // Convert to 8.1: the stock video renderer swapped for one that puts the Dolby Vision decoder first.
@@ -218,7 +218,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
     val dvOn = remember(s.url) { booleanArrayOf(false) }
     // Native FEL: picked (or Let the app decide) on a box whose dual-layer port works AND a display that takes Dolby
     // Vision (Arc: on any other display FEL acts like Auto).
-    var felAllowed by remember(s.url) { mutableStateOf((prefs.dv7.value == "fel" || prefs.dv7.value == "auto") && AmlFelSupport.nativeFelUsableOnce() &&
+    var felAllowed by remember(s.url) { mutableStateOf((prefs.dv7.value == "fel" || prefs.dv7.value == "auto") && FelSupport.usable() &&
         com.lekathedon.visionlite.player.dv.DvPolicy.resolve(com.lekathedon.visionlite.App.instance, true).decision == com.lekathedon.visionlite.player.dv.DvPolicy.Decision.NATIVE_FEL) }
     // A dead add-on subtitle link must never stop the film: on a load error the file restarts without them.
     var addonSubs by remember(s.url) { mutableStateOf(true) }
@@ -302,7 +302,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             if (dv != null) android.util.Log.i("DvRoute", "open: converter ${if (useDv) "on" else "off (anime, libass)"}")
             dvOn[0] = useDv
             DvRoute.arm(if (useDv) dv else null)
-            android.util.Log.i("DvRoute", "route: ${DvRoute.lastWhy} active=${dv?.config?.active} strip=${dv?.strip} mode2=${dv?.config?.let { it.manualDv81 || it.autoMode2 }} forced=${dv?.config?.forcedMode}")
+            android.util.Log.i("DvRoute", "route: ${DvRoute.lastWhy} active=${dv?.config?.active} strip=${dv?.strip} mode=${dv?.config?.mode} fallback1=${dv?.config?.fallback1}")
             val ass = if (prefs.libass.value && s.type != "live" && !useDv) io.github.peerless2012.ass.media.AssHandler(
                 // CUES (user 2026-11-26, anime stuttered on every file, 4K and 90s alike): libass draws each subtitle line
                 // once into a picture the subtitle view shows until the line changes. The old OVERLAY_OPEN_GL mode
@@ -525,13 +525,13 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
                     if (addonSubs && error.errorCode in 2000..2999 && com.lekathedon.visionlite.addons.Subs.forId(s.id).isNotEmpty()) {
                         session.resumeAt = at; addonSubs = false; return
                     }
-                    if (felAllowed && AmlDvFelVideoRenderer.isFallbackError(error)) { session.resumeAt = at; felAllowed = false; return }
+                    if (felAllowed && FelRenderer.isFallback(error)) { session.resumeAt = at; felAllowed = false; return }
                     // Arc's Dolby Vision recovery: a converted picture the decoder refused -> libdovi mode 1 once, then
                     // the HDR10 picture. Never back to profile 7 untouched.
                     if (dvOn[0] && s.type != "live" && error.errorCode in 4001..4005) {
                         val r = DvRoute.of(prefs, felAllowed, s.url)
                         val step = when {
-                            r?.config?.active == true && (r.config.manualDv81 || r.config.autoMode2) && s.url !in com.lekathedon.visionlite.player.dv.DvRetry.mode1 -> com.lekathedon.visionlite.player.dv.DvRetry.mode1
+                            r?.config?.active == true && r.config.mode == 2 && s.url !in com.lekathedon.visionlite.player.dv.DvRetry.mode1 -> com.lekathedon.visionlite.player.dv.DvRetry.mode1
                             r?.config?.active == true && s.url !in com.lekathedon.visionlite.player.dv.DvRetry.hdr10 -> com.lekathedon.visionlite.player.dv.DvRetry.hdr10
                             else -> null
                         }
@@ -571,7 +571,7 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
             override fun onTracksChanged(tracks: Tracks) {
                 // Subtitles once per file, when its text tracks are known: SDH, then the normal track, never forced.
                 if (!subsChecked && tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }) { subsChecked = true; pickSubtitle(player, tracks); foreignOnly(player, tracks) }
-                felNow.set(felAllowed && current == Engine.EXO && selectedVideo(tracks)?.let { AmlFelSupport.isProfile7(it) } == true)
+                felNow.set(felAllowed && current == Engine.EXO && selectedVideo(tracks)?.let { FelSupport.isProfile7(it) } == true)
                 // Vision's HDR subtitle style: white and dimmed on HDR/Dolby Vision films, the normal style otherwise.
                 if (current == Engine.EXO) selectedVideo(tracks)?.let { v -> hdrVideo = EngineRules.isHdr(v) || namedHdr(s.name) }
                 if (current == Engine.EXO && tracks.groups.isNotEmpty()) exoTracks(tracks)

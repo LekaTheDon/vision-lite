@@ -13,7 +13,7 @@ import android.view.Display
 import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.data.Net
 import com.lekathedon.visionlite.data.Prefs
-import com.lekathedon.visionlite.player.fel.AmlFelSupport
+import com.lekathedon.visionlite.player.fel.FelSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -102,7 +102,7 @@ object DeviceCheck {
         val resolutions = modes.map { "${it.physicalWidth}x${it.physicalHeight}" }.distinct()
 
         step("Looking at the box's decoders…")
-        val fel = runCatching { AmlFelSupport.isDeviceUsable() && AmlFelSupport.hasFelKernelMarkers() }.getOrDefault(false)
+        val fel = runCatching { FelSupport.portUsable() && FelSupport.felKernel() }.getOrDefault(false)
         var dv = false; var dv7 = false; var av1 = false
         var hevc = false; var hevc10 = false; var vp9 = false; var uhd = false; var maxH = 0; var tunnel = false; var known = false
         runCatching {
