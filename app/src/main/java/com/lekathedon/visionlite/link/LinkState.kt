@@ -112,5 +112,8 @@ object LinkState {
         com.lekathedon.visionlite.anime.Hub.entries.forEach { h -> hubRows[h.key]?.let { r -> for (i in 0 until r.length()) all.put(r.get(i)) } }
         this.rows = JSONObject().put("at", System.currentTimeMillis()).put("rows", all)
             .put("hubs", JSONArray(hubRows.keys.toList()))
+        // Kept per profile, so a phone in another profile gets that profile's Home (a few KB, written when Home is shown).
+        val snap = this.rows.toString(); val pid = com.lekathedon.visionlite.data.Profiles.currentId()
+        Thread { runCatching { java.io.File(com.lekathedon.visionlite.data.Profiles.dir(pid), "phone_rows.json").writeText(snap) } }.start()
     }
 }

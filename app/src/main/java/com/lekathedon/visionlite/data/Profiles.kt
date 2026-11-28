@@ -295,10 +295,10 @@ object Profiles {
     fun isDevice(key: String) = key in DEVICE_KEYS || DEVICE_PREFIXES.any { key.startsWith(it) }
 
     /** The settings file the app uses: profile 1 = "vl" as always; others = their own file, box keys still in "vl". */
-    fun prefs(): SharedPreferences {
-        val id = currentId()
-        return if (id == 1) base else Split(ctx.getSharedPreferences(prefsName(id), Context.MODE_PRIVATE), base)
-    }
+    fun prefs(): SharedPreferences = prefsOf(currentId())
+
+    /** Any profile's settings (the phone reads and sets its own profile's while the TV stays in another). */
+    fun prefsOf(id: Int): SharedPreferences = if (id == 1) base else Split(ctx.getSharedPreferences(prefsName(id), Context.MODE_PRIVATE), base)
 
     /** One SharedPreferences over two files: each key goes to the profile's file or the box's, by [isDevice]. */
     private class Split(private val mine: SharedPreferences, private val box: SharedPreferences) : SharedPreferences {

@@ -28,11 +28,16 @@ class Commands(private val ctx: Context) {
         "profiles" -> profiles()
         // A title's trailer for the phone to play itself (the TV keeps playing what it plays). 12 s at most.
         "trailer" -> trailer(a)
-        "use_profile" -> if (com.lekathedon.visionlite.data.Profiles.switchFromPhone(a.optInt("id"))) ok()
+        // The phone picks a profile for itself only (user 2026-11-28): the TV no longer switches (or restarts) for it.
+        "use_profile" -> if (com.lekathedon.visionlite.data.Profiles.byId(a.optInt("id")) != null) ok()
             else err("That profile has a PIN: pick it on the TV")
         "media" -> media(a)
         "watch" -> watch(a)
-        "rows" -> LinkState.rows?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")).put("hubs", it.optJSONArray("hubs")) }
+        "rows" -> otherProfile(a)?.let { id ->
+            runCatching { JSONObject(java.io.File(com.lekathedon.visionlite.data.Profiles.dir(id), "phone_rows.json").readText()) }.getOrNull()
+                ?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")).put("hubs", it.optJSONArray("hubs")) }
+                ?: ok().put("at", 0).put("rows", JSONArray()).put("hubs", JSONArray())
+        } ?: LinkState.rows?.let { ok().put("at", it.optLong("at")).put("rows", it.optJSONArray("rows")).put("hubs", it.optJSONArray("hubs")) }
             ?: err("Vision hasn't shown Home yet since it started")
         // The anime list + your moves, so the phone splits Films & TV / Anime exactly like the TV (list only when it changed).
         "anime" -> com.lekathedon.visionlite.anime.AnimeIds.let { ids ->
@@ -203,11 +208,30 @@ class Commands(private val ctx: Context) {
     }
 
     /** Read or change a Lite setting by name (only the switches and choices on Settings, never keys or sign-ins). */
+    /** The phone's profile when it isn't the one the TV is in (null = the TV's own). */
+    private fun otherProfile(a: JSONObject): Int? {
+        val id = a.optInt("profile", -1)
+        val P = com.lekathedon.visionlite.data.Profiles
+        return id.takeIf { it > 0 && it != P.currentId() && P.byId(it)?.locked == false }
+    }
+
     private fun settings(a: JSONObject): JSONObject {
-        val sp = App.instance.prefs.sp
+        val other = otherProfile(a)
+        val sp = other?.let { com.lekathedon.visionlite.data.Profiles.prefsOf(it) } ?: App.instance.prefs.sp
         val set = a.optJSONObject("set")
         if (set != null) for (k in set.keys()) {
-            if (k in SAFE) App.instance.prefs.setByKey(k, set.get(k).toString())
+            if (k !in SAFE) continue
+            val v = set.get(k).toString()
+            if (other == null) App.instance.prefs.setByKey(k, v)
+            else sp.edit().apply {   // same type as stored (or as the TV's own profile has it)
+                when (sp.all[k] ?: App.instance.prefs.sp.all[k]) {
+                    is Boolean -> putBoolean(k, v.toBoolean())
+                    is Int -> v.toIntOrNull()?.let { putInt(k, it) }
+                    is Long -> v.toLongOrNull()?.let { putLong(k, it) }
+                    is Float -> v.toFloatOrNull()?.let { putFloat(k, it) }
+                    else -> putString(k, v)
+                }
+            }.apply()
         }
         val out = JSONObject()
         SAFE.forEach { k -> sp.all[k]?.let { out.put(k, it) } }
