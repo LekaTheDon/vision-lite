@@ -17,7 +17,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <new>
+#include <stdlib.h>
 
 #define TAG "VlFel"
 #define WARN(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
@@ -163,12 +163,13 @@ JNIEXPORT jlong JNICALL Java_com_lekathedon_visionlite_player_fel_FelPort_nBand(
         return -ENOSYS;
     }
     int nul = open("/dev/null", O_RDONLY | O_CLOEXEC);
-    auto *b = nul >= 0 ? new (std::nothrow) Band{win, Handle{12, 1, 3, nul, 0xabcdcdef, flags, channel}} : nullptr;
+    auto *b = nul >= 0 ? static_cast<Band *>(malloc(sizeof(Band))) : nullptr;  // malloc: no C++ runtime in the .so
+    if (b) *b = Band{win, Handle{12, 1, 3, nul, 0xabcdcdef, (int) flags, (int) channel}};
     int r = b ? w->perform(w, SET_SIDEBAND_STREAM, &b->h) : -ENOMEM;
     if (r != 0) {
         WARN("sideband: set failed %d", r);
         if (nul >= 0) close(nul);
-        delete b;
+        free(b);
         ANativeWindow_release(win);
         return r < 0 ? r : -EIO;
     }
@@ -182,7 +183,7 @@ JNIEXPORT void JNICALL Java_com_lekathedon_visionlite_player_fel_FelPort_nBandOf
     w->perform(w, SET_SIDEBAND_STREAM, static_cast<Handle *>(nullptr));
     close(b->h.fd);
     ANativeWindow_release(b->win);
-    delete b;
+    free(b);
 }
 
 }  // extern "C"

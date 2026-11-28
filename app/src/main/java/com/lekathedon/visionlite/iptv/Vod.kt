@@ -80,7 +80,7 @@ object Vod {
     private val VOD_EXT = listOf(".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv")
     fun looksVod(url: String) = VOD_PATH.containsMatchIn(url) || url.substringBefore('?').lowercase().let { u -> VOD_EXT.any { u.endsWith(it) } }
 
-    fun fromM3u(pl: String, entries: List<M3uEntry>) {
+    fun fromM3u(pl: String, entries: List<PlaylistItem>) {
         write(pl, "m3u", entries.mapIndexed { i, e -> VodItem(pl, "movie", "m$i", e.name, e.group?.ifBlank { null } ?: "Films", e.logo, e.url, null) })
     }
 

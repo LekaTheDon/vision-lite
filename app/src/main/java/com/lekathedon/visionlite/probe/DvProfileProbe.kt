@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
  */
 object DvProfileProbe {
     private const val TAG = "DvProfileProbe"
+    private const val HEAD_BYTES = 256 * 1024
     private const val NAL_SEI_PREFIX = 39
     private const val NAL_DV_RPU = 62
     private const val SEI_T35 = 4
@@ -58,31 +59,29 @@ object DvProfileProbe {
         }
     }
 
-    private fun inspect(r: HttpRangeReader): Triple<DvProfileLabel, VideoTrack, List<ProbeTrack>> {
-        val head = r.read(0, MkvIndexReader.HEAD_BYTES)
-        val mkv = MkvIndexReader.looksLikeMatroska(head)
-        if (!mkv && !Mp4IndexReader.looksLikeMp4(head)) throw UnsupportedOperationException("not MKV or MP4")
-        var index: MediaIndex? = null
-        val video: VideoTrack = if (mkv) MkvIndexReader.peek(r, head).video
-            else Mp4IndexReader.read(r, head).also { index = it }.video
-        val tracks = runCatching {
-            if (mkv) MkvIndexReader.sideTracks(r, head) else Mp4IndexReader.lastMoov.get()?.let(Mp4IndexReader::sideTracks).orEmpty()
-        }.getOrDefault(emptyList())
-        Mp4IndexReader.lastMoov.remove()
-        return Triple(label(r, head, mkv, video, index), video, tracks)
+    private fun inspect(r: HttpRangeReader): Triple<DvProfileLabel, VideoInfo, List<ProbeTrack>> {
+        val head = r.read(0, HEAD_BYTES)
+        val w = Window(r, head)
+        val facts = when {
+            MkvFile.looks(head) -> MkvFile.read(w)
+            Mp4File.looks(head) -> Mp4File.read(w)
+            else -> throw UnsupportedOperationException("not MKV or MP4")
+        }
+        return Triple(label(w, facts), facts.video, facts.tracks)
     }
 
-    private fun label(r: HttpRangeReader, head: ByteArray, mkv: Boolean, video: VideoTrack, index: MediaIndex?): DvProfileLabel {
-        val dv = video.dolbyVision
+    private fun label(w: Window, facts: FileFacts): DvProfileLabel {
+        val video = facts.video
+        val dv = video.dv
         // Profiles 5, 8 and 10 are fully described by the configuration record.
-        if (dv != null && dv.profile != 7) return checked(dvText(dv.profile, dv.blCompatId, null))
+        if (dv != null && dv.profile != 7) return checked(dvText(dv.profile, dv.compat, null))
 
-        val frame = if (video.codec == VideoCodec.HEVC) firstKeyframe(r, head, mkv, index) else null
+        val frame = if (video.codec == "hevc") runCatching { facts.keyframe(w) }.onFailure { Log.i(TAG, "keyframe read failed: ${it.message}") }.getOrNull() else null
         val rpu = frame?.let { f -> findNal(f, NAL_DV_RPU)?.let { f to it } }
         if (dv != null) {
             // Profile 7: FEL or MEL from the first RPU. Dual-track MP4 keeps the RPU with the EL track.
             val el = rpu?.let { (f, at) -> elName(Dovi.info(f, at.first, at.second)?.second ?: -1) }
-            return checked(dvText(7, dv.blCompatId, el) + if (el == null) " · FEL or MEL unknown" else "")
+            return checked(dvText(7, dv.compat, el) + if (el == null) " · FEL or MEL unknown" else "")
         }
         if (rpu != null) {
             // No DV configuration in the container, but the stream carries RPUs: the player still sees Dolby Vision.
@@ -93,7 +92,7 @@ object DvProfileProbe {
             return checked(dvText(profile, if (profile == 8) 1 else null, el))
         }
         val sei = frame?.let(::hdrSei)
-        val colour = video.colour.transfer
+        val colour = video.transfer
         val kind = when {
             sei == SEI_T35 -> "HDR10+"
             colour == TRC_HLG -> "HLG"
@@ -115,17 +114,6 @@ object DvProfileProbe {
         Dovi.EL_FEL -> "FEL"
         Dovi.EL_MEL -> "MEL"
         else -> null
-    }
-
-    /** The first keyframe as Annex-B (parameter sets first), or null when the file has no usable index. */
-    private fun firstKeyframe(r: HttpRangeReader, head: ByteArray, mkv: Boolean, known: MediaIndex?): ByteArray? {
-        val index = known ?: runCatching { if (mkv) MkvIndexReader.read(r, head) else null }
-            .onFailure { Log.i(TAG, "no keyframe index: ${it.message}") }
-            .getOrNull() ?: return null
-        if (index.keyframes.count == 0 || index.kind == ContainerKind.AVI) return null
-        return runCatching { KeyframeExtractor(index, r).extract(0) }
-            .onFailure { Log.i(TAG, "keyframe read failed: ${it.message}") }
-            .getOrNull()
     }
 
     /** (offset, length) of the first NAL of [type] in Annex-B [data], counting its 2-byte header. */

@@ -22,7 +22,7 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
-// Models the parsers (from Vision) hand over.
+// Models the readers (IptvFiles.kt) hand over.
 data class CatchupInfo(val type: String, val source: String?, val days: Int, val correctionHours: Double = 0.0)
 data class DrmInfo(val scheme: String, val license: String, val licenseHeaders: Map<String, String> = emptyMap(), val manifestType: String? = null)
 data class EpgProgram(
@@ -148,14 +148,14 @@ object Iptv {
     }
 
     private fun m3u(pl: Playlist): Pair<List<Channel>, List<String>> {
-        val parsed = open(pl.url).bufferedReader().use { M3uParser.parse(it) }
+        val parsed = open(pl.url).bufferedReader().use { Playlists.read(it) }
         // Films and episodes in the list go to VOD, not to the channels.
-        val (vod, live) = parsed.entries.partition { Vod.looksVod(it.url) }
+        val (vod, live) = parsed.items.partition { Vod.looksVod(it.url) }
         Vod.fromM3u(pl.id, vod)
         val list = live.mapIndexed { i, e ->
             Channel(pl.id, e.chno ?: (i + 1), e.name, e.group?.takeIf { it.isNotBlank() } ?: "Other", e.logo, e.tvgId ?: e.tvgName, e.url, e.headers, e.catchup)
         }
-        return list to parsed.epgUrls
+        return list to parsed.guides
     }
 
     /** Xtream's own API (like TiviMate): categories + live streams; the guide from xmltv.php. */
@@ -267,8 +267,8 @@ object Iptv {
             val st = w.compileStatement("INSERT OR IGNORE INTO p2(g,start,stop,t,d,c) VALUES(?,?,?,?,?,?)")
             var count = 0
             input.use { input ->
-                XmltvParser.parse(input, keepFrom, dayStart(2), keepUnlisted = { it in ids },
-                    onPrograms = { id, progs ->
+                Guides.read(input, keepFrom, dayStart(2), keepUnlisted = { it in ids },
+                    onShows = { id, progs ->
                         addCh.clearBindings(); addCh.bindString(1, pl); addCh.bindString(2, id)
                         val g = addCh.executeInsert()
                         progs.forEach { pr ->
@@ -277,7 +277,7 @@ object Iptv {
                             st.executeInsert(); count++
                         }
                     }) { channels ->
-                    channels.values.forEach { ch -> if (ch.id !in ids) ch.displayNames.firstOrNull { norm(it) in byName }?.let { named[ch.id] = norm(it) } }
+                    channels.values.forEach { ch -> if (ch.id !in ids) ch.names.firstOrNull { norm(it) in byName }?.let { named[ch.id] = norm(it) } }
                     ids + named.keys
                 }
             }
@@ -468,8 +468,8 @@ object Iptv {
     /** Start over: the running show from its start, out of the channel's archive (catch-up channels only). */
     fun startOverUrl(c: Channel, pr: EpgProgram, now: Long = System.currentTimeMillis()): String? {
         val cu = c.catchup ?: return null
-        if (!pr.isLive(now) || !CatchupUrlBuilder.isAvailable(cu, pr.startMs, now)) return null
-        return CatchupUrlBuilder.build(c.url, cu, pr.startMs, pr.stopMs, now)
+        if (!pr.isLive(now) || !Replay.available(cu, pr.startMs, now)) return null
+        return Replay.link(c.url, cu, pr.startMs, pr.stopMs, now)
     }
 
     fun byUrl(url: String): Channel? = zapList.firstOrNull { it.url == url }
@@ -495,8 +495,8 @@ object Iptv {
     /** The link that plays [pr] from the archive, when the channel keeps one that far back. */
     fun catchupUrl(c: Channel, pr: EpgProgram, now: Long = System.currentTimeMillis()): String? {
         val cu = c.catchup ?: return null
-        if (pr.stopMs > now || !CatchupUrlBuilder.isAvailable(cu, pr.startMs, now)) return null
-        return CatchupUrlBuilder.build(c.url, cu, pr.startMs, pr.stopMs, now)
+        if (pr.stopMs > now || !Replay.available(cu, pr.startMs, now)) return null
+        return Replay.link(c.url, cu, pr.startMs, pr.stopMs, now)
     }
 
 

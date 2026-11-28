@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project(vl_native C CXX)
 # Amlogic dual-layer Dolby Vision port driver (vl_fel.cpp) for the FEL path (player/fel).
 add_library(vl_fel SHARED vl_fel.cpp)
-target_compile_options(vl_fel PRIVATE -Os)
+target_compile_options(vl_fel PRIVATE -Os -fno-exceptions -fno-rtti)
 target_link_libraries(vl_fel android log)
 target_link_options(vl_fel PRIVATE -Wl,--gc-sections -s "-Wl,-z,max-page-size=16384")
 
