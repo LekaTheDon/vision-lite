@@ -108,7 +108,7 @@ internal fun Controls(
     onDelays: () -> Unit = {},
     /** Subtitle style panel changed a setting: the engine restyles its subtitles now. */
     onSubStyle: () -> Unit = {},
-    /** Seek thumbnails run for this link (ExoPlayer, not live TV, switched on). */
+    /** Nuvio Arc's seek thumbnails run for this link (ExoPlayer, not live TV, switched on). */
     thumbs: Boolean = false,
     /** The title's styled name (logo picture), shown instead of the plain name as in Vision; null = the name. */
     logo: String? = null,
@@ -160,9 +160,9 @@ internal fun Controls(
     // A seek runs once the presses stop (so ten presses are one jump, not ten).
     LaunchedEffect(seekTo) {
         val t = seekTo ?: return@LaunchedEffect
-        // Lands on the keyframe the thumbnail showed, so the picture and the video match.
+        // Lands on the keyframe the thumbnail showed (Arc's landingFor), so the picture and the video match.
         delay(650)
-        val land = if (thumbs) com.lekathedon.visionlite.player.pics.SeekPics.landing(t) ?: t else t
+        val land = if (thumbs) com.nuvio.tv.core.player.thumbnail.SeekThumbnails.landingFor(t) ?: t else t
         player.seekTo(land); pos = land; seekTo = null; seekRepeats = 0
     }
     LaunchedEffect(note) { if (note.isNotEmpty()) { delay(3_500); note = "" } }
@@ -178,8 +178,8 @@ internal fun Controls(
             if (due) { player.pause(); sleepAt = null; sleepEnd = false; note = "Sleep timer: paused"; break }
         }
     }
-    // Pictures around the spot being sought come first.
-    LaunchedEffect(seekTo) { if (thumbs) seekTo?.let { com.lekathedon.visionlite.player.pics.SeekPics.focus(it) } }
+    // Arc's engine makes the pictures for the spot first (as Arc's notePriority on every seek step).
+    LaunchedEffect(seekTo) { if (thumbs) seekTo?.let { com.nuvio.tv.core.player.thumbnail.SeekThumbnails.notePriority(it) } }
     val sourcesButton = remember { FocusRequester() }
     var startOnSources by remember { mutableStateOf(focusSources) }
     LaunchedEffect(visible) {
@@ -319,7 +319,7 @@ internal fun Controls(
         }
 
         val shown = seekTo ?: pos
-        if (thumbs && seekTo != null) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 150.dp)) { SeekPicsPane(shown, dur) }
+        if (thumbs && seekTo != null) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 150.dp)) { ArcThumbPane(shown, dur) }
         // No panel round it (user 2026-11-26): the timeline and the buttons sit straight on the bottom shade.
         Column(Modifier.align(Alignment.BottomCenter).padding(start = 48.dp, end = 48.dp, bottom = 24.dp).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
