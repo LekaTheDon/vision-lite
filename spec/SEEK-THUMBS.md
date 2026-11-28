@@ -21,8 +21,14 @@ Written from behaviour and from the file formats (Matroska/EBML, ISO-BMFF, HEVC/
 6. Memory: pictures kept as small JPEG/ARGB in an LRU (~8 MB); disk cache per title, budget, trimmed off cold start.
 Prototype numbers (AM9, TorBox): ~0.55 s fetch + ~0.25 s decode per picture vs 27–58 s with MediaMetadataRetriever.
 
+## Formats (user 2026-11-28: support as many as possible)
+- Through Android's own decoders (on every Android TV, hardware first, software fallback): HEVC (8/10-bit), AVC,
+  AV1, VP9, VP8, MPEG-2, MPEG-4 Part 2 (XviD/DivX), H.263, MJPEG.
+- VC-1 / WMV3 (no Android decoder): own small JNI over the libavcodec that mpv already ships (dlopen, nothing extra
+  linked), written fresh; last step.
+- Containers: MKV/WebM (Cues), MP4/MOV (stss), AVI (idx1), TS/M2TS (scan for keyframes by PCR/PTS).
+
 ## Dropped (bloat / rare)
-- Legacy codecs through mpv's FFmpeg (MPEG-2, VC-1, XviD): no pictures for those files.
 - Arc's media-server thumbs, Usenet copy logic, next-episode prefetch, copy choice. Revisit only if missed.
 
 ## Not verified yet
