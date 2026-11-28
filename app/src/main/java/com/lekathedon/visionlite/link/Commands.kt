@@ -121,7 +121,7 @@ class Commands(private val ctx: Context) {
         val i = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         if (Settings.canDrawOverlays(ctx) && runCatching { ctx.startActivity(i) }.isSuccess) return ok()
         if (Root.run("am start -n ${ctx.packageName}/.MainActivity", 6) != null) return ok()
-        return err("Android blocked opening Vision (needs root once for 'draw over apps')")
+        return err("Android blocked opening Vision: allow 'Display over other apps' for Vision in the TV's settings")
     }
 
     /** Play = the title's link list, as Play from the remote does (smart autoplay picks for you only when it's on). */

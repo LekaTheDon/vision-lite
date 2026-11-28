@@ -135,7 +135,7 @@ internal fun Controls(
     var seekTo by remember { mutableStateOf<Long?>(null) }
     var seekRepeats by remember { mutableIntStateOf(0) }
     var note by remember { mutableStateOf("") }
-    val vs10 = remember { Vs10Engine.installed(context) }
+    val vs10 = remember { com.lekathedon.visionlite.BuildConfig.DEV && Vs10Engine.installed(context) }
     val root = remember { FocusRequester() }
     val bar = remember { FocusRequester() }
     val playButton = remember { FocusRequester() }

@@ -16,6 +16,8 @@ internal object Root {
     private var output: BufferedReader? = null
 
     private fun open(): Boolean {
+        // Shared builds never ask for root: BuildConfig.DEV is a constant, so R8 drops the su call from them.
+        if (!com.lekathedon.visionlite.BuildConfig.DEV) return false
         if (proc?.isAlive == true) return true
         close()
         return runCatching {

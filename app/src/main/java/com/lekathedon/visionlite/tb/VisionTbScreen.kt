@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.lekathedon.visionlite.ui.Text
@@ -83,7 +85,7 @@ private fun Sources() {
     var arabUser by remember { mutableStateOf(ArabP2P.user()) }
     // An add-on just added here that also has rows / details: offered to this profile's Home.
     var offer by remember { mutableStateOf<com.lekathedon.visionlite.addons.Addon?>(null) }
-    val keys = remember(tick) { TbSources.keys() }
+    val keys = remember(tick) { TbSources.keys().filter { it.startsWith("addon:") || com.lekathedon.visionlite.BuildConfig.DEV } }  // built-in sources: owner build only
     val reports = remember(tick) { keys.map { TbSources.report(it) } }
     Text("Sources", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp))
     Text("Add your own add-ons here: they only feed Vision TB (no rows, no link group of their own). Each source is scored from " +
@@ -166,6 +168,8 @@ private fun Sources() {
             Row(if (on) "Turn off" else "Turn on", if (on) "Kept, but not asked" else "Asked again in every search") { TbSources.setOn(r.key, !on) }
             if (TbSources.pausedSince(r.key) != null) Row("Try it again now", "Asked in the next search; stays if it answers") { TbSources.unpause(r.key) }
             if (mine) {
+                if (TbSources.kept(r.key)) Row("Let Vision pause it again", "Paused when it breaks or only slows autoplay down") { TbSources.answer(r.key, "unkeep") }
+                else Row("Keep using it always", "Asked in every search and waited for, even when slow or broken") { TbSources.answer(r.key, "keep") }
                 Row("Edit (replace the link)", "From your phone; its score starts over") { TbSources.remove(r.key); adding = true; open = null }
                 Row("Remove", "No longer asked") { TbSources.remove(r.key); open = null; msg = "Removed ${r.label}" }
             }
@@ -193,6 +197,8 @@ private fun Row(title: String, sub: String, modifier: Modifier = Modifier, onCli
 /** The once-only notice when a Vision TB source breaks or comes back (not over a playing video). */
 @Composable
 fun TbAlertHost(inPlayer: Boolean) {
+    val ask by TbSources.ask.collectAsState()
+    ask?.let { q -> if (!inPlayer) { TbAskDialog(q); return } }
     val alert by TbSources.alert.collectAsState()
     val a = alert ?: return
     if (inPlayer) return
@@ -201,5 +207,30 @@ fun TbAlertHost(inPlayer: Boolean) {
         Text(a, color = Color.White, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(0.42f)
             .background(com.lekathedon.visionlite.ui.Kit.panel.copy(alpha = 0.95f), androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR))
             .border(1.dp, com.lekathedon.visionlite.ui.Kit.line, androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR)).padding(16.dp))
+    }
+}
+
+/** Your own add-on broke or only slows autoplay: it is already paused; you choose what happens next. */
+@Composable
+private fun TbAskDialog(q: TbSources.Ask) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(com.lekathedon.visionlite.ui.Kit.cardR + 4.dp)
+    androidx.compose.ui.window.Dialog(onDismissRequest = { TbSources.answer(q.key, "pause") },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val first = remember { FocusRequester() }
+        LaunchedEffect(Unit) { androidx.compose.runtime.withFrameNanos { }; runCatching { first.requestFocus() } }
+        com.lekathedon.visionlite.ui.Inside(true) {
+            Column(Modifier.width(600.dp).clip(shape).background(com.lekathedon.visionlite.ui.Kit.panel)
+                .border(1.dp, com.lekathedon.visionlite.ui.Kit.accent.copy(alpha = 0.5f), shape).padding(22.dp)) {
+                com.lekathedon.visionlite.ui.DisplayText("Your add-on ${q.label}", 22.sp, maxLines = 1)
+                Text("It ${q.why}, so Vision paused it to keep autoplay fast. Keep using it and autoplay waits for it in every search.",
+                    color = Palette.TextDim, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+                androidx.compose.foundation.layout.Row(Modifier.padding(top = 16.dp),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                    com.lekathedon.visionlite.ui.Button("Pause it", { TbSources.answer(q.key, "pause") }, Modifier.focusRequester(first))
+                    com.lekathedon.visionlite.ui.Button("Remove it", { TbSources.answer(q.key, "remove") })
+                    com.lekathedon.visionlite.ui.Button("Keep using it", { TbSources.answer(q.key, "keep") })
+                }
+            }
+        }
     }
 }

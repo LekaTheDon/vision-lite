@@ -19,6 +19,9 @@ android {
         // Lab build (-PvlLab=1): a separate app next to the usable one ("Vision Lab"), for trying changes piece by piece.
         if (findProperty("vlLab") == "1") { applicationIdSuffix = ".lab"; versionNameSuffix = "-lab"; manifestPlaceholders["appLabel"] = "Vision Lab" }
         else manifestPlaceholders["appLabel"] = "@string/app_name"
+        // Owner build (-PvlDev=1): root helpers (VS10, QMS off, force-stop, phone-link grants) and source-health notices.
+        // Off by default, so a shared/subscription build never calls su or shows the owner's source problems.
+        buildConfigField("boolean", "DEV", if (findProperty("vlDev") == "1") "true" else "false")
         // Trakt app key from the build environment (repo secrets), never in the source.
         buildConfigField("String", "TRAKT_ID", "\"${System.getenv("TRAKT_CLIENT_ID") ?: ""}\"")
         buildConfigField("String", "TRAKT_SECRET", "\"${System.getenv("TRAKT_CLIENT_SECRET") ?: ""}\"")

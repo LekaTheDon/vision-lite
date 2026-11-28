@@ -47,6 +47,31 @@ object TbSources {
     val alert: StateFlow<String?> get() = alertFlow
     fun alertSeen() { alertFlow.value = null }
 
+    /** One of your own add-ons is broken or adds nothing but wait: you choose Pause / Remove / Keep using. */
+    class Ask(val key: String, val label: String, val why: String)
+    private val askFlow = MutableStateFlow<Ask?>(null)
+    val ask: StateFlow<Ask?> get() = askFlow
+
+    /** Built-in sources are the owner's job: their notices only in the owner build; shared builds pause them silently. */
+    private fun mine(key: String) = key.startsWith("addon:")
+    private fun tell(key: String, msg: String) { if (mine(key) || com.lekathedon.visionlite.BuildConfig.DEV) alertFlow.value = msg }
+
+    // "Keep using": asked every search and waited for, whatever it costs (your choice, your wait).
+    private fun keptSet() = prefs.getStringSet("tb_keep", emptySet()).orEmpty()
+    fun kept(key: String) = key in keptSet()
+    private fun askedSet() = prefs.getStringSet("tb_asked", emptySet()).orEmpty()
+
+    fun answer(key: String, choice: String) {
+        askFlow.value = null
+        when (choice) {
+            "remove" -> remove(key)
+            "keep" -> { prefs.edit().putStringSet("tb_keep", keptSet() + key).apply(); unpause(key) }
+            "unkeep" -> prefs.edit().putStringSet("tb_keep", keptSet() - key).putStringSet("tb_asked", askedSet() - key).apply()
+            else -> if (pausedMap()[key] == null) savePaused(pausedMap() + (key to System.currentTimeMillis()))
+        }
+        tickFlow.value++
+    }
+
     /** Bumped when stats change, so the Sources page redraws. */
     private val tickFlow = MutableStateFlow(0)
     val tick: StateFlow<Int> get() = tickFlow
@@ -78,6 +103,7 @@ object TbSources {
     fun remove(key: String) {
         saveAddons(addons().filterNot { keyOf(it) == key })
         load(); synchronized(stats) { stats.remove(key) }; unpause(key); setOn(key, true); save()
+        prefs.edit().putStringSet("tb_keep", keptSet() - key).putStringSet("tb_asked", askedSet() - key).apply()
     }
 
     fun keyOf(a: UserAddon) = "addon:" + a.base
@@ -101,6 +127,7 @@ object TbSources {
     /** Asked in this search: on, and not paused (a paused source is tried again once every 6 h). */
     fun shouldAsk(key: String): Boolean {
         if (!isOn(key)) return false
+        if (kept(key)) return true
         val p = pausedMap()[key] ?: return true
         if (System.currentTimeMillis() - p < RETRY_MS) return false
         savePaused(pausedMap() + (key to System.currentTimeMillis())) // one retry per 6 h
@@ -183,14 +210,22 @@ object TbSources {
                 s.runs.addLast(r); while (s.runs.size > WINDOW) s.runs.removeFirst()
             }
         }
+        var asking: Ask? = null
         runs.keys.forEach { k ->
+            if (kept(k)) return@forEach
             val h = health(k)
-            if (h != null && pausedMap()[k] == null) { savePaused(pausedMap() + (k to System.currentTimeMillis())); newlyDead += k }
-            else if (h == null && runs[k]?.outcome == Outcome.OK && pausedMap()[k] != null) {
-                unpause(k); alertFlow.value = "Vision TB: ${label(k)} answers again, back in use"
+            // Your add-on that answers but finds nothing the others don't, and makes autoplay wait: same choice as a broken one.
+            val idle = if (h == null && mine(k) && skippable(k)) "found nothing the other sources didn't, and makes autoplay wait" else null
+            if ((h ?: idle) != null && pausedMap()[k] == null) {
+                savePaused(pausedMap() + (k to System.currentTimeMillis())); newlyDead += k
+                if (mine(k) && k !in askedSet() && asking == null) asking = Ask(k, label(k), (h ?: idle)!!)
+            }
+            else if (h == null && idle == null && runs[k]?.outcome == Outcome.OK && pausedMap()[k] != null) {
+                unpause(k); tell(k, "Vision TB: ${label(k)} answers again, back in use")
             }
         }
-        newlyDead.firstOrNull()?.let { k -> alertFlow.value = "Vision TB: ${label(k)} ${health(k)}. Paused so autoplay doesn't wait on it; edit or remove it in Settings › Vision TB" }
+        asking?.let { a -> prefs.edit().putStringSet("tb_asked", askedSet() + a.key).apply(); askFlow.value = a }
+            ?: newlyDead.firstOrNull { !mine(it) }?.let { k -> tell(k, "Vision TB: ${label(k)} ${health(k)}. Paused so autoplay doesn't wait on it") }
         save(); tickFlow.value++
     }
 
@@ -228,6 +263,7 @@ object TbSources {
         val paused = pausedMap()[key]
         val (verdict, tone) = when {
             !isOn(key) -> "Off: not asked" to Tone.NEUTRAL
+            kept(key) -> ("Kept by you: always asked and waited for" + (health(key)?.let { "; $it" } ?: if (cost.isNotEmpty()) "; $cost" else "")) to Tone.NEUTRAL
             health(key) != null || paused != null -> ("Paused: " + (health(key) ?: "not answering") + ". Edit or remove it; tried again every 6 h") to Tone.BAD
             n < LEARN -> "Learning: $n of $LEARN searches" to Tone.LEARNING
             sole > 0 || reach >= 10 -> ("Keep: only source in $reach% of searches" + (if (sole > 0) ", $sole of your plays came only from it" else "") +
@@ -241,6 +277,7 @@ object TbSources {
 
     /** Slow and adding almost nothing: once the others found a 4K cached link, autoplay stops waiting for it. */
     fun skippable(key: String): Boolean {
+        if (kept(key)) return false
         val r = report(key)
         return r.searches >= LEARN && r.solePicks == 0 && r.reachPct < 5 && r.medianMs > SLOW_MS
     }
@@ -258,7 +295,7 @@ object TbSources {
         else -> runCatching { DiscoverySource.valueOf(key).label }.getOrDefault(key)
     }
 
-    fun problems(): Int = keys().count { isOn(it) && (pausedMap()[it] != null) }
+    fun problems(): Int = keys().count { isOn(it) && pausedMap()[it] != null && (mine(it) || com.lekathedon.visionlite.BuildConfig.DEV) }
 
     // ---- storage (files/tb_sources.json, a few KB) ----
 

@@ -5,6 +5,7 @@ on:
       version_name: { description: "Version name", required: true, default: "0.1.0" }
       code: { description: "Version code", required: true, default: "1" }
       lab: { description: "Lab app (separate, Vision Lab)", required: false, default: "0" }
+      dev: { description: "Owner build (root helpers, source-health notices); 0 = shared build", required: false, default: "0" }
 permissions:
   contents: write
 jobs:
@@ -45,7 +46,7 @@ jobs:
           META_URL: ${{ secrets.META_URL }}
           META_KEY: ${{ secrets.META_KEY }}
           REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
-        run: ./gradlew --no-daemon :app:assembleRelease -PvlName=${{ inputs.version_name }} -PvlCode=${{ inputs.code }} -PvlLab=${{ inputs.lab }}
+        run: ./gradlew --no-daemon :app:assembleRelease -PvlName=${{ inputs.version_name }} -PvlCode=${{ inputs.code }} -PvlLab=${{ inputs.lab }} -PvlDev=${{ inputs.dev }}
       - name: Release (Actions artifact storage is full on this account)
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
