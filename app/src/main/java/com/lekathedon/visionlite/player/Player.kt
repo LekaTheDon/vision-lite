@@ -701,25 +701,20 @@ fun Player(nav: com.lekathedon.visionlite.ui.Nav, s: Screen.Player) {
         val segments by androidx.compose.runtime.produceState(emptyList<Segment>(), s.id) {
             if (skipMode != "off" || (prefs.nextPopup.value && s.type == "series")) value = Skips.find(s.type, s.id)
         }
-        // Nuvio Arc's seek thumbnails (its engine, ported as is): ExoPlayer only, as in Arc; never live TV. Arc's own
-        // rules decide the rest (boxes under 3.3 GB start with it off, 4K only in "All resolutions", memory governor).
+        // Seek thumbnails (own engine, player/pics): ExoPlayer only, never live TV, never while DV7 plays on FEL.
         val thumbs = s.type != "live" && s.type != "catchup" && prefs.seekThumbs.value && current == Engine.EXO
         androidx.compose.runtime.LaunchedEffect(s.url, gen, thumbs) {
-            com.nuvio.tv.core.player.thumbnail.SeekThumbnails.stopSession()
+            com.lekathedon.visionlite.player.pics.SeekPics.stop()
             if (!thumbs) return@LaunchedEffect
-            val app = context.applicationContext
-            val want = if (prefs.seekThumbsMode.value == "hd") com.nuvio.tv.core.player.thumbnail.SeekThumbMode.HD else com.nuvio.tv.core.player.thumbnail.SeekThumbMode.ALL
-            runCatching { if (com.nuvio.tv.core.player.thumbnail.SeekThumbnailPreferences.mode(app) != want) com.nuvio.tv.core.player.thumbnail.SeekThumbnailPreferences.setMode(app, want) }
-            com.nuvio.tv.core.player.thumbnail.SeekThumbnails.startWhenEligible(
-                context = app,
-                source = com.nuvio.tv.core.player.thumbnail.ThumbSource(
-                    url = s.url, headers = s.headers, identity = s.id.ifBlank { s.title },
-                    holdBeforePlay = false, playbackConnections = 1, identityExact = s.id.startsWith("tt"),
-                    usenet = com.nuvio.tv.ui.screens.player.SlowStartServer.isUsenet(s.url),
-                    kindNote = { "Vision addon HTTP" }),
-                playerProvider = { player as? ExoPlayer })
+            com.lekathedon.visionlite.player.pics.SeekPics.start(s.url, s.headers, s.id.ifBlank { s.title },
+                hdOnly = prefs.seekThumbsMode.value == "hd", blocked = { felNow.get() })
+            // Pictures wait while playback's read-ahead is low (playback always first).
+            while (true) {
+                com.lekathedon.visionlite.player.pics.SeekPics.bufferAheadMs = player.bufferedPosition - player.currentPosition
+                kotlinx.coroutines.delay(1_000)
+            }
         }
-        DisposableEffect(Unit) { onDispose { com.nuvio.tv.core.player.thumbnail.SeekThumbnails.playerClosed() } }
+        DisposableEffect(Unit) { onDispose { com.lekathedon.visionlite.player.pics.SeekPics.stop() } }
         fun aspectTo(mode: Int) {
             if (current == Engine.MPV) mpvView?.aspect(when (mode) {
                 androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "zoom"
