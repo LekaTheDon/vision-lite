@@ -120,7 +120,7 @@ fun ArtTint(url: String?, modifier: Modifier = Modifier.fillMaxSize()) {
     }
 }
 
-private val accentCache = java.util.concurrent.ConcurrentHashMap<String, Color>()
+private val accentCache = com.lekathedon.visionlite.data.Lru<String, Color>(300)
 
 /** The art's most colourful tone, made bright enough to read as a button on a dark page (Legacy's "accent from the art"). */
 private fun accentOf(src: Bitmap): Color {

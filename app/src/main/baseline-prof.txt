@@ -1,0 +1,4 @@
+# Vision's own code: compiled ahead of time from the first launch (ProfileInstaller), like
+# `cmd package compile -m speed` on the AM9, on boxes where nobody can run adb. Libraries bring their own profiles.
+HSPLcom/lekathedon/visionlite/**;->**(**)**
+Lcom/lekathedon/visionlite/**;

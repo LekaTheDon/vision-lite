@@ -71,6 +71,7 @@ dependencies {
     compileOnly("org.checkerframework:checker-qual:3.43.0")
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)
+    implementation(libs.profileinstaller)   // installs baseline-prof.txt: app code compiled from the first launch on any box
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)

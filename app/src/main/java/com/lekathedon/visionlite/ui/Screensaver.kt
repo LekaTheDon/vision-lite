@@ -73,7 +73,7 @@ object Screensaver {
      * key or backdrop (user 2026-11-26: metahub's picture for Das Boot (1985) is an unrelated AI image of a woman).
      * Kept per title for the run; one TMDB call per new slide.
      */
-    private val arts = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val arts = com.lekathedon.visionlite.data.Lru<String, String>(300)
     suspend fun backdrop(m: MetaPreview): String = arts[m.id] ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val o = com.lekathedon.visionlite.home.Tmdb.get("find/${m.id}?external_source=imdb_id")
         val r = o?.optJSONArray(if (m.type == "movie") "movie_results" else "tv_results")?.optJSONObject(0)

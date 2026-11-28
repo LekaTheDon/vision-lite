@@ -257,7 +257,7 @@ object Interests {
     }
 
     /** Each genre's titles, asked once per app run (one IMDb search each). */
-    private val cache = java.util.concurrent.ConcurrentHashMap<String, List<Pair<MetaPreview, List<String>>>>()
+    private val cache = com.lekathedon.visionlite.data.Lru<String, List<Pair<MetaPreview, List<String>>>>(60)
 
     /**
      * A genre's row: IMDb's most popular titles with that interest (over your IMDb minimum), nothing you've watched,

@@ -17,9 +17,9 @@ data class Segment(val startMs: Long, val endMs: Long, val kind: String) {
 
 object Skips {
     private val client = Net.http.newBuilder().callTimeout(6, TimeUnit.SECONDS).build()
-    private val cache = ConcurrentHashMap<String, List<Segment>>()
+    private val cache = com.lekathedon.visionlite.data.Lru<String, List<Segment>>(200)
     /** Show id → MAL id and its episode numbering ("" = not anime / unknown), asked once a session. */
-    private val anime = ConcurrentHashMap<String, Pair<String, JSONObject?>>()
+    private val anime = com.lekathedon.visionlite.data.Lru<String, Pair<String, JSONObject?>>(200)
 
     /** Segments for [id] ("tt…" movie, "tt…:s:e", "kitsu:…:e", "mal:…:e"); empty when none is known. */
     suspend fun find(type: String, id: String): List<Segment> {

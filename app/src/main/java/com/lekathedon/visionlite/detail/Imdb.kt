@@ -67,9 +67,9 @@ object Imdb {
                        val airedMs: Long?, val rating: Float?, val votes: Int?)
 
     private class Cached<T>(val v: T, val at: Long)
-    private val titles = ConcurrentHashMap<String, Cached<Title>>()
-    private val episodes = ConcurrentHashMap<String, Cached<List<Episode>>>()
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    private val titles = com.lekathedon.visionlite.data.Lru<String, Cached<Title>>(300)
+    private val episodes = com.lekathedon.visionlite.data.Lru<String, Cached<List<Episode>>>(120)
+    private val locks = com.lekathedon.visionlite.data.Lru<String, Mutex>(300)
 
     fun isId(id: String?) = id != null && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
 

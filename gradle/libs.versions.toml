@@ -11,6 +11,7 @@ serialization = "1.8.0"
 zxing = "3.5.3"
 
 [libraries]
+profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version = "1.4.1" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }

@@ -70,12 +70,19 @@ fun LoadingHero(id: String, title: String, status: String, sub: String = "", mod
 /** A soft light gliding back and forth along a hairline (ease in and out), with a glow that breathes. */
 @Composable
 private fun Comet(modifier: Modifier = Modifier) {
+    // Light boxes: a still comet in the middle (no frame every 16 ms while links are searched).
+    if (com.lekathedon.visionlite.device.Tier.current == com.lekathedon.visionlite.device.Tier.Class.LIGHT) { CometAt(modifier, 0.5f, 1f); return }
     val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "comet")
     val x by t.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(
         androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         androidx.compose.animation.core.RepeatMode.Reverse), label = "x")
     val glow by t.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(
         androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse), label = "glow")
+    CometAt(modifier, x, glow)
+}
+
+@Composable
+private fun CometAt(modifier: Modifier, x: Float, glow: Float) {
     val accent = Kit.accent
     androidx.compose.foundation.Canvas(modifier.height(14.dp)) {
         val y = size.height / 2

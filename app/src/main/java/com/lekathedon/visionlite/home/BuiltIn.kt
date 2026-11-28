@@ -732,7 +732,7 @@ object People {
     }
 
     /** Each person's titles (where they lead, then small parts), asked once per app run (one IMDb request each). */
-    private val titlesCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<MetaPreview>, List<MetaPreview>>>()
+    private val titlesCache = com.lekathedon.visionlite.data.Lru<String, Pair<List<MetaPreview>, List<MetaPreview>>>(60)
 
     /** The [n] favourites of [hub] Home follows now: a different few every 12 hours (all of them when there are no more). */
     fun now(hub: String, n: Int, at: Long = System.currentTimeMillis()): List<Person> {

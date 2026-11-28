@@ -27,7 +27,7 @@ object Localized {
     private fun dir(l: String) = java.io.File(com.lekathedon.visionlite.App.instance.filesDir, "localized/$l").apply { mkdirs() }
     private fun readJson(f: java.io.File) = runCatching { JSONObject(f.readText()) }.getOrNull()
 
-    private val ids = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Int>>()
+    private val ids = com.lekathedon.visionlite.data.Lru<String, Pair<String, Int>>(500)
     private fun tmdbId(imdb: String, series: Boolean): Pair<String, Int>? = ids[imdb] ?: run {
         val o = Tmdb.get("find/$imdb?external_source=imdb_id") ?: return null
         val tv = o.optJSONArray("tv_results")?.optJSONObject(0)?.optInt("id")?.takeIf { it > 0 }

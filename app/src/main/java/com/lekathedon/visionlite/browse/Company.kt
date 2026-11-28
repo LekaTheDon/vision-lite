@@ -35,7 +35,7 @@ import org.json.JSONObject
 object Companies {
     /** A company on a title's page: "tmdb:N" (with its logo, TMDB key set) or an IMDb "co…" id (name only). */
     data class Co(val id: String, val name: String, val logo: String?)
-    private val byTitle = java.util.concurrent.ConcurrentHashMap<String, List<Co>>()
+    private val byTitle = com.lekathedon.visionlite.data.Lru<String, List<Co>>(300)
 
     /** The title's production companies: TMDB's (logos) when a TMDB key is on, else IMDb's names. */
     suspend fun ofTitle(imdb: String, tv: Boolean, fallback: List<com.lekathedon.visionlite.detail.Imdb.Company>): List<Co> =
@@ -56,7 +56,7 @@ object Companies {
             (tm?.takeIf { it.isNotEmpty() } ?: fallback.map { Co(it.id, it.name, null) }).also { byTitle[imdb] = it }
         }
 
-    private val cache = java.util.concurrent.ConcurrentHashMap<String, List<Pair<String, List<MetaPreview>>>>()
+    private val cache = com.lekathedon.visionlite.data.Lru<String, List<Pair<String, List<MetaPreview>>>>(60)
     private const val F = "edges { node { title { id titleText { text } titleType { id } releaseYear { year } ratingsSummary { aggregateRating } primaryImage { url } titleGenres { genres { genre { text } } } } } }"
 
     suspend fun rows(id: String): List<Pair<String, List<MetaPreview>>> = cache[id] ?: if (id.startsWith("tmdb:")) tmdbRows(id) else withContext(Dispatchers.IO) {

@@ -2,6 +2,8 @@ package com.lekathedon.visionlite
 
 import android.app.Application
 import coil3.ImageLoader
+import coil3.request.allowHardware
+import coil3.request.allowRgb565
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.bitmapFactoryMaxParallelism
@@ -75,6 +77,9 @@ class App : Application(), SingletonImageLoader.Factory {
         }
         .memoryCache { MemoryCache.Builder().maxSizePercent(context, com.lekathedon.visionlite.device.Tier.imageCachePercent).build() }
         .crossfade(false)
+        // Light / Standard boxes: opaque posters as RGB565 (half the memory; images with transparency stay ARGB),
+        // no hardware bitmaps (weak GPUs run out of graphics memory or draw them late).
+        .apply { if (com.lekathedon.visionlite.device.Tier.current != com.lekathedon.visionlite.device.Tier.Class.FULL) { allowRgb565(true); allowHardware(false) } }
         .bitmapFactoryMaxParallelism(com.lekathedon.visionlite.device.Tier.imageDecoders)
         .build()
 
