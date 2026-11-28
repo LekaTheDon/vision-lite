@@ -380,7 +380,7 @@ fun Settings(nav: Nav, start: String? = null) {
         more = true
         row { m -> AnimeModeRow(p, m) }
         more = false
-        row { m -> Link("Taste questions", "The first-start questions again: titles, genres, people and anime you like", m) { nav.push(Screen.TasteStart) } }
+        row { m -> Link("Teach your account", "When you have time: titles, genres, people and anime you like. Picks and \"for you\" rows show once a hub knows 3 titles", m) { nav.push(Screen.TasteStart) } }
         more = true
         row { m ->
             var n by remember { mutableStateOf(com.lekathedon.visionlite.home.ComingUp.dropped().size) }

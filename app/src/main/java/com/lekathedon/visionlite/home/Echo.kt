@@ -381,7 +381,7 @@ private fun EchoHomeOf(nav: Nav, hub: com.lekathedon.visionlite.anime.Hub) {
         // A loaded row left empty by "Watched titles: Hide" has no card to land on: it's left out like an empty row.
         val shows = r.items.isNotEmpty() && !(watchedMode == "hide" && watched.isNotEmpty() && r.kind == RowKind.POSTER && r.items.all { it.id in watched })
         r.key !in hidden && (shows || !r.done || r.key == LoadingHold.key ||
-            (VisionRows.isPicks(r.key) && traktOn))
+            (VisionRows.isPicks(r.key) && traktOn && com.lekathedon.visionlite.recs.Recs.ready()))
     }
     // The phone companion's copy of Home (only while it is switched on; built off the main thread).
     val linkOn by prefs.phoneLink.flow.collectAsStateWithLifecycle()

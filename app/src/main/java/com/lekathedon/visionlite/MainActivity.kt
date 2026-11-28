@@ -74,7 +74,6 @@ class MainActivity : ComponentActivity() {
             var problem by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(
                 com.lekathedon.visionlite.report.Problems.lastUnseen(this@MainActivity)) }
             BackHandler(enabled = nav.canPop) { nav.pop() }
-            var tasteAsk by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.settings.TasteStartGate.wanted()) }
             // Who's watching? (more than one profile) or the PIN of a locked profile, before anything else.
             var gate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.lekathedon.visionlite.data.Profiles.startGate()) }
             // The phone companion's requests (Play, details, a channel…): opened like a press on the remote.
@@ -135,10 +134,9 @@ class MainActivity : ComponentActivity() {
                             // First start, before anything else: Join (from Nuvio / Stremio, once) or start fresh.
                             else if (!setupDone && !nuvioPassed) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.JoinFirst(nav) { nuvioPassed = true } }
                             else if (!asked) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.device.FirstStartCheck(onChoose = { nav.push(Screen.ThisTv) }) }
-                            // Then, once: every integration and tracker, one page each.
+                            // Then, once: TorBox and Trakt, one page each (quick start; the rest in Settings).
                             else if (!setupDone) saved.SaveableStateProvider("setup") { com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.integrations.Setup(nav) } }
-                            // Then, once, to someone new: the taste questions (titles, genres, people, anime), all skippable.
-                            else if (tasteAsk && !app.prefs.tasteStartDone.value) com.lekathedon.visionlite.ui.Inside(true) { com.lekathedon.visionlite.settings.TasteStart { tasteAsk = false } }
+                            // No taste questions at start (user 2026-11-28): Settings › Teach your account, any time.
                             else if (problem != null) problem?.let { pr -> com.lekathedon.visionlite.ui.Inside(true) {
                                 com.lekathedon.visionlite.report.ProblemPrompt(pr,
                                     onReport = { problem = null; com.lekathedon.visionlite.report.Problems.markSeen(); nav.push(Screen.Report(pr.kind)) },

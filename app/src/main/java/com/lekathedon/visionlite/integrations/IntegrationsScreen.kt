@@ -69,44 +69,18 @@ private fun checkText(s: Service): String = when (Integrations.status(s).value) 
 @Composable
 fun Setup(nav: Nav) {
     watchChanges()
-    // Nuvio is asked first (user 2026-11-23): signing in brings your whole setup from the account, so it isn't a step.
-    // Quick (user 2026-11-26: "don't ask about everything"): just the two that make the app work — TorBox for the links,
-    // Trakt for watching and resume. Everything else waits in Settings → Integrations. "Every service" = the full walk.
-    var quick by rememberSaveable { mutableStateOf(true) }
-    val all = Integrations.all.filter { (it.fields.isNotEmpty() || it.signIn) && it.id != "nuvio" }
-    val steps = if (quick) all.filter { it.id == "torbox" || it.id == "trakt" } else all
-    var step by rememberSaveable { mutableStateOf(-1) }
+    // Quick start (user 2026-11-28: "the grilling with 17 skippable APIs should be retired"): two pages, TorBox for the
+    // links and Trakt for your history, each a QR on the phone or Skip. Everything else waits in Settings → Integrations.
+    val steps = Integrations.all.filter { it.id == "torbox" || it.id == "trakt" }
+    var step by rememberSaveable { mutableStateOf(0) }
     val first = remember { FocusRequester() }
-    LaunchedEffect(step) { runCatching { first.requestFocus() } }
-    androidx.activity.compose.BackHandler(enabled = step >= 0) { step-- }
+    LaunchedEffect(step) { if (step >= steps.size) Integrations.setupDone.value = true else runCatching { first.requestFocus() } }
+    androidx.activity.compose.BackHandler(enabled = step > 0) { step-- }
+    if (step >= steps.size) return
     Column(Modifier.fillMaxSize().background(LocalLook.current.page).padding(48.dp).verticalScroll(rememberScrollState())) {
-        when {
-            step < 0 -> {
-                com.lekathedon.visionlite.ui.Eyebrow("Set up")
-                Title("Connect your services")
-                Body("Quick setup asks for two: TorBox (the links) and Trakt (what you watch, resume). Each is a QR on your phone, or skip it. " +
-                    "Anything not set up makes no calls; the rest waits in Settings → Integrations.")
-                Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    com.lekathedon.visionlite.ui.KitButton("Quick setup", null, { quick = true; step = 0 }, Modifier.focusRequester(first), primary = true)
-                    Button("Every service (${all.size})", { quick = false; step = 0 })
-                    Button("Skip", { Integrations.setupDone.value = true })
-                }
-            }
-            step < steps.size -> {
-                val s = steps[step]
-                com.lekathedon.visionlite.ui.Eyebrow("${step + 1} of ${steps.size} · ${s.group.title}")
-                ServicePanel(s, nav, first, setup = true, next = { step++ }, back = { step-- })
-            }
-            else -> {
-                Title("Who drives what")
-                Body("The driver is where the app takes its answer from; helpers get the same plays or fill gaps. Change any time in Settings → Integrations.")
-                Drivers(first)
-                Row(Modifier.padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button("Done", { Integrations.setupDone.value = true }, if (Group.entries.none { many(it) }) Modifier.focusRequester(first) else Modifier)
-                    Button("Back", { step-- })
-                }
-            }
-        }
+        val s = steps[step]
+        com.lekathedon.visionlite.ui.Eyebrow("${step + 1} of ${steps.size} · " + if (s.id == "trakt") "Your history (optional)" else "Your links")
+        ServicePanel(s, nav, first, setup = true, next = { step++ }, back = { if (step > 0) step-- })
     }
 }
 

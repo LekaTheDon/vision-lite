@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.lekathedon.visionlite.App
 import com.lekathedon.visionlite.anime.AnimeIds
 import com.lekathedon.visionlite.anime.Hub
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.lekathedon.visionlite.anime.Hubs
 import com.lekathedon.visionlite.addons.Addon
 import com.lekathedon.visionlite.addons.CatalogDef
@@ -142,6 +144,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         // Vision's rows follow their sources: anything new there shows on Home at once.
         // The engine's rows (Vision Picks + Scout + the AIs): anything it learns or you say (Love / Like / Not for me) shows at once.
         viewModelScope.launch { combine(Recs.pool(hub), Recs.changed, AiPicks.picks(hub)) { _, _, _ -> }.collect { engineKeys.forEach { fill(it) } } }
+        // The hub just learned its 3rd title: your people and genre rows appear too (they waited with the rest).
+        viewModelScope.launch { Recs.pool(hub).map { Recs.ready(hub) }.distinctUntilChanged().collect {
+            VisionRows.FAVS.forEach { if (it in needed) loadFav(it) }; VisionRows.GENRE_ROWS.forEach { if (it in needed) loadGenre(it) } } }
         // Hide adult titles: a title found out to be adult leaves every row at once.
         viewModelScope.launch {
             combine(com.lekathedon.visionlite.recs.Adult.revision, app.prefs.hideAdult.flow, com.lekathedon.visionlite.recs.LeaveOut.revision, app.prefs.leaveOut.flow,
@@ -386,7 +391,9 @@ class HomeModel(val hub: Hub = Hub.FILMS) : ViewModel() {
         }
     }
 
-    private fun set(key: String, items: List<MetaPreview>, title: String? = null) {
+    private fun set(key: String, items0: List<MetaPreview>, title: String? = null) {
+        // Every "for you" row (Picks, Because you watched / you like, your genres) waits for 3 known titles in this hub.
+        val items = if (VisionRows.isEngine(key) && !Recs.ready(hub)) emptyList() else items0
         raw[key] = items
         // VOD rows were already split by hub (their TMDB ids aren't known to the anime lists).
         val kept = (if (key.startsWith(com.lekathedon.visionlite.iptv.VodArabic.PREFIX)) items.filter { !com.lekathedon.visionlite.recs.Adult.hides(it) && !leftOut(it) } else keep(items, key))

@@ -72,6 +72,9 @@ object Recs {
     private val buildings = Hub.entries.associateWith { MutableStateFlow(false) }
     /** The hub's last built picks (or null before its first build). */
     fun pool(hub: Hub = Hubs.now()): StateFlow<Pool?> = pools.getValue(hub).value
+    /** Titles a hub must know before Vision Picks and every "for you" row show (3 per hub, anime and Films & TV apart). */
+    const val MIN_TITLES = 3
+    fun ready(hub: Hub = Hubs.now()): Boolean = (pool(hub).value?.seeds ?: 0) >= MIN_TITLES
     fun building(hub: Hub = Hubs.now()): StateFlow<Boolean> = buildings.getValue(hub)
     private val _changed = MutableStateFlow(0)
     /** Bumps when More like this / Not for me changes, so rows redraw. */
@@ -237,7 +240,10 @@ object Recs {
         // Favourite people steer the picks (Follow / Unfollow rebuilds within the hour, like any change of taste).
         val favs = com.lekathedon.visionlite.home.People.list.value.filter { it.hub == hub.key }.associate { it.id to it.name }
         val sig = RecsLogic.signature(seeds, min) + favs.keys.sorted().joinToString(",", ",fav:") + Interests.liked().sorted().joinToString(",", ",int:")
-        if (seeds.none { it.weight > 0 }) return Pool(now, sig, version = RecsLogic.VERSION).also { save(hub, it) }
+        // Quick start (user 2026-11-28): nothing personal until this hub knows 3 titles (watched, rated or liked,
+        // here or on Trakt / Simkl). Until then no recommendation calls at all; Home shows only the generic rows.
+        val known = seeds.count { it.weight > 0 }
+        if (known < MIN_TITLES) return Pool(now, sig, seeds = known, version = RecsLogic.VERSION).also { save(hub, it) }
         if (!force && !RecsLogic.shouldRefresh(pool(hub).value, sig, now)) return pool(hub).value
 
         val facts = readFacts()
