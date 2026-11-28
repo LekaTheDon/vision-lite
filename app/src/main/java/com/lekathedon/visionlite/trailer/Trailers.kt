@@ -110,25 +110,29 @@ object Trailers {
         return best ?: encodings.filter { it.mp4 }.maxByOrNull { it.height }?.url
     }
 
+    /** "4K", "FHD", "DEF_720p", "1080P" -> lines of picture; 0 when the label names none. */
     fun height(label: String): Int {
-        val value = label.trim().uppercase().removePrefix("DEF_")
-        return when (value) {
-            "4K", "UHD" -> 2160
-            "2K", "QHD" -> 1440
-            "FHD", "FULLHD", "FULL HD" -> 1080
-            "HD" -> 720
-            "SD" -> 480
-            else -> Regex("\\d{3,4}").find(value)?.value?.toIntOrNull() ?: 0
-        }
+        val l = label.uppercase().replace("DEF_", "").replace(" ", "")
+        NAMED[l]?.let { return it }
+        return DIGITS.find(l)?.value?.toIntOrNull() ?: 0
     }
+    private val NAMED = mapOf("4K" to 2160, "UHD" to 2160, "2K" to 1440, "QHD" to 1440, "FHD" to 1080, "FULLHD" to 1080, "HD" to 720, "SD" to 480)
+    private val DIGITS = Regex("\\d{3,4}")
+    private val STREAM_HEIGHT = Regex("RESOLUTION=\\d+x(\\d+)")
 
+    /** Tallest variant an HLS master playlist lists (0 = not a master playlist). */
     fun highestManifestResolution(manifest: String): Int {
         if (!manifest.trimStart().startsWith("#EXTM3U")) return 0
-        val lines = manifest.lineSequence().map { it.trim() }.toList()
-        return lines.indices.filter { lines[it].startsWith("#EXT-X-STREAM-INF:") }
-            .filter { i -> lines.getOrNull(i + 1)?.let { it.isNotEmpty() && !it.startsWith('#') } == true }
-            .mapNotNull { i -> Regex("(?:[:,])RESOLUTION=\\d+x(\\d+)(?:,|$)").find(lines[i])?.groupValues?.get(1)?.toIntOrNull() }
-            .maxOrNull() ?: 0
+        var best = 0
+        var pending = 0
+        for (raw in manifest.lineSequence()) {
+            val line = raw.trim()
+            when {
+                line.startsWith("#EXT-X-STREAM-INF:") -> pending = STREAM_HEIGHT.find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                line.isNotEmpty() && !line.startsWith('#') -> { if (pending > best) best = pending; pending = 0 }
+            }
+        }
+        return best
     }
 
     private fun requestBody(imdbId: String): String =

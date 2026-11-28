@@ -1636,19 +1636,7 @@ private fun EchoBackdrop(url: String?, trailer: com.lekathedon.visionlite.traile
     }
 }
 
-// ---- AmbientWash.kt (Echo's page colour, Vision speed pass: no crossfade) ----
-
-private const val WASH_READ_WIDTH = 64
-private const val WASH_READ_HEIGHT = 36
-private const val WASH_BLUR_PASSES = 3
-private const val WASH_BLUR_RADIUS = 5
-private const val WASH_KEEP_WIDTH = 192
-private const val WASH_KEEP_HEIGHT = 108
-private const val WASH_MEAN_VALUE = 0.40f
-private const val WASH_MAX_LIFT = 3f
-private const val WASH_TOP_LIGHT = 1.0f
-private const val WASH_BOTTOM_LIGHT = 0.62f
-private const val WASH_SATURATION = 1.25f
+// ---- Page colour: the focused title's colours behind Home's top (no crossfade: one stretched image per frame) ----
 
 private val washCache = object : LinkedHashMap<String, ImageBitmap>(16, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 12
@@ -1663,7 +1651,7 @@ private fun AmbientPageWash(url: String?, modifier: Modifier = Modifier) {
         if (url.isNullOrBlank()) return@LaunchedEffect
         val next = synchronized(washCache) { washCache[url] } ?: withContext(Dispatchers.IO) {
             val request = ImageRequest.Builder(context).data(url).allowHardware(false)
-                .size(coil3.size.Size(WASH_READ_WIDTH, WASH_READ_HEIGHT)).build()
+                .size(coil3.size.Size(16, 9)).build()
             val bitmap = ((context.imageLoader.execute(request) as? SuccessResult)?.image as? BitmapImage)?.bitmap
             bitmap?.let(::washOf)?.also { synchronized(washCache) { washCache[url] = it } }
         } ?: return@LaunchedEffect
@@ -1676,59 +1664,30 @@ private fun AmbientPageWash(url: String?, modifier: Modifier = Modifier) {
     })
 }
 
+/**
+ * A 16x9 read of the art grown to 192x108 through a 4x3 step (filtered scaling does the blur), brightness brought to
+ * one level and colour pushed a little (one colour-matrix draw), then a shade from full light at the top to 60% at
+ * the bottom so the rows stay readable. No per-pixel work in Kotlin.
+ */
 private fun washOf(source: Bitmap): ImageBitmap? {
     if (source.width <= 0 || source.height <= 0) return null
-    val small = if (source.width == WASH_READ_WIDTH && source.height == WASH_READ_HEIGHT) source
-    else Bitmap.createScaledBitmap(source, WASH_READ_WIDTH, WASH_READ_HEIGHT, true)
-    val w = small.width
-    val h = small.height
-    val pixels = IntArray(w * h)
-    small.getPixels(pixels, 0, w, 0, 0, w, h)
-    val r = FloatArray(w * h) { ((pixels[it] shr 16) and 0xFF).toFloat() }
-    val g = FloatArray(w * h) { ((pixels[it] shr 8) and 0xFF).toFloat() }
-    val b = FloatArray(w * h) { (pixels[it] and 0xFF).toFloat() }
-    repeat(WASH_BLUR_PASSES) {
-        for (channel in arrayOf(r, g, b)) {
-            boxBlur(channel, w, h, WASH_BLUR_RADIUS, horizontal = true)
-            boxBlur(channel, w, h, WASH_BLUR_RADIUS, horizontal = false)
-        }
-    }
-    val hsv = FloatArray(3)
-    var valueSum = 0f
-    for (i in 0 until w * h) {
-        android.graphics.Color.RGBToHSV(r[i].toInt(), g[i].toInt(), b[i].toInt(), hsv)
-        valueSum += hsv[2]
-    }
-    val gain = (WASH_MEAN_VALUE / (valueSum / (w * h)).coerceAtLeast(0.01f)).coerceAtMost(WASH_MAX_LIFT)
-    for (y in 0 until h) {
-        val light = WASH_TOP_LIGHT + (WASH_BOTTOM_LIGHT - WASH_TOP_LIGHT) * (y / (h - 1f))
-        for (x in 0 until w) {
-            val i = y * w + x
-            android.graphics.Color.RGBToHSV(r[i].toInt(), g[i].toInt(), b[i].toInt(), hsv)
-            hsv[1] = (hsv[1] * WASH_SATURATION).coerceAtMost(0.9f)
-            hsv[2] = (hsv[2] * gain).coerceAtMost(0.75f) * light
-            pixels[i] = android.graphics.Color.HSVToColor(hsv)
-        }
-    }
-    val blurred = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
-    return Bitmap.createScaledBitmap(blurred, WASH_KEEP_WIDTH, WASH_KEEP_HEIGHT, true).asImageBitmap()
-}
-
-private fun boxBlur(channel: FloatArray, w: Int, h: Int, radius: Int, horizontal: Boolean) {
-    val lines = if (horizontal) h else w
-    val length = if (horizontal) w else h
-    val line = FloatArray(length)
-    val span = radius * 2 + 1
-    for (l in 0 until lines) {
-        fun at(k: Int) = if (horizontal) l * w + k else k * w + l
-        for (k in 0 until length) line[k] = channel[at(k)]
-        var sum = 0f
-        for (k in -radius..radius) sum += line[k.coerceIn(0, length - 1)]
-        for (k in 0 until length) {
-            channel[at(k)] = sum / span
-            sum += line[(k + radius + 1).coerceAtMost(length - 1)] - line[(k - radius).coerceAtLeast(0)]
-        }
-    }
+    val tiny = Bitmap.createScaledBitmap(source, 4, 3, true)
+    val px = IntArray(12).also { tiny.getPixels(it, 0, 4, 0, 0, 4, 3) }
+    val mean = px.map { (0.299f * (it shr 16 and 0xFF) + 0.587f * (it shr 8 and 0xFF) + 0.114f * (it and 0xFF)) / 255f }.average().toFloat()
+    val gain = (0.38f / mean.coerceAtLeast(0.02f)).coerceIn(0.6f, 3f)
+    val out = Bitmap.createBitmap(192, 108, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(out)
+    val look = android.graphics.ColorMatrix().apply { setSaturation(1.25f) }
+    look.postConcat(android.graphics.ColorMatrix().apply { setScale(gain, gain, gain, 1f) })
+    val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG).apply { colorFilter = android.graphics.ColorMatrixColorFilter(look) }
+    val mid = Bitmap.createScaledBitmap(tiny, 24, 18, true)
+    canvas.drawBitmap(mid, null, android.graphics.Rect(0, 0, 192, 108), paint)
+    canvas.drawRect(0f, 0f, 192f, 108f, android.graphics.Paint().apply {
+        shader = android.graphics.LinearGradient(0f, 0f, 0f, 108f, 0x00000000, 0x66000000, android.graphics.Shader.TileMode.CLAMP)
+    })
+    if (tiny !== source) tiny.recycle()
+    mid.recycle()
+    return out.asImageBitmap()
 }
 
 /** Vision's sections and their pages, as far as Lite has built them (the rest join here as they arrive). */

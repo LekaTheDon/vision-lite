@@ -42,7 +42,7 @@ import kotlin.math.roundToInt
 
 /*
  * Old Vision's two start-of-play overlays, copied as they were (ParentalGuideOverlay, DisplayModeOverlay and their
- * StaggeredOverlayTimeline): top left the content warnings, top right the refresh rate and resolution, each a thin
+ * own motion, OverlayCurve): top left the content warnings, top right the refresh rate and resolution, each a thin
  * line that grows, rows that fade in one by one, then out in reverse. Vision held them 5 s; Lite holds 15 s (user
  * 2026-11-25), so they outlast the TV's own Dolby Vision / HDR logo. Cost: the IMDb guide is the details page's
  * (usually cached); the display info is one read of the display mode.
@@ -58,65 +58,45 @@ internal data class StaggeredOverlayFrame(val containerAlpha: Float, val lineFra
     companion object { fun hidden(count: Int) = StaggeredOverlayFrame(0f, 0f, List(count) { 0f }) }
 }
 
-internal class StaggeredOverlayTimeline(val count: Int, fadeScale: Float) {
-    private val scale = fadeScale.coerceIn(0f, 1f)
-    val containerInMs = fade(300)
-    val lineInMs = fade(400)
-    val itemInMs = fade(200)
-    val itemOutMs = fade(150)
-    val lineOutMs = fade(300)
-    val containerOutMs = fade(200)
-    val lineInStart: Long = containerInMs
-    val itemInStarts: List<Long>
-    val shownAt: Long
-    val holdEnd: Long
-    val itemOutStarts: List<Long>
-    val lineOutStart: Long
-    val containerOutStart: Long
-    val totalMs: Long
+/**
+ * The start overlays' motion, one curve played forward then mirrored: the panel fades in, its line grows, the rows
+ * come one after another; after [STAGGERED_OVERLAY_HOLD_MS] the same steps run backwards (last row leaves first).
+ * Durations follow the system animation scale (0 = no motion, straight to shown).
+ */
+private class OverlayCurve(private val count: Int, scale: Float) {
+    private val k = scale.coerceIn(0f, 1f)
+    private val panel = 250 * k
+    private val line = 350 * k
+    private val gap = 90 * k
+    private val row = 200 * k
+    /** Time for the whole entrance (and, mirrored, the exit). */
+    val rise: Long = (panel + line + count * (gap + row)).toLong()
+    val total: Long = rise * 2 + STAGGERED_OVERLAY_HOLD_MS
 
-    init {
-        var cursor = lineInStart + lineInMs
-        itemInStarts = List(count) { val start = cursor + 80; cursor = start + itemInMs; start }
-        shownAt = cursor
-        cursor += STAGGERED_OVERLAY_HOLD_MS
-        holdEnd = cursor
-        val outStarts = LongArray(count)
-        for (i in (count - 1) downTo 0) { outStarts[i] = cursor + 60; cursor = outStarts[i] + itemOutMs }
-        itemOutStarts = outStarts.toList()
-        lineOutStart = cursor + 100
-        cursor = lineOutStart + lineOutMs
-        containerOutStart = cursor + 200
-        totalMs = containerOutStart + containerOutMs
-    }
+    private fun part(t: Float, from: Float, len: Float) =
+        if (len <= 0f) (if (t >= from) 1f else 0f) else FastOutSlowInEasing.transform(((t - from) / len).coerceIn(0f, 1f))
 
-    fun frameAt(elapsedMs: Long): StaggeredOverlayFrame {
-        val container = if (elapsedMs < containerOutStart) eased(elapsedMs, 0L, containerInMs) else 1f - eased(elapsedMs, containerOutStart, containerOutMs)
-        val line = if (elapsedMs < lineOutStart) eased(elapsedMs, lineInStart, lineInMs) else 1f - eased(elapsedMs, lineOutStart, lineOutMs)
-        val items = List(count) { i ->
-            if (elapsedMs < itemOutStarts[i]) eased(elapsedMs, itemInStarts[i], itemInMs) else 1f - eased(elapsedMs, itemOutStarts[i], itemOutMs)
+    fun at(ms: Long): StaggeredOverlayFrame {
+        // Leaving mirrors arriving: row i comes in at slot i and leaves at slot (count-1-i), so the last one goes first.
+        val leaving = ms > rise + STAGGERED_OVERLAY_HOLD_MS
+        val t = (if (leaving) total - ms else ms).coerceAtLeast(0).toFloat()
+        val rows = List(count) { i ->
+            val slot = if (leaving) count - 1 - i else i
+            part(t, panel + line + slot * (gap + row) + gap, row)
         }
-        return StaggeredOverlayFrame(container, line, items)
-    }
-
-    private fun fade(baseMs: Int): Long = (baseMs * scale).toLong()
-    private fun eased(elapsedMs: Long, startMs: Long, durationMs: Long): Float = when {
-        elapsedMs < startMs -> 0f
-        durationMs <= 0L -> 1f
-        else -> FastOutSlowInEasing.transform(((elapsedMs - startMs).toFloat() / durationMs).coerceIn(0f, 1f))
+        return StaggeredOverlayFrame(part(t, 0f, panel), part(t, panel, line), rows)
     }
 }
 
 internal suspend fun runStaggeredOverlay(count: Int, alreadyShown: Boolean = false, onFrame: (StaggeredOverlayFrame) -> Unit) {
-    val fadeScale = coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f
-    val timeline = StaggeredOverlayTimeline(count, fadeScale)
-    val offsetMs = if (alreadyShown) timeline.shownAt else 0L
-    val startedAtMs = withFrameMillis { it }
+    val curve = OverlayCurve(count, coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f)
+    val skip = if (alreadyShown) curve.rise else 0L
+    val t0 = withFrameMillis { it }
     while (true) {
-        val elapsedMs = withFrameMillis { it } - startedAtMs + offsetMs
-        if (elapsedMs >= timeline.totalMs) { onFrame(StaggeredOverlayFrame.hidden(count)); return }
-        onFrame(timeline.frameAt(elapsedMs))
-        if (elapsedMs >= timeline.shownAt && elapsedMs < timeline.holdEnd) delay(timeline.holdEnd - elapsedMs)
+        val ms = withFrameMillis { it } - t0 + skip
+        if (ms >= curve.total) { onFrame(StaggeredOverlayFrame.hidden(count)); return }
+        onFrame(curve.at(ms))
+        if (ms >= curve.rise && ms < curve.rise + STAGGERED_OVERLAY_HOLD_MS) delay(curve.rise + STAGGERED_OVERLAY_HOLD_MS - ms)
     }
 }
 

@@ -55,7 +55,7 @@ fun Img(url: String?, w: Dp, h: Dp, modifier: Modifier = Modifier, scale: Conten
         val pw = with(d) { w.roundToPx() }; val ph = with(d) { h.roundToPx() }
         val k = minOf(1f, 1920f / pw.coerceAtLeast(1), 1080f / ph.coerceAtLeast(1))
         with(d) { ImageRequest.Builder(context).data(src).size((pw * k).toInt().coerceAtLeast(1), (ph * k).toInt().coerceAtLeast(1))
-            .apply { if (blur) transformations(BlurTransformation()) }.build() }
+            .apply { if (blur) transformations(SpoilerBlur()) }.build() }
     }
     AsyncImage(model = req, contentDescription = null, contentScale = scale, modifier = modifier,
         onError = { if (src == url && !fallback.isNullOrBlank() && fallback != url) failed = true })

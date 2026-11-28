@@ -62,10 +62,36 @@ object EngineRules {
         v ?: return false
         if (v.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return true
         if (v.codecs?.lowercase()?.let { c -> listOf("dvhe", "dvh1", "dav1").any { c.contains(it) } } == true) return true
-        // Many remuxes carry no MKV Colour element: the HEVC SPS says what the picture is (Vision's PlaybackVideoColorTransfer).
-        val t = VideoColorTransfer.of(v)
+        val t = transfer(v)
         return t == C.COLOR_TRANSFER_ST2084 || t == C.COLOR_TRANSFER_HLG
     }
+
+    /**
+     * The colour transfer: the container's, else the HEVC SPS's (many remuxes have no MKV Colour element, so media3
+     * leaves colorInfo empty). The parameter sets sit in initializationData[0] as Annex-B.
+     */
+    @OptIn(UnstableApi::class)
+    fun transfer(v: Format): Int {
+        v.colorInfo?.colorTransfer?.takeIf { it != Format.NO_VALUE }?.let { return it }
+        if (v.sampleMimeType != MimeTypes.VIDEO_H265 && v.sampleMimeType != MimeTypes.VIDEO_DOLBY_VISION) return Format.NO_VALUE
+        val init = v.initializationData.firstOrNull() ?: return Format.NO_VALUE
+        spsCache?.let { (k, t) -> if (k.contentEquals(init)) return t }
+        var t = Format.NO_VALUE
+        var i = 0
+        while (i + 4 < init.size) {
+            if (init[i].toInt() == 0 && init[i + 1].toInt() == 0 && init[i + 2].toInt() == 1 && (init[i + 3].toInt() shr 1 and 0x3F) == 33) {
+                var end = i + 3
+                while (end + 3 <= init.size && !(init[end].toInt() == 0 && init[end + 1].toInt() == 0 && init[end + 2].toInt() == 1)) end++
+                if (end + 3 > init.size) end = init.size
+                t = runCatching { androidx.media3.container.NalUnitUtil.parseH265SpsNalUnit(init, i + 3, end, null).colorTransfer }.getOrDefault(Format.NO_VALUE)
+                break
+            }
+            i++
+        }
+        spsCache = init to t
+        return t
+    }
+    @Volatile private var spsCache: Pair<ByteArray, Int>? = null
 
     private val AVC_PROFILE = Regex("avc[13]\\.([0-9a-f]{2})")
 

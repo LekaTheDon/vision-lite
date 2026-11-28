@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 /**
  * Audio and subtitle delay (Vision's sync), remembered per show or film. ExoPlayer: audio (and text) samples are moved
- * by the audio delay (Vision's AudioDelayMediaSource) and the text renderers draw at the position moved back by both
+ * by the audio delay (DelayedAudio) and the text renderers draw at the position moved back by both
  * delays; MPV: its audio-delay / sub-delay. A change flushes the buffer with a seek to where you are, so it applies at
  * once. Cost: two numbers per title in one pref.
  */
@@ -49,6 +49,6 @@ object Sync {
         override fun setDrmSessionManagerProvider(p: DrmSessionManagerProvider): MediaSource.Factory { f.setDrmSessionManagerProvider(p); return this }
         override fun setLoadErrorHandlingPolicy(p: LoadErrorHandlingPolicy): MediaSource.Factory { f.setLoadErrorHandlingPolicy(p); return this }
         override fun getSupportedTypes(): IntArray = f.supportedTypes
-        override fun createMediaSource(mediaItem: MediaItem): MediaSource = AudioDelayMediaSource(f.createMediaSource(mediaItem)) { audioMs * 1000 }
+        override fun createMediaSource(mediaItem: MediaItem): MediaSource = DelayedAudio(f.createMediaSource(mediaItem)) { audioMs * 1000 }
     }
 }
